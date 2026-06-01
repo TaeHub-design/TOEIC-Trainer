@@ -22,7 +22,7 @@
 
 <script type="text/babel" data-presets="react">
 /* ============================================================
-   TOEIC Trainer — standalone build v0.19.0
+   TOEIC Trainer — standalone build v0.20.0
    - one source, two wrappers (.html for browsers, .jsx for Claude artifacts)
    ============================================================ */
 
@@ -191,8 +191,6 @@ const ENGINES = {
     thinkingModes: ["grammar", "listening"],
     async call({ model, maxTokens, prompt, key, thinking }) {
       const body = { model, max_tokens: maxTokens, messages: [{ role: "user", content: prompt }] };
-      // Adaptive thinking (Sonnet 4.6+/Opus 4.6+): Claude decides if/when to think
-      if (thinking) body.thinking = { type: "adaptive" };
       let res;
       try {
         res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -256,7 +254,6 @@ const ENGINES = {
     thinkingModes: ["grammar", "listening"],
     async call({ model, maxTokens, prompt, thinking }) {
       const body = { model, max_tokens: maxTokens, messages: [{ role: "user", content: prompt }] };
-      if (thinking) body.thinking = { type: "adaptive" };
       let res;
       try {
         res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -308,25 +305,25 @@ const DIFFICULTIES = [
     blurb: "คำพื้นฐาน ประโยคสั้น ตัวเลือกหลอกตรงไปตรงมา",
     // prompt fragment appended to generation instructions:
     prompt: "TARGET DIFFICULTY: Beginner (TOEIC ~400-550). Use high-frequency everyday vocabulary (top ~2000 words). Keep sentences short and simple. Make the correct answer reasonably clear; distractors should be plainly wrong, not subtle. Avoid idioms, phrasal verbs, and complex grammar.",
-    rec: { gemini: "flashlite25", claude: "haiku45", artifact: "haiku45", thinking: false },
+    rec: { gemini: "flashlite25", claude: "haiku45", artifact: "haiku45" },
   },
   {
     id: "intermediate", icon: "📘", label: "Intermediate", band: "~550–700",
     blurb: "ศัพท์ธุรกิจทั่วไป ประโยคยาวขึ้น",
     prompt: "TARGET DIFFICULTY: Intermediate (TOEIC ~550-700). Use common business/workplace vocabulary and moderately complex sentences. Distractors should be plausible but distinguishable with careful reading. Include some collocations and basic phrasal verbs.",
-    rec: { gemini: "flash25", claude: "sonnet46", artifact: "sonnet46", thinking: false },
+    rec: { gemini: "flash25", claude: "sonnet46", artifact: "sonnet46" },
   },
   {
     id: "advanced", icon: "🔥", label: "Advanced", band: "~700–850",
     blurb: "ศัพท์เฉพาะทาง paraphrase เยอะ กับดักไวยากรณ์",
     prompt: "TARGET DIFFICULTY: Advanced (TOEIC ~700-850). Use specialized/professional vocabulary, longer multi-clause sentences, and heavy paraphrasing (answers should rarely reuse the passage's exact words). Distractors must be close and require real discrimination. Include grammar traps (tense, preposition, parallelism, subject-verb agreement).",
-    rec: { gemini: "flash25", claude: "sonnet46", artifact: "sonnet46", thinking: true },
+    rec: { gemini: "flash25", claude: "sonnet46", artifact: "sonnet46" },
   },
   {
     id: "nearnative", icon: "🏆", label: "Near-native (900+)", band: "850–990",
     blurb: "ศัพท์ขั้นสูง สำนวน ตัวเลือกหลอกใกล้เคียงมาก ต้องอ่านละเอียด",
     prompt: "TARGET DIFFICULTY: Near-native / TOEIC 900+. Use advanced and low-frequency vocabulary, idiomatic expressions, nuanced register, and dense professional content. Distractors must be VERY close — differing only by subtle shades of meaning, scope, or a single grammatical detail — so that only a careful, high-level reader can eliminate them. Heavy paraphrasing throughout. No giveaways. Mirror the trickiest real TOEIC items.",
-    rec: { gemini: "pro25", claude: "opus48", artifact: "opus48", thinking: true },
+    rec: { gemini: "pro25", claude: "opus48", artifact: "opus48" },
   },
 ];
 const DEFAULT_DIFFICULTY = "nearnative";
@@ -427,7 +424,7 @@ function setKey(engineId, k) {
 }
 
 // ---- shared AI call: routes to the chosen engine. Returns CLEANED text; throws DETAILED error so the UI shows WHY it failed ----
-async function aiComplete({ engineId, model, maxTokens, prompt, thinking }) {
+async function aiComplete({ engineId, model, maxTokens, prompt }) {
   const eng = ENGINES[engineId];
   if (!eng) throw new Error("ไม่รู้จัก engine: " + engineId);
   let key = "";
@@ -435,31 +432,8 @@ async function aiComplete({ engineId, model, maxTokens, prompt, thinking }) {
     key = getKey(engineId);
     if (!key) throw new Error("ยังไม่ได้ใส่ " + eng.name + " API key — กดปุ่ม ⚙️ ด้านบนเพื่อใส่ key ก่อนครับ");
   }
-  // one round-trip → cleaned, fenced-JSON-stripped text
-  async function once(useThinking, tokenCap) {
-    const raw = await eng.call({ model, maxTokens: tokenCap, prompt, key, thinking: useThinking }); // each engine throws its own detailed errors
-    return (raw || "").replace(/```json/gi, "").replace(/```/g, "").trim();
-  }
-
-  // Adaptive thinking spends tokens on a hidden "thinking" block that COUNTS toward
-  // max_tokens. With a low cap (e.g. 2500–3000) a model like Opus 4.8 can use the whole
-  // budget thinking and get cut off BEFORE emitting the final "text" block → response has
-  // only a thinking block, the text block is missing, and we'd see "content ว่าง".
-  // Fix: when thinking is on, give a generous cap so there's room for thinking + answer.
-  // (Cost-safe: you're billed for tokens actually produced, not for the cap itself.)
-  const THINK_HEADROOM = 12000;
-  const firstCap = thinking ? Math.max(maxTokens + THINK_HEADROOM, 16000) : maxTokens;
-
-  let text = await once(thinking, firstCap);
-
-  // Safety net: if a thinking run STILL comes back empty (e.g. proxy dropped the text
-  // block, or the model thought past even the boosted cap), retry once WITHOUT thinking
-  // at the normal cap so the user still gets a usable result instead of an error.
-  if (!text && thinking) {
-    try { console.warn("aiComplete: thinking run returned empty content — retrying without thinking"); } catch (e) {}
-    text = await once(false, maxTokens);
-  }
-
+  const raw = await eng.call({ model, maxTokens, prompt, key }); // each engine throws its own detailed errors
+  const text = (raw || "").replace(/```json/gi, "").replace(/```/g, "").trim();
   if (!text) throw new Error(eng.name + " ไม่ส่งเนื้อหากลับมา (content ว่าง) — ลองกดใหม่อีกครั้ง");
   return text;
 }
@@ -767,7 +741,6 @@ function App() {
     return init;
   });
   // per-mode adaptive-thinking toggles (only applied when current engine supports it on that mode)
-  const [thinkingByMode, setThinkingByMode] = useState({ grammar: false, listening: false });
   const [difficulty, setDifficultyState] = useState(DEFAULT_DIFFICULTY); // chosen difficulty level id
   const [copyBox, setCopyBox] = useState(null); // null | { title, text, msg }
   const [dayCount, setDayCount] = useState(0); // manual study-day counter "Day X"
@@ -784,13 +757,6 @@ function App() {
   const _keyDep = keyTick;                                // referencing keyTick so hasKey recomputes when it changes
   const needsKey = !!ENG.keyStorage;                      // does this engine need an API key?
   const hasKey = needsKey ? !!getKey(engine) : true;      // artifact engine: no key needed → treat as "has key"
-
-  // does the CURRENT engine support a thinking toggle on the given mode AND the selected model?
-  function thinkingSupported(modeName) {
-    if (!(ENG.thinkingModes || []).includes(modeName)) return false;
-    const mdl = MODELS.find(x => x.id === models[modeName]);
-    return !!(mdl && mdl.supportsThinking);
-  }
 
   // on mount: restore selected engine, then pop settings if that engine needs a key it doesn't have
   useEffect(() => {
@@ -887,18 +853,7 @@ function App() {
             }
             return next;
           });
-          if (d.rec && d.rec.thinking) setThinkingByMode({ grammar: true, listening: true });
         }
-        try {
-          const rt = await STORAGE.get(THINKING_KEY);
-          if (rt) {
-            const sv = JSON.parse(rt) || {};
-            setThinkingByMode(prev => ({
-              grammar: !!sv.grammar,
-              listening: !!sv.listening,
-            }));
-          }
-        } catch (e) { /* no saved thinking prefs */ }
         try {
           const rdiff = await STORAGE.get(DIFF_KEY);
           if (rdiff) { const id = JSON.parse(rdiff); if (DIFFICULTIES.some(d => d.id === id)) setDifficultyState(id); }
@@ -919,14 +874,6 @@ function App() {
     });
   }
 
-  // toggle adaptive thinking for the current mode; persists immediately
-  function toggleThinking(modeName) {
-    setThinkingByMode(prev => {
-      const next = { ...prev, [modeName]: !prev[modeName] };
-      STORAGE.set(THINKING_KEY, JSON.stringify(next));
-      return next;
-    });
-  }
 
   // choose a difficulty level. Auto-applies the recommended model (for the CURRENT engine,
   // across all 3 modes) and the recommended thinking on/off (for thinking-eligible modes).
@@ -935,7 +882,7 @@ function App() {
     setDifficultyState(id);
     STORAGE.set(DIFF_KEY, JSON.stringify(id));
 
-    // 1) recommended model for the current engine (fall back to the engine's own recommended)
+    // recommended model for the current engine (fall back to the engine's own recommended)
     const recModel = (d.rec && d.rec[engine]) || RECOMMENDED[mode];
     if (recModel && MODELS.some(x => x.id === recModel)) {
       setModelsByEngine(prev => {
@@ -944,14 +891,6 @@ function App() {
         return next;
       });
     }
-
-    // 2) recommended thinking on/off — only meaningful for engines/models that support it
-    const wantThinking = !!(d.rec && d.rec.thinking) && (ENG.thinkingModes || []).length > 0;
-    setThinkingByMode(prev => {
-      const next = { grammar: wantThinking, listening: wantThinking };
-      STORAGE.set(THINKING_KEY, JSON.stringify(next));
-      return next;
-    });
   }
 
   function changeDay(delta) {
@@ -998,8 +937,7 @@ function App() {
       const diffP = diffById(difficulty).prompt;
       const prompt = m === "vocab" ? vocabPrompt(avoid, category, diffP) : grammarPrompt(avoid, category, diffP);
       // adaptive thinking applies only to grammar (never vocab), AND only when engine+model support it AND user toggled it on
-      const useThinking = m !== "vocab" && thinkingSupported(m) && !!thinkingByMode[m];
-      const clean = await aiComplete({ engineId: engine, model: mdl.str, maxTokens: m === "vocab" ? 4000 : 3000, prompt, thinking: useThinking });
+      const clean = await aiComplete({ engineId: engine, model: mdl.str, maxTokens: m === "vocab" ? 4000 : 3000, prompt });
       let arr;
       try { arr = JSON.parse(clean); }
       catch (pe) { throw new Error("แปลงคำตอบเป็น JSON ไม่ได้ — AI ตอบมาว่า: " + clean.slice(0, 200)); }
@@ -1137,8 +1075,7 @@ function App() {
     try {
       const category = pickCategory();
       const mdl = MODELS.find(x => x.id === models.listening) || MODELS[0];
-      const useThinking = thinkingSupported("listening") && !!thinkingByMode.listening;
-      const clean = await aiComplete({ engineId: engine, model: mdl.str, maxTokens: 2500, prompt: listeningPracticePrompt(category, diffById(difficulty).prompt), thinking: useThinking });
+      const clean = await aiComplete({ engineId: engine, model: mdl.str, maxTokens: 2500, prompt: listeningPracticePrompt(category, diffById(difficulty).prompt) });
       let obj;
       try { obj = JSON.parse(clean); }
       catch (pe) { throw new Error("แปลงคำตอบเป็น JSON ไม่ได้ — AI ตอบมาว่า: " + clean.slice(0, 200)); }
@@ -1706,7 +1643,7 @@ function App() {
                   <div style={{ fontSize: 10.5, color: C.sub, marginTop: 3 }}>{d.blurb}</div>
                   {recLabel && (
                     <div style={{ fontSize: 10, color: on ? C.accent : "#9a8f7f", marginTop: 4, fontWeight: 600 }}>
-                      → {recLabel}{d.rec && d.rec.thinking ? " + thinking" : ""}
+                      → {recLabel}
                     </div>
                   )}
                 </button>
@@ -2087,33 +2024,6 @@ function App() {
                   </div>
                 </div>
 
-                {/* Adaptive thinking toggle (listening) */}
-                {(ENG.thinkingModes || []).includes("listening") && (() => {
-                  const supported = thinkingSupported("listening");
-                  const on = !!thinkingByMode.listening && supported;
-                  return (
-                    <div onClick={() => { if (supported && !st.generating) toggleThinking("listening"); }}
-                      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
-                        padding: "9px 12px", borderRadius: 11, marginBottom: 10,
-                        background: on ? "#fff" : "#efe7d7", border: on ? `1.5px solid ${ENG.color}55` : "1.5px solid transparent",
-                        opacity: supported ? 1 : 0.55, cursor: supported && !st.generating ? "pointer" : "default" }}>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: on ? ENG.color : C.ink }}>🧠 Adaptive thinking</span>
-                        <span style={{ fontSize: 11, color: C.sub, lineHeight: 1.4 }}>
-                          {supported
-                            ? "ให้ AI คิดละเอียดก่อนตอบ — ช้าลง แต่ข้อสอบ Part 7 เนียนขึ้น"
-                            : "Haiku ไม่รองรับ — เลือก Sonnet หรือ Opus เพื่อใช้ฟีเจอร์นี้"}
-                        </span>
-                      </div>
-                      <span style={{ flex: "0 0 auto", width: 38, height: 22, borderRadius: 999, background: on ? ENG.color : "#cdbfa6",
-                        position: "relative", boxShadow: "inset 0 1px 2px rgba(0,0,0,.15)" }}>
-                        <span style={{ position: "absolute", top: 2, left: on ? 18 : 2, width: 18, height: 18, borderRadius: "50%",
-                          background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.25)", transition: "left .15s" }} />
-                      </span>
-                    </div>
-                  );
-                })()}
-
                 <button onClick={genPractice} disabled={st.generating}
                   style={{ width: "100%", background: st.generating ? "#d9a892" : C.accent, color: "#fff", border: "none", borderRadius: 13,
                     padding: "14px", fontSize: 15.5, fontWeight: 600, boxShadow: "0 8px 20px -10px rgba(191,77,40,.9)",
@@ -2271,34 +2181,6 @@ function App() {
             })}
           </div>
         </div>
-
-        {/* Adaptive thinking toggle — shown only for modes/engines/models that support it (never for vocab) */}
-        {mode !== "vocab" && (ENG.thinkingModes || []).includes(mode) && (() => {
-          const supported = thinkingSupported(mode);
-          const on = !!thinkingByMode[mode] && supported;
-          return (
-            <div onClick={() => { if (supported && !st.generating) toggleThinking(mode); }}
-              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
-                padding: "9px 12px", borderRadius: 11, marginBottom: 10,
-                background: on ? "#fff" : "#efe7d7", border: on ? `1.5px solid ${ENG.color}55` : "1.5px solid transparent",
-                opacity: supported ? 1 : 0.55, cursor: supported && !st.generating ? "pointer" : "default" }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: on ? ENG.color : C.ink }}>🧠 Adaptive thinking</span>
-                <span style={{ fontSize: 11, color: C.sub, lineHeight: 1.4 }}>
-                  {supported
-                    ? "ให้ AI คิดละเอียดก่อนตอบ — ช้าลง แต่ข้อสอบคุณภาพสูงขึ้น"
-                    : "Haiku ไม่รองรับ — เลือก Sonnet หรือ Opus เพื่อใช้ฟีเจอร์นี้"}
-                </span>
-              </div>
-              {/* simple visual switch */}
-              <span style={{ flex: "0 0 auto", width: 38, height: 22, borderRadius: 999, background: on ? ENG.color : "#cdbfa6",
-                position: "relative", transition: "background .15s", boxShadow: "inset 0 1px 2px rgba(0,0,0,.15)" }}>
-                <span style={{ position: "absolute", top: 2, left: on ? 18 : 2, width: 18, height: 18, borderRadius: "50%",
-                  background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.25)", transition: "left .15s" }} />
-              </span>
-            </div>
-          );
-        })()}
 
         {/* generate */}
         <button onClick={generate} disabled={st.generating}
