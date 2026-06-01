@@ -1,0 +1,2658 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<title>TOEIC Trainer</title>
+<style>
+  html,body{margin:0;padding:0;background:#f5efe4;color:#211d18;-webkit-text-size-adjust:100%;}
+  *{box-sizing:border-box}
+  #root{min-height:100vh}
+  .boot{position:fixed;inset:0;display:grid;place-items:center;font-family:system-ui,-apple-system,sans-serif;color:#6f655a;text-align:center;padding:24px;}
+  .boot small{display:block;margin-top:8px;font-size:12px;color:#bf4d28}
+</style>
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+</head>
+<body>
+<div id="root"><div class="boot">กำลังโหลด TOEIC Trainer…<small>(ครั้งแรกอาจใช้เวลา 2-3 วินาที)</small></div></div>
+
+<script type="text/babel" data-presets="react">
+/* ============================================================
+   TOEIC Trainer — standalone build v0.17.0
+   - one source, two wrappers (.html for browsers, .jsx for Claude artifacts)
+   ============================================================ */
+
+// React, useState, useEffect, useRef come from global React (loaded via CDN in the HTML wrapper)
+const { useState, useEffect, useRef } = React;
+
+// ============================================================
+//  ENVIRONMENT DETECTION
+//  - "artifact" mode: file is loaded inside a Claude artifact
+//    (window.storage exists; Claude proxies AI calls without a key)
+//  - "standalone" mode: file is a regular .html opened in a browser
+//    (uses localStorage; needs user-supplied API key)
+// ============================================================
+const IS_ARTIFACT = typeof window !== "undefined" && !!window.storage;
+
+// Unified async storage adapter. Both branches return Promises so the
+// rest of the app can `await` consistently regardless of environment.
+const STORAGE = IS_ARTIFACT
+  ? {
+      async get(k) { try { const r = await window.storage.get(k); return r && r.value != null ? r.value : null; } catch (e) { return null; } },
+      async set(k, v) { try { await window.storage.set(k, v); return true; } catch (e) { return false; } },
+    }
+  : {
+      async get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+      async set(k, v) { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } },
+    };
+
+// ---- warm editorial palette ----
+const C = {
+  bg: "#f5efe4",
+  panel: "#fffdf8",
+  ink: "#211d18",
+  sub: "#6f655a",
+  line: "#e4dccb",
+  accent: "#bf4d28",
+  accentSoft: "#f2d9cc",
+  red: "#b23535",
+  redBg: "#f6e1de",
+  amber: "#c9852a",
+  amberBg: "#f6ecd6",
+  green: "#3f7d3a",
+  greenBg: "#e6f0e2",
+};
+
+// status labels differ slightly per mode
+const STATUS = {
+  vocab: {
+    forgot: { label: "ยังจำไม่ได้", short: "จำไม่ได้", color: C.red, bg: C.redBg },
+    sort: { label: "จำได้บ้าง", short: "จำได้บ้าง", color: C.amber, bg: C.amberBg },
+    known: { label: "จำได้แล้ว", short: "จำได้", color: C.green, bg: C.greenBg },
+  },
+  grammar: {
+    forgot: { label: "ยังไม่เข้าใจ", short: "ยังไม่เข้าใจ", color: C.red, bg: C.redBg },
+    sort: { label: "พอเข้าใจ", short: "พอเข้าใจ", color: C.amber, bg: C.amberBg },
+    known: { label: "เข้าใจแล้ว", short: "เข้าใจ", color: C.green, bg: C.greenBg },
+  },
+  listening: {
+    forgot: { label: "ยังไม่เข้าใจ", short: "ยังไม่เข้าใจ", color: C.red, bg: C.redBg },
+    sort: { label: "พอเข้าใจ", short: "พอเข้าใจ", color: C.amber, bg: C.amberBg },
+    known: { label: "เข้าใจแล้ว", short: "เข้าใจ", color: C.green, bg: C.greenBg },
+  },
+};
+// short label of each mode's content, used in shared UI text
+const MODE_LABEL = { vocab: "คำศัพท์", grammar: "ไวยากรณ์", listening: "การอ่าน" };
+const NEW_META = { color: C.sub, bg: "#efe7d7" };
+
+const STORAGE_KEY = { vocab: "toeic_vocab_ai_v1", grammar: "toeic_grammar_ai_v1", listening: "toeic_listening_ai_v1" };
+const BATCH = { vocab: 10, grammar: 5, listening: 3 };
+
+// ---- 25 themed categories (rotated each Gen to diversify words and cut repetition) ----
+const CATEGORIES = [
+  "finance & budget", "meetings & scheduling", "contracts & legal", "marketing & advertising",
+  "HR & hiring", "logistics & shipping", "office & equipment", "customer service",
+  "manufacturing & factory", "real estate & facilities", "technology & IT", "banking & investment",
+  "workplace communication (emails, memos, calls, announcements)", "company events (conferences, seminars, workshops, training)",
+  "partnerships & negotiations (mergers, suppliers)", "urban transport (commuting, traffic, directions)",
+  "transactions & paperwork (appointments, forms, bills, utilities)",
+  "travel & tourism", "health & medical (general)", "food & dining",
+  "shopping & retail", "home & family", "weather & environment", "hobbies & leisure", "education & learning",
+];
+function pickCategory() {
+  return CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
+}
+
+// ============================================================
+//  AI ENGINE REGISTRY
+//  Each engine is self-contained: its models, recommended picks,
+//  where its API key lives, the help text for getting a key, and
+//  a call() that does the fetch + DETAILED error handling and
+//  returns the raw text. Add a new provider by adding one entry.
+// ============================================================
+const ENGINES = {
+  gemini: {
+    id: "gemini",
+    name: "Gemini",
+    icon: "⚡",
+    color: "#1a73e8",
+    keyStorage: "toeic_gemini_key_v1",
+    keyPrefix: "AIza…",
+    keyUrl: "https://aistudio.google.com/app/apikey",
+    keyUrlLabel: "aistudio.google.com/app/apikey",
+    keyLogin: "ล็อกอินด้วยบัญชี Google",
+    keyCreate: 'กด "Create API key" แล้วก๊อปคีย์มา',
+    models: [
+      { id: "flash25", label: "Flash 2.5", str: "gemini-2.5-flash", note: "สมดุล", supportsThinking: false },
+      { id: "pro25", label: "Pro 2.5", str: "gemini-2.5-pro", note: "ฉลาดสุด", supportsThinking: false },
+      { id: "flashlite25", label: "Flash-Lite 2.5", str: "gemini-2.5-flash-lite", note: "เร็ว/เบา", supportsThinking: false },
+    ],
+    recommended: { vocab: "flashlite25", grammar: "flash25", listening: "flash25" },
+    thinkingModes: [], // Gemini-side thinking control not implemented yet
+    async call({ model, maxTokens, prompt, key }) {
+      const url = "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent";
+      let res;
+      try {
+        res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            generationConfig: { maxOutputTokens: maxTokens, temperature: 0.8, responseMimeType: "application/json" },
+          }),
+        });
+      } catch (netErr) {
+        throw new Error("เชื่อมต่อ Gemini ไม่ได้ [network] (" + (netErr && netErr.message ? netErr.message : "fetch failed") + ") — ตรวจสัญญาณเน็ตแล้วลองใหม่");
+      }
+      if (!res.ok) {
+        let body = ""; try { body = await res.text(); } catch (e) {}
+        let hint = "";
+        if (res.status === 400) hint = " (key อาจไม่ถูกต้อง หรือคำสั่งผิดรูปแบบ)";
+        else if (res.status === 401 || res.status === 403) hint = " (API key ไม่ถูกต้อง/ยังไม่เปิดใช้ — เช็กที่ Google AI Studio)";
+        else if (res.status === 429) hint = " (เรียกถี่เกินโควต้า รอสักพักแล้วลองใหม่)";
+        else if (res.status >= 500) hint = " (ฝั่ง Google ขัดข้องชั่วคราว ลองใหม่ใน 1-2 นาที)";
+        throw new Error("Gemini ตอบสถานะ " + res.status + hint + (body ? (": " + body.slice(0, 300)) : ""));
+      }
+      let data; try { data = await res.json(); } catch (e) { throw new Error("อ่านคำตอบ Gemini ไม่ได้ (ไม่ใช่ JSON)"); }
+      if (data && data.error) throw new Error("Gemini error: " + ((data.error.message || JSON.stringify(data.error)) + "").slice(0, 300));
+      const cand = (data.candidates && data.candidates[0]) || null;
+      if (!cand) throw new Error("Gemini ไม่ส่ง candidate กลับมา — raw: " + JSON.stringify(data).slice(0, 200));
+      if (cand.finishReason && cand.finishReason !== "STOP" && cand.finishReason !== "MAX_TOKENS") {
+        throw new Error("Gemini หยุดผิดปกติ (finishReason=" + cand.finishReason + ") — อาจโดน safety filter หรือ quota");
+      }
+      const parts = (cand.content && cand.content.parts) || [];
+      return parts.map(p => p && p.text ? p.text : "").join("");
+    },
+  },
+
+  claude: {
+    id: "claude",
+    name: "Claude",
+    icon: "🧠",
+    color: "#c15f3c",
+    keyStorage: "toeic_claude_key_v1",
+    keyPrefix: "sk-ant-…",
+    keyUrl: "https://console.anthropic.com/settings/keys",
+    keyUrlLabel: "console.anthropic.com/settings/keys",
+    keyLogin: "ล็อกอิน/สมัครบัญชี Anthropic (ต้องเติมเครดิตขั้นต่ำเพื่อใช้ API)",
+    keyCreate: 'กด "Create Key" แล้วก๊อปคีย์มา',
+    models: [
+      // Sonnet and Opus support Anthropic's Adaptive thinking; Haiku does not
+      { id: "sonnet46", label: "Sonnet 4.6", str: "claude-sonnet-4-6", note: "สมดุล", supportsThinking: true },
+      { id: "opus48", label: "Opus 4.8", str: "claude-opus-4-8", note: "ฉลาดสุด", supportsThinking: true },
+      { id: "haiku45", label: "Haiku 4.5", str: "claude-haiku-4-5-20251001", note: "เร็ว/เบา", supportsThinking: false },
+    ],
+    recommended: { vocab: "haiku45", grammar: "sonnet46", listening: "sonnet46" },
+    // which app modes are eligible for the thinking toggle (vocab is excluded — gains too little)
+    thinkingModes: ["grammar", "listening"],
+    async call({ model, maxTokens, prompt, key, thinking }) {
+      const body = { model, max_tokens: maxTokens, messages: [{ role: "user", content: prompt }] };
+      // Adaptive thinking (Sonnet 4.6+/Opus 4.6+): Claude decides if/when to think
+      if (thinking) body.thinking = { type: "adaptive" };
+      let res;
+      try {
+        res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": key,
+            "anthropic-version": "2023-06-01",
+            // required so Anthropic allows a direct call from the browser (bring-your-own-key)
+            "anthropic-dangerous-direct-browser-access": "true",
+          },
+          body: JSON.stringify(body),
+        });
+      } catch (netErr) {
+        throw new Error("เชื่อมต่อ Claude ไม่ได้ [network] (" + (netErr && netErr.message ? netErr.message : "fetch failed") + ") — ตรวจสัญญาณเน็ตแล้วลองใหม่");
+      }
+      if (!res.ok) {
+        let body = ""; try { body = await res.text(); } catch (e) {}
+        let hint = "";
+        if (res.status === 401) hint = " (API key ไม่ถูกต้อง — เช็กที่ console.anthropic.com)";
+        else if (res.status === 400) hint = " (คำสั่งผิดรูปแบบ หรือชื่อโมเดลไม่ถูก)";
+        else if (res.status === 403) hint = " (key ไม่มีสิทธิ์ใช้โมเดลนี้)";
+        else if (res.status === 429) hint = " (เรียกถี่เกินโควต้า/เครดิตหมด รอสักพักหรือเติมเครดิต)";
+        else if (res.status >= 500) hint = " (ฝั่ง Anthropic ขัดข้องชั่วคราว ลองใหม่ใน 1-2 นาที)";
+        throw new Error("Claude ตอบสถานะ " + res.status + hint + (body ? (": " + body.slice(0, 300)) : ""));
+      }
+      let data; try { data = await res.json(); } catch (e) { throw new Error("อ่านคำตอบ Claude ไม่ได้ (ไม่ใช่ JSON)"); }
+      if (data && data.type === "error") throw new Error("Claude error: " + ((data.error && data.error.message ? data.error.message : JSON.stringify(data.error)) + "").slice(0, 300));
+      // When adaptive thinking is on, content can include "thinking" / "redacted_thinking" blocks alongside "text" blocks.
+      // We only want the final user-facing text — explicitly filter by type.
+      return (data.content || [])
+        .filter(b => b && b.type === "text" && typeof b.text === "string")
+        .map(b => b.text)
+        .join("");
+    },
+  },
+
+  // ==== artifact-only engine ====
+  // Used when this file is loaded INSIDE a Claude artifact (window.storage exists).
+  // The Claude artifact runtime proxies fetches to api.anthropic.com without needing a key
+  // and without the dangerous-direct-browser-access header. Available models are the
+  // same as the regular claude engine. Thinking is supported the same way.
+  artifact: {
+    id: "artifact",
+    name: "Claude",
+    icon: "🧠",
+    color: "#c15f3c",
+    keyStorage: null, // no key needed
+    keyPrefix: "",
+    keyUrl: "",
+    keyUrlLabel: "",
+    keyLogin: "",
+    keyCreate: "",
+    needsKey: false,
+    models: [
+      { id: "sonnet46", label: "Sonnet 4.6", str: "claude-sonnet-4-6", note: "สมดุล", supportsThinking: true },
+      { id: "opus48", label: "Opus 4.8", str: "claude-opus-4-8", note: "ฉลาดสุด", supportsThinking: true },
+      { id: "haiku45", label: "Haiku 4.5", str: "claude-haiku-4-5-20251001", note: "เร็ว/เบา", supportsThinking: false },
+    ],
+    recommended: { vocab: "haiku45", grammar: "sonnet46", listening: "sonnet46" },
+    thinkingModes: ["grammar", "listening"],
+    async call({ model, maxTokens, prompt, thinking }) {
+      const body = { model, max_tokens: maxTokens, messages: [{ role: "user", content: prompt }] };
+      if (thinking) body.thinking = { type: "adaptive" };
+      let res;
+      try {
+        res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      } catch (netErr) {
+        throw new Error("เชื่อมต่อ AI ไม่ได้ [network] (" + (netErr && netErr.message ? netErr.message : "fetch failed") + ") — มักเกิดเมื่อเปิดใน 'แอป Claude บนมือถือ' ลองเปิดบน claude.ai ในเบราว์เซอร์แทน");
+      }
+      if (!res.ok) {
+        let bd = ""; try { bd = await res.text(); } catch (e) {}
+        throw new Error("Claude (artifact) ตอบสถานะ " + res.status + (bd ? ": " + bd.slice(0, 300) : ""));
+      }
+      let data; try { data = await res.json(); } catch (e) { throw new Error("อ่านคำตอบ Claude ไม่ได้ (ไม่ใช่ JSON)"); }
+      if (data && data.type === "error") throw new Error("Claude error: " + ((data.error && data.error.message ? data.error.message : JSON.stringify(data.error)) + "").slice(0, 300));
+      return (data.content || [])
+        .filter(b => b && b.type === "text" && typeof b.text === "string")
+        .map(b => b.text)
+        .join("");
+    },
+  },
+};
+
+// Engines actually available in the current environment.
+// Inside an artifact: only the artifact engine (key UI hidden, only Claude works there).
+// Standalone: gemini + claude (user supplies a key).
+const AVAILABLE_ENGINES = IS_ARTIFACT
+  ? { artifact: ENGINES.artifact }
+  : { gemini: ENGINES.gemini, claude: ENGINES.claude };
+const DEFAULT_ENGINE = IS_ARTIFACT ? "artifact" : "gemini";
+
+const ENGINE_KEY = "toeic_engine_v1"; // persists which engine is selected
+const MODEL_KEY = "toeic_models_v2"; // persists chosen model per mode, PER engine: { gemini:{...}, claude:{...} }
+const THINKING_KEY = "toeic_thinking_v1"; // persists per-mode adaptive-thinking toggles: { grammar:bool, listening:bool }
+const DIFF_KEY = "toeic_difficulty_v1"; // persists the chosen difficulty level id
+const DAY_KEY = "toeic_day_v1"; // persists the manual "Day X" study-day counter
+const BACKUP_PREFIX = "TZv1:"; // marks a compressed backup string
+
+// ============================================================
+//  DIFFICULTY LEVELS
+//  Each level carries: a label, target-score band, a prompt fragment
+//  injected into generation prompts, and a recommended (engine→model + thinking)
+//  setup that the app auto-applies when the level is chosen.
+// ============================================================
+const DIFFICULTIES = [
+  {
+    id: "beginner", icon: "🌱", label: "Beginner", band: "~400–550",
+    blurb: "คำพื้นฐาน ประโยคสั้น ตัวเลือกหลอกตรงไปตรงมา",
+    // prompt fragment appended to generation instructions:
+    prompt: "TARGET DIFFICULTY: Beginner (TOEIC ~400-550). Use high-frequency everyday vocabulary (top ~2000 words). Keep sentences short and simple. Make the correct answer reasonably clear; distractors should be plainly wrong, not subtle. Avoid idioms, phrasal verbs, and complex grammar.",
+    rec: { gemini: "flashlite25", claude: "haiku45", artifact: "haiku45", thinking: false },
+  },
+  {
+    id: "intermediate", icon: "📘", label: "Intermediate", band: "~550–700",
+    blurb: "ศัพท์ธุรกิจทั่วไป ประโยคยาวขึ้น",
+    prompt: "TARGET DIFFICULTY: Intermediate (TOEIC ~550-700). Use common business/workplace vocabulary and moderately complex sentences. Distractors should be plausible but distinguishable with careful reading. Include some collocations and basic phrasal verbs.",
+    rec: { gemini: "flash25", claude: "sonnet46", artifact: "sonnet46", thinking: false },
+  },
+  {
+    id: "advanced", icon: "🔥", label: "Advanced", band: "~700–850",
+    blurb: "ศัพท์เฉพาะทาง paraphrase เยอะ กับดักไวยากรณ์",
+    prompt: "TARGET DIFFICULTY: Advanced (TOEIC ~700-850). Use specialized/professional vocabulary, longer multi-clause sentences, and heavy paraphrasing (answers should rarely reuse the passage's exact words). Distractors must be close and require real discrimination. Include grammar traps (tense, preposition, parallelism, subject-verb agreement).",
+    rec: { gemini: "flash25", claude: "sonnet46", artifact: "sonnet46", thinking: true },
+  },
+  {
+    id: "nearnative", icon: "🏆", label: "Near-native (900+)", band: "850–990",
+    blurb: "ศัพท์ขั้นสูง สำนวน ตัวเลือกหลอกใกล้เคียงมาก ต้องอ่านละเอียด",
+    prompt: "TARGET DIFFICULTY: Near-native / TOEIC 900+. Use advanced and low-frequency vocabulary, idiomatic expressions, nuanced register, and dense professional content. Distractors must be VERY close — differing only by subtle shades of meaning, scope, or a single grammatical detail — so that only a careful, high-level reader can eliminate them. Heavy paraphrasing throughout. No giveaways. Mirror the trickiest real TOEIC items.",
+    rec: { gemini: "pro25", claude: "opus48", artifact: "opus48", thinking: true },
+  },
+];
+const DEFAULT_DIFFICULTY = "nearnative";
+function diffById(id) { return DIFFICULTIES.find(d => d.id === id) || DIFFICULTIES[DIFFICULTIES.length - 1]; }
+
+
+// Load pako (gzip) from CDN once; resolve to the lib or null if unavailable.
+let _pakoPromise = null;
+function loadPako() {
+  if (typeof window !== "undefined" && window.pako) return Promise.resolve(window.pako);
+  if (_pakoPromise) return _pakoPromise;
+  _pakoPromise = new Promise((resolve) => {
+    try {
+      const s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js";
+      s.onload = () => resolve(window.pako || null);
+      s.onerror = () => resolve(null);
+      document.head.appendChild(s);
+    } catch (e) { resolve(null); }
+  });
+  return _pakoPromise;
+}
+// bytes -> base64 (chunked to avoid call-stack limits on big arrays)
+function bytesToB64(bytes) {
+  let bin = "";
+  const CH = 0x8000;
+  for (let i = 0; i < bytes.length; i += CH) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+  }
+  return btoa(bin);
+}
+function b64ToBytes(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+// --- backup integrity: a tiny deterministic checksum so a damaged file/string is
+//     DETECTED on import instead of failing silently or loading partial data ---
+function fnv1a(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return (h >>> 0).toString(16).padStart(8, "0");
+}
+// build the SAME canonical string at export-time and import-time, independent of JSON
+// key order, so the checksum verifies the actual data payload (not formatting).
+function canonicalBackup(obj) {
+  const v = obj.vocab || {}, g = obj.grammar || {}, l = obj.listening || {};
+  return JSON.stringify([
+    obj.day,
+    v.words, v.ratings, v.genCount, v.missQ,
+    g.items, g.ratings, g.genCount,
+    l.lessons, l.ratings, l.genCount, l.missQ,
+  ]);
+}
+
+// compress a JSON string -> "TZv1:<base64>"; falls back to raw JSON if pako missing
+async function compressBackup(jsonStr) {
+  const pako = await loadPako();
+  if (!pako) return jsonStr; // graceful fallback: plain JSON (still works on import)
+  try {
+    const packed = pako.deflate(jsonStr);
+    return BACKUP_PREFIX + bytesToB64(packed);
+  } catch (e) { return jsonStr; }
+}
+// accept either a compressed ("TZv1:...") or plain-JSON backup string -> JSON string
+async function decompressBackup(text) {
+  const t = (text || "").trim();
+  if (!t.startsWith(BACKUP_PREFIX)) return t; // old/plain backup
+  const pako = await loadPako();
+  if (!pako) throw new Error("no-pako");
+  const bytes = b64ToBytes(t.slice(BACKUP_PREFIX.length));
+  return pako.inflate(bytes, { to: "string" });
+}
+
+// ---- per-engine API key helpers (browser storage only — never sent anywhere except the provider) ----
+// NB: these are sync wrappers over localStorage when in standalone (key UI is sync). In artifact mode
+// the engine doesn't need a key, so getKey/setKey are no-ops for the artifact engine.
+async function getStoredEngine() {
+  try { const e = await STORAGE.get(ENGINE_KEY); return e && AVAILABLE_ENGINES[e] ? e : DEFAULT_ENGINE; } catch (e) { return DEFAULT_ENGINE; }
+}
+function setStoredEngine(id) {
+  try { if (AVAILABLE_ENGINES[id]) STORAGE.set(ENGINE_KEY, id); } catch (e) {}
+}
+function getKey(engineId) {
+  try {
+    const eng = ENGINES[engineId];
+    if (!eng || !eng.keyStorage) return ""; // artifact engine has no key
+    return (localStorage.getItem(eng.keyStorage) || "").trim();
+  } catch (e) { return ""; }
+}
+function setKey(engineId, k) {
+  try {
+    const eng = ENGINES[engineId];
+    if (!eng || !eng.keyStorage) return;
+    localStorage.setItem(eng.keyStorage, (k || "").trim());
+  } catch (e) {}
+}
+
+// ---- shared AI call: routes to the chosen engine. Returns CLEANED text; throws DETAILED error so the UI shows WHY it failed ----
+async function aiComplete({ engineId, model, maxTokens, prompt, thinking }) {
+  const eng = ENGINES[engineId];
+  if (!eng) throw new Error("ไม่รู้จัก engine: " + engineId);
+  let key = "";
+  if (eng.keyStorage) {
+    key = getKey(engineId);
+    if (!key) throw new Error("ยังไม่ได้ใส่ " + eng.name + " API key — กดปุ่ม ⚙️ ด้านบนเพื่อใส่ key ก่อนครับ");
+  }
+  // one round-trip → cleaned, fenced-JSON-stripped text
+  async function once(useThinking, tokenCap) {
+    const raw = await eng.call({ model, maxTokens: tokenCap, prompt, key, thinking: useThinking }); // each engine throws its own detailed errors
+    return (raw || "").replace(/```json/gi, "").replace(/```/g, "").trim();
+  }
+
+  // Adaptive thinking spends tokens on a hidden "thinking" block that COUNTS toward
+  // max_tokens. With a low cap (e.g. 2500–3000) a model like Opus 4.8 can use the whole
+  // budget thinking and get cut off BEFORE emitting the final "text" block → response has
+  // only a thinking block, the text block is missing, and we'd see "content ว่าง".
+  // Fix: when thinking is on, give a generous cap so there's room for thinking + answer.
+  // (Cost-safe: you're billed for tokens actually produced, not for the cap itself.)
+  const THINK_HEADROOM = 12000;
+  const firstCap = thinking ? Math.max(maxTokens + THINK_HEADROOM, 16000) : maxTokens;
+
+  let text = await once(thinking, firstCap);
+
+  // Safety net: if a thinking run STILL comes back empty (e.g. proxy dropped the text
+  // block, or the model thought past even the boosted cap), retry once WITHOUT thinking
+  // at the normal cap so the user still gets a usable result instead of an error.
+  if (!text && thinking) {
+    try { console.warn("aiComplete: thinking run returned empty content — retrying without thinking"); } catch (e) {}
+    text = await once(false, maxTokens);
+  }
+
+  if (!text) throw new Error(eng.name + " ไม่ส่งเนื้อหากลับมา (content ว่าง) — ลองกดใหม่อีกครั้ง");
+  return text;
+}
+
+// ---- curated Grammar lessons (fixed, high-yield TOEIC points) ----
+const LESSONS = [
+  {
+    title: "Tense พื้นฐาน (อดีต/ปัจจุบัน/อนาคต)",
+    point: "เลือกกาลให้ตรงกับเวลาในประโยค",
+    body: "ดูคำบอกเวลาในประโยคเป็นหลัก: yesterday, last week → อดีต (V2) · every day, usually → ปัจจุบัน (V1/V-s) · tomorrow, next week → อนาคต (will + V1)",
+    examples: ["She visited the office yesterday. (อดีต)", "He works here every day. (ปัจจุบัน)", "We will launch it next month. (อนาคต)"],
+    trap: "ข้อสอบชอบวางคำบอกเวลาไว้ไกลจากช่องว่าง ต้องอ่านทั้งประโยคก่อนตอบ",
+  },
+  {
+    title: "Present Perfect (have/has + V3)",
+    point: "ใช้กับสิ่งที่เกิดในอดีตและยังเกี่ยวข้องกับปัจจุบัน",
+    body: "สัญญาณที่เจอบ่อย: already, yet, just, since, for, recently → มักตอบ have/has + V3 ไม่ใช่อดีตธรรมดา",
+    examples: ["I have already sent the report.", "She has worked here for five years.", "They haven't replied yet."],
+    trap: "since + จุดเวลา (since 2020) / for + ช่วงเวลา (for 5 years) — สลับกันไม่ได้",
+  },
+  {
+    title: "Subject–Verb Agreement (ประธานกับกริยา)",
+    point: "กริยาต้องผันตามประธานเอกพจน์/พหูพจน์",
+    body: "ประธานเอกพจน์ (he/she/it, คำนามนับเอกพจน์) → กริยาเติม -s · ประธานพหูพจน์ → ไม่เติม ระวังคำคั่นกลางที่มาหลอกตา",
+    examples: ["The manager approves the budget.", "The employees approve the plan.", "Each of the staff members is present."],
+    trap: "Each / Every / Everyone = เอกพจน์เสมอ (ใช้ is/has) แม้ความหมายดูเหมือนหลายคน",
+  },
+  {
+    title: "คำบุพบทเวลา: in / on / at",
+    point: "ระดับความเฉพาะเจาะจงของเวลาต่างกัน",
+    body: "at + เวลานาฬิกา (at 5 PM, at night) · on + วัน/วันที่ (on Monday) · in + เดือน/ปี/ช่วง (in May, in 2025, in the morning)",
+    examples: ["The meeting starts at 9 AM.", "We close on Sundays.", "The product launches in June."],
+    trap: "ระวัง at night แต่ in the morning/afternoon/evening · by (ไม่เกิน) vs until (จนกระทั่ง): by Friday = ส่งก่อนศุกร์, until Friday = ทำต่อเนื่องถึงศุกร์",
+  },
+  {
+    title: "คำบุพบทสถานที่: in / on / at",
+    point: "ขนาดของพื้นที่ต่างกัน",
+    body: "at + จุด/ที่อยู่เฉพาะ (at the desk) · on + พื้นผิว (on the wall) · in + พื้นที่ปิด/เมือง/ประเทศ (in the office, in Bangkok)",
+    examples: ["He is waiting at the entrance.", "The notice is on the board.", "Our branch is in Tokyo."],
+    trap: "TOEIC ชอบออก at the airport / in the building / on the second floor — จำเป็นชุดไปเลย",
+  },
+  {
+    title: "คำเชื่อมแสดงความขัดแย้ง",
+    point: "although/though vs despite/in spite of",
+    body: "although + ประโยค (S+V) · despite / in spite of + คำนาม/V-ing เท่านั้น ความหมายเหมือนกัน แต่ตามด้วยรูปต่างกัน",
+    examples: ["Although it rained, we went out.", "Despite the rain, we went out.", "In spite of being late, he finished."],
+    trap: "ตามหลังด้วยประโยคเต็ม → although · ตามด้วยคำนามเดี่ยว → despite (ดูตรงนี้ก่อนตอบ)",
+  },
+  {
+    title: "คำเชื่อมเหตุ-ผล",
+    point: "because / because of / therefore / so",
+    body: "because + ประโยค · because of / due to + คำนาม · therefore/thus = ดังนั้น (คำวิเศษณ์ เชื่อมผลลัพธ์) · so + ประโยค",
+    examples: ["We delayed because the system failed.", "We delayed because of the failure.", "The system failed; therefore, we delayed."],
+    trap: "however (แต่) ≠ therefore (ดังนั้น) — ข้อสอบชอบสลับสองตัวนี้มาหลอก ดูความสัมพันธ์ของสองประโยคให้ดี",
+  },
+  {
+    title: "Word Forms (รูปคำ: noun/verb/adj/adverb)",
+    point: "ดูตำแหน่งในประโยคว่าต้องการชนิดคำใด",
+    body: "หลัง the/a → คำนาม · ขยายคำนาม → adjective · ขยายกริยา/adj → adverb (มัก -ly) · เป็นกริยาหลัก → verb",
+    examples: ["The decision was final. (n.)", "a successful project (adj.)", "She works efficiently. (adv.)"],
+    trap: "ดู 'ลงท้ายคำ' ช่วยได้: -tion/-ment/-ness=นาม, -ous/-ful/-ive=adj, -ly=adv (แต่ไม่เสมอไป)",
+  },
+  {
+    title: "Comparatives & Superlatives (ขั้นกว่า/ขั้นสุด)",
+    point: "เปรียบเทียบ 2 สิ่ง vs มากที่สุด",
+    body: "ขั้นกว่า: adj+er / more+adj + than · ขั้นสุด: the + adj+est / the most+adj (คำสั้นเติม -er/-est, คำยาวใช้ more/most) · เท่ากัน: as + adj + as · รูปพิเศษ: good→better→best, bad→worse→worst",
+    examples: ["This model is cheaper than that one.", "It is the most efficient option.", "This plan is as good as the old one."],
+    trap: "มี than → ขั้นกว่า · มี the…est/most → ขั้นสุด · ห้ามใช้ more cheaper (ซ้ำซ้อน) · good/bad ใช้รูปพิเศษ ไม่ใช่ gooder/badder",
+  },
+  {
+    title: "Relative Clauses (who / which / that)",
+    point: "คำที่ใช้เชื่อมขยายคำนาม",
+    body: "who = ขยายคน · which = ขยายสิ่งของ · that = ได้ทั้งคู่ · where = ขยายสถานที่ · whose = แสดงความเป็นเจ้าของ",
+    examples: ["The client who called is waiting.", "The report which arrived is here.", "The office where we met is closed."],
+    trap: "ขยายคน → who/that (ไม่ใช่ which) · ขยายของ → which/that (ไม่ใช่ who)",
+  },
+  {
+    title: "Gerund vs Infinitive (V-ing / to + V)",
+    point: "กริยาบางตัวตามด้วยรูปเฉพาะ",
+    body: "ตามด้วย to+V: want, plan, decide, hope, agree · ตามด้วย V-ing: enjoy, finish, avoid, consider, suggest · หลังบุพบท → V-ing เสมอ",
+    examples: ["We plan to expand next year.", "She finished writing the email.", "He is interested in joining us."],
+    trap: "หลัง preposition (in, of, for, about…) ต้องเป็น V-ing เสมอ เช่น 'good at speaking'",
+  },
+  {
+    title: "Passive Voice (be + V3)",
+    point: "ใช้เมื่อประธานเป็นผู้ถูกกระทำ",
+    body: "โครงสร้าง: be + V3 (กริยาช่อง 3) เลือกรูป be ตามกาล: is/are made, was/were sent, has been done, will be held",
+    examples: ["The report was submitted yesterday.", "The meeting will be held online.", "These items are made in Japan."],
+    trap: "ดูว่าประธาน 'ทำ' หรือ 'ถูกทำ' — The package was delivered (ถูกส่ง=passive) ไม่ใช่ delivered เฉยๆ",
+  },
+  {
+    title: "Articles (a / an / the)",
+    point: "เลือก a/an/the หรือไม่ใส่ ตามบริบท",
+    body: "a + เสียงพยัญชนะ · an + เสียงสระ · the = สิ่งที่เจาะจงหรือรู้กันอยู่แล้ว · นามนับไม่ได้/พหูพจน์ที่พูดรวมๆ ไม่ต้องใส่ a/an",
+    examples: ["We need an estimate first.", "Please sign the contract on your desk.", "She always gives good advice. (ไม่ใส่ a)"],
+    trap: "a/an ดูที่ 'เสียง' ไม่ใช่ตัวอักษร: an hour (h เงียบ = เสียงสระ), a university (อ่าน 'ยู' = เสียงพยัญชนะ)",
+  },
+  {
+    title: "Quantifiers (much/many, few/little)",
+    point: "เลือกตามนามนับได้ / นับไม่ได้",
+    body: "นามนับได้ (พหูพจน์): many, (a) few, fewer · นามนับไม่ได้: much, (a) little, less · ใช้ได้ทั้งคู่: some, any, a lot of, enough",
+    examples: ["There were many applicants.", "We don't have much time.", "A few employees stayed late."],
+    trap: "information, advice, equipment, furniture, news, feedback = นับไม่ได้ → ใช้ much/little และห้ามเติม s",
+  },
+  {
+    title: "Pronouns (สรรพนาม: I/my/me/mine)",
+    point: "เลือกรูปให้ตรงกับหน้าที่ในประโยค",
+    body: "ประธาน (ผู้ทำ): I, he, she, they · กรรม (ผู้ถูกทำ/หลังบุพบท): me, him, her, them · แสดงความเป็นเจ้าของ + นาม: my, his, their · เป็นเจ้าของแบบลอย (ไม่มีนามตาม): mine, his, theirs · สะท้อนตน: myself, himself",
+    examples: ["She gave the file to me. (กรรม)", "This is my desk. (เจ้าของ + นาม)", "The choice is yours. (เจ้าของแบบลอย)"],
+    trap: "หลังบุพบท (to, for, with, between) ต้องใช้รูปกรรมเสมอ: between you and me (ไม่ใช่ 'I') · its = ของมัน / it's = it is (คนละตัว)",
+  },
+  {
+    title: "Conditionals (ประโยคเงื่อนไข if)",
+    point: "เลือกกาลในประโยค if ให้ตรงแบบ",
+    body: "แบบ 1 (จริง/เป็นไปได้): If + present, ...will + V (If it rains, we will cancel) · แบบ 2 (สมมติ/ไม่จริงตอนนี้): If + past, ...would + V (If I had time, I would help) · แบบ 0 (ความจริงทั่วไป): If + present, ...present",
+    examples: ["If you book early, you will save money.", "If I were the manager, I would change it.", "If you heat ice, it melts."],
+    trap: "ใน if-clause ห้ามใช้ will (ผิด: If it will rain) · แบบสมมติใช้ were กับทุกประธาน: If I were you",
+  },
+  {
+    title: "Prepositions คู่คำ (verb/adj + preposition)",
+    point: "บางคำต้องใช้บุพบทเฉพาะตายตัว",
+    body: "TOEIC ออกชุดคำที่ผูกกับบุพบทเฉพาะบ่อยมาก จำเป็นชุด: interested IN · responsible FOR · depend ON · good AT · capable OF · familiar WITH · agree WITH (คน)/ON (เรื่อง) · apply FOR (งาน)/TO (ที่)",
+    examples: ["She is responsible for the budget.", "We depend on their support.", "He applied for the position."],
+    trap: "ช่องว่างหลัง verb/adjective พวกนี้ มักถามหา 'บุพบทที่ถูกคู่' ไม่ใช่ความหมาย — ต้องจำเป็นคู่ไปเลย",
+  },
+  {
+    title: "Conjunctions คู่ (correlative: both...and)",
+    point: "คำเชื่อมที่มาเป็นคู่ ต้องครบทั้งสองฝั่ง",
+    body: "both ... and · either ... or · neither ... nor · not only ... but also · whether ... or — ใช้คู่กันเสมอ และโครงสร้างสองฝั่งต้องขนานกัน (parallel)",
+    examples: ["Both the manager and the staff agreed.", "You can either call or email us.", "She is not only skilled but also reliable."],
+    trap: "เห็นครึ่งแรกต้องเดาครึ่งหลังได้ (either คู่กับ or, neither คู่กับ nor) · neither...nor กริยาผันตามประธานตัวที่ใกล้สุด",
+  },
+];
+
+// Fixed strategy lessons for Listening (Parts 1-4) + Reading (Parts 6-7).
+// Same shape as LESSONS, plus a "part" tag. Static content (no AI needed).
+const STRATEGY = [
+  {
+    part: "ทั่วไป",
+    title: "อ่านคำถามก่อนเสมอ (ทั้งฟังและอ่าน)",
+    point: "รู้ว่ากำลังตามหาอะไร ก่อนเจอเนื้อหา",
+    body: "Part 3/4 (ฟัง): อ่านคำถาม + ตัวเลือกคร่าวๆ ก่อนเสียงจะเล่น จะได้รู้ว่าต้องฟังจับอะไร · Part 7 (อ่าน): อ่านคำถามก่อน แล้วค่อยสแกนหาคำตอบในเนื้อเรื่อง ไม่ต้องอ่านทุกคำ",
+    examples: ["Q: What is the purpose of the email? → สแกนหาประโยคบอกจุดประสงค์ (มักอยู่ต้นเรื่อง)", "Q: When will the event start? → สแกนหาเวลา/วันที่"],
+    trap: "ถ้าอ่านเนื้อเรื่องทั้งหมดก่อนดูคำถาม จะเสียเวลามากและจำไม่ได้ว่าต้องหาอะไร",
+  },
+  {
+    part: "ทั่วไป",
+    title: "ระวัง 'การ paraphrase' — คำตอบมักไม่ใช้คำเดิม",
+    point: "คำตอบที่ถูกมักเปลี่ยนคำ ไม่ลอกจากต้นฉบับ",
+    body: "TOEIC แทบไม่เคยให้คำตอบที่ใช้คำเหมือนเป๊ะกับที่ได้ยิน/อ่าน ตัวเลือกที่ 'คำเหมือนเป๊ะ' มักเป็นกับดัก ส่วนคำตอบจริงมักใช้คำพ้องความหมาย (synonym)",
+    examples: ["ในเรื่อง: 'The store closes at 8.' → คำตอบ: 'It shuts in the evening.'", "ได้ยิน 'purchase' → คำตอบใช้ 'buy'"],
+    trap: "เห็นตัวเลือกที่มีคำตรงกับต้นฉบับเป๊ะ อย่าเพิ่งดีใจ — มักเป็นตัวลวง",
+  },
+  {
+    part: "Part 1",
+    title: "Part 1 (รูปภาพ): ฟังให้ครบทุกตัวเลือก",
+    point: "อย่ารีบเลือกตัวแรกที่ฟังดูถูก",
+    body: "ฟังครบทั้ง 4 ตัวเลือกก่อนตอบ ระวังคำที่ออกเสียงคล้าย และกริยาที่ผิด tense/action เน้นสิ่งที่ 'เห็นชัดในภาพจริง' เท่านั้น",
+    examples: ["ภาพคนกำลังนั่ง: 'She is sitting.' ✓ ไม่ใช่ 'She is standing.' ✗", "ระวัง: copy / coffee, walking / working (เสียงคล้าย)"],
+    trap: "ตัวลวงชอบใช้คำที่เสียงคล้ายของจริงในภาพ หรือกริยาผิด (sitting↔standing)",
+  },
+  {
+    part: "Part 2",
+    title: "Part 2 (ถาม-ตอบ): จับคำขึ้นต้นคำถาม",
+    point: "WH-question ตอบ Yes/No ไม่ได้",
+    body: "ฟัง 'คำแรก' ให้แม่น: Where→ตอบสถานที่ · When→ตอบเวลา · Who→ตอบคน · Why→ตอบเหตุผล/Because · How→ตอบวิธี/จำนวน คำถาม WH- จะไม่ตอบด้วย Yes/No",
+    examples: ["Q: Where is the meeting? → A: In room 3. (ไม่ใช่ 'Yes, it is.')", "Q: Why are you late? → A: The train was delayed."],
+    trap: "ตัวลวงชอบใส่คำพ้องเสียงจากคำถาม และคำตอบ Yes/No สำหรับคำถาม WH- (ผิดเสมอ) · คำตอบอ้อมๆ ('I'm not sure') ก็ถูกได้",
+  },
+  {
+    part: "Part 3-4",
+    title: "Part 3/4 (บทสนทนา/บทพูด): จับ who-what-where",
+    point: "ตามให้ทันว่าใครพูด พูดเรื่องอะไร",
+    body: "Part 3 (2-3 คนคุยกัน): จับว่าใครเป็นใคร (ลูกค้า/พนักงาน) · Part 4 (คนเดียวพูด: ประกาศ/ข้อความเสียง): จับจุดประสงค์ คำถามมักเรียงตามลำดับที่พูด ฟังไปตอบไปได้",
+    examples: ["ฟังคำสัญญาณ: 'However...' (กำลังจะขัดแย้ง), 'Finally...' (สรุป/ท้ายสุด)", "'I'd like to...' มักบอกจุดประสงค์"],
+    trap: "คำถามข้อสุดท้ายมักถามช่วงท้ายบทพูด — อย่าวอกแวกจนพลาดตอนจบ",
+  },
+  {
+    part: "Part 6",
+    title: "Part 6 (เติมข้อความในย่อหน้า): ใช้บริบททั้งย่อหน้า",
+    point: "บางช่องต้องอ่านประโยคถัด/ก่อนหน้า",
+    body: "Part 6 คือเติมคำ/ประโยคในย่อหน้า ต่างจาก Part 5 ตรงที่บางช่องตัดสินจากประโยคเดียวไม่ได้ ต้องดู tense ให้สอดคล้องทั้งย่อหน้า และดูคำเชื่อม (however, therefore) ให้เข้ากับเนื้อความรอบข้าง",
+    examples: ["ช่องเติมประโยค: เลือกประโยคที่เชื่อมกับประโยคก่อน-หลังอย่างลื่นไหล", "ทั้งย่อหน้าเป็นอดีต → ช่องที่เว้นก็ควรเป็นอดีต"],
+    trap: "ข้อเติม 'ทั้งประโยค' (sentence insertion) ต้องอ่านบริบทหน้า-หลังช่อง ไม่ใช่แค่ตรงช่อง",
+  },
+  {
+    part: "Part 7",
+    title: "Part 7 (อ่านจับใจความ): สแกนหา keyword",
+    point: "ไม่ต้องอ่านทุกคำ — ล่าคำสำคัญ",
+    body: "อ่านคำถามจับ keyword (ชื่อ/ตัวเลข/วันที่/คำเฉพาะ) แล้วกวาดสายตาหาในเรื่อง คำถาม main idea/purpose → ดูต้นเรื่อง · detail → สแกน keyword · บริหารเวลา double passage (2 เรื่องโยงกัน) อย่าจมอยู่ข้อเดียว",
+    examples: ["Q: What is suggested about the product? → หา keyword 'product' ในเรื่อง", "คำถาม purpose → มักตอบได้จากประโยคแรกๆ"],
+    trap: "ระวังคำถาม NOT/EXCEPT ('Which is NOT mentioned?') — ต้องหาตัวที่ 'ไม่มี' ในเรื่อง คนพลาดเพราะอ่านข้ามคำว่า NOT",
+  },
+  {
+    part: "Part 7",
+    title: "Part 7: คำถามศัพท์ในบริบท (vocabulary-in-context)",
+    point: "ความหมายของคำขึ้นกับประโยครอบๆ",
+    body: "คำถามแบบ 'The word X is closest in meaning to...' ห้ามตอบจากความหมายที่จำมาอย่างเดียว ต้องแทนตัวเลือกกลับเข้าประโยคแล้วดูว่าอันไหนเข้ากับบริบทจริง",
+    examples: ["'address' = ที่อยู่ หรือ 'จัดการ(ปัญหา)' ก็ได้ → ดูประโยค", "'figure' = ตัวเลข หรือ บุคคลสำคัญ → ดูบริบท"],
+    trap: "คำหลายความหมาย (address, figure, run, order) — ตอบจากบริบทเสมอ ไม่ใช่ความหมายที่คุ้นที่สุด",
+  },
+];
+
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function vocabPrompt(avoidWords, category, diffPrompt) {
+  const avoid = avoidWords.length
+    ? `\nDo NOT include any of these words the learner already has: ${avoidWords.slice(-150).join(", ")}.`
+    : "";
+  const diff = diffPrompt ? `\n${diffPrompt}` : "";
+  return `You are a TOEIC vocabulary coach for a Thai learner (target 850+).
+Generate EXACTLY ${BATCH.vocab} NEW English vocabulary words.
+THEME for this batch: "${category}". Choose words that genuinely fit this theme.${diff}
+Choose words that match the target difficulty above and that commonly appear on the TOEIC Listening & Reading test.${avoid}
+For EACH word provide:
+- "w": the word in lowercase
+- "pos": part of speech, abbreviated (e.g. "n.", "v.", "adj.", "adv.")
+- "ipa": IPA pronunciation in slashes
+- "th": the Thai meaning (in Thai script)
+- "def": a simple English definition, under 12 words
+- "ex": one natural example sentence in a business or daily context
+Respond with ONLY a valid minified JSON array of ${BATCH.vocab} objects, no markdown, no backticks, no preamble.
+Shape: [{"w":"...","pos":"...","ipa":"...","th":"...","def":"...","ex":"..."}]`;
+}
+
+function grammarPrompt(avoidStems, category, diffPrompt) {
+  const avoid = avoidStems.length
+    ? `\nDo NOT reuse or closely resemble these recent question stems: ${avoidStems.slice(-40).map(s => `"${s}"`).join("; ")}.`
+    : "";
+  const diff = diffPrompt ? `\n${diffPrompt}` : "";
+  return `You are a TOEIC Part 5 item writer for a Thai learner (target 850+).
+Generate EXACTLY 5 TOEIC Listening&Reading Part 5-style multiple-choice grammar/vocabulary questions.
+Each question: ONE sentence with a single blank shown as "____". Set the sentences in this CONTEXT/THEME: "${category}".
+Across the 5 questions, COVER A VARIETY of high-yield grammar points commonly tested on TOEIC, especially: verb tense, subject-verb agreement, prepositions, articles, conjunctions/transition words, word forms (noun/verb/adjective/adverb), pronouns, comparatives/superlatives, and relative clauses.${diff}
+For EACH question provide:
+- "q": the sentence containing one "____"
+- "options": object with keys "A","B","C","D"
+- "answer": the correct key ("A"|"B"|"C"|"D")
+- "point": the grammar point in THAI, short (e.g. "กาล (tense)", "คำบุพบท", "รูปคำ", "คำเชื่อม")
+- "explain": a THAI explanation, 1-3 sentences, why the answer is correct AND why one key distractor is wrong
+Respond with ONLY a valid minified JSON array of 5 objects, no markdown, no backticks, no preamble.
+Shape: [{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"A","point":"...","explain":"..."}]`;
+}
+
+function listeningPracticePrompt(category, diffPrompt) {
+  const types = [
+    "an EMAIL or letter (with a subject line and greeting)",
+    "a NOTICE or announcement",
+    "an ADVERTISEMENT or job posting",
+    "a memo or short article",
+    "a text-message / online-chat exchange between 2 people",
+  ];
+  const kind = types[Math.floor(Math.random() * types.length)];
+  const diff = diffPrompt ? `\n${diffPrompt}` : "";
+  return `You are a TOEIC Part 7 (Reading Comprehension) item writer for a Thai learner (target 850+).
+Write ${kind} as a realistic TOEIC Part 7 reading passage, 90-150 words. Set it in this CONTEXT/THEME: "${category}". Use natural written business/daily English.${diff}
+Then write EXACTLY 3 multiple-choice comprehension questions about it (TOEIC Part 7 style: main idea/purpose, specific detail, inference, or vocabulary-in-context).
+IMPORTANT: at least 2 of the 3 correct answers must use PARAPHRASE (different words from the passage), since real TOEIC answers rarely copy the exact wording.
+For EACH question provide:
+- "q": the question in English
+- "options": object with keys "A","B","C","D" (English, plausible distractors)
+- "answer": the correct key ("A"|"B"|"C"|"D")
+- "explain": a THAI explanation, 1-2 sentences: why the answer is right and which clue in the passage proves it
+Respond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
+Shape: {"ptype":"Part 7","transcript":"...(the full passage; use \\n for line breaks)...","questions":[{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"A","explain":"..."}]}`;
+}
+
+// blank state per mode
+const emptyMode = () => ({
+  data: {}, ratings: {}, genCount: 0, missQ: {},
+  deck: [], pos: 0, flipped: false, pickedMap: {}, tab: "study", bankFilter: "all",
+  generating: false, genErr: null, lastAdded: null, lastCategory: null,
+  startTime: null, endTime: null,
+});
+
+function fmtTime(ms) {
+  if (ms == null || ms < 0) ms = 0;
+  const s = Math.round(ms / 1000);
+  const mm = Math.floor(s / 60);
+  const ss = s % 60;
+  return `${mm}:${String(ss).padStart(2, "0")}`;
+}
+
+function App() {
+  const [mode, setMode] = useState("vocab"); // 'vocab' | 'grammar'
+  const [loaded, setLoaded] = useState(false);
+  const [storageOk, setStorageOk] = useState(true);
+  const [, force] = useState(0);
+  const rerender = () => force(n => n + 1);
+  const [now, setNow] = useState(Date.now());
+  const [backup, setBackup] = useState(null); // null | {mode:'export'|'import', text, msg}
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [engine, setEngineState] = useState(DEFAULT_ENGINE); // overwritten from storage on mount
+  // model choice is stored PER engine (each engine has its own list of model IDs)
+  const [modelsByEngine, setModelsByEngine] = useState(() => {
+    const init = {};
+    for (const eid of Object.keys(ENGINES)) init[eid] = { ...ENGINES[eid].recommended };
+    return init;
+  });
+  // per-mode adaptive-thinking toggles (only applied when current engine supports it on that mode)
+  const [thinkingByMode, setThinkingByMode] = useState({ grammar: false, listening: false });
+  const [difficulty, setDifficultyState] = useState(DEFAULT_DIFFICULTY); // chosen difficulty level id
+  const [copyBox, setCopyBox] = useState(null); // null | { title, text, msg }
+  const [dayCount, setDayCount] = useState(0); // manual study-day counter "Day X"
+  const [showSettings, setShowSettings] = useState(false); // settings modal (engine + API key)
+  const [keyTick, setKeyTick] = useState(0); // bump to recompute key presence after save/delete
+  const [keyDraft, setKeyDraft] = useState(""); // draft value in the settings input
+
+  // ---- derived values for the CURRENT engine (recomputed every render) ----
+  const ENG = ENGINES[engine] || ENGINES[DEFAULT_ENGINE]; // current engine object
+  const MODELS = ENG.models;                              // current engine's selectable models
+  const RECOMMENDED = ENG.recommended;                    // current engine's recommended picks
+  const models = modelsByEngine[engine] || RECOMMENDED;   // current engine's chosen models { vocab, grammar, listening }
+  // eslint-disable-next-line no-unused-vars
+  const _keyDep = keyTick;                                // referencing keyTick so hasKey recomputes when it changes
+  const needsKey = !!ENG.keyStorage;                      // does this engine need an API key?
+  const hasKey = needsKey ? !!getKey(engine) : true;      // artifact engine: no key needed → treat as "has key"
+
+  // does the CURRENT engine support a thinking toggle on the given mode AND the selected model?
+  function thinkingSupported(modeName) {
+    if (!(ENG.thinkingModes || []).includes(modeName)) return false;
+    const mdl = MODELS.find(x => x.id === models[modeName]);
+    return !!(mdl && mdl.supportsThinking);
+  }
+
+  // on mount: restore selected engine, then pop settings if that engine needs a key it doesn't have
+  useEffect(() => {
+    (async () => {
+      const e = await getStoredEngine();
+      setEngineState(e);
+      const eng = ENGINES[e];
+      if (eng && eng.keyStorage && !getKey(e)) setShowSettings(true);
+    })();
+  }, []);
+
+  // switch engine (persists choice). If the new engine needs a key it doesn't have, open settings.
+  function switchEngine(id) {
+    if (!AVAILABLE_ENGINES[id] || id === engine) return;
+    setStoredEngine(id);
+    setEngineState(id);
+    setKeyDraft("");
+    setKeyTick(t => t + 1);
+    const eng = ENGINES[id];
+    if (eng && eng.keyStorage && !getKey(id)) setShowSettings(true);
+  }
+
+  // tick every second while a grammar session is actively running
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // both modes live in a ref; we re-render manually so switching is instant
+  const M = useRef({ vocab: emptyMode(), grammar: emptyMode(), listening: emptyMode() });
+  const cardAreaRef = useRef(null); // scroll target for the study card/deck area
+  function scrollToCards() {
+    // wait a tick so the deck has rendered, then bring it into view
+    setTimeout(() => { try { cardAreaRef.current && cardAreaRef.current.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {} }, 60);
+  }
+
+  const [gSection, setGSection] = useState("drill"); // grammar: 'lesson' | 'drill'
+  const [openLesson, setOpenLesson] = useState(null); // index of expanded lesson
+  const [vSection, setVSection] = useState("cards"); // vocab: 'cards' | 'quiz'
+  const [lSection, setLSection] = useState("strategy"); // listening: 'strategy' | 'practice'
+  const [lquiz, setLquiz] = useState(null); // listening practice: { ptype, transcript, model, deck, pos, picked, start, end }
+  const [lFilter, setLFilter] = useState("all"); // listening strategy filter
+  const [gLessonFilter, setGLessonFilter] = useState("all"); // grammar lesson status filter
+  const [vquiz, setVquiz] = useState(null); // { deck, pos, picked, start, end, tooFew }
+  const [revealTh, setRevealTh] = useState(false); // vocab card: show Thai meaning?
+
+  useEffect(() => {
+    (async () => {
+      try {
+        for (const m of ["vocab", "grammar", "listening"]) {
+          try {
+            const raw = await STORAGE.get(STORAGE_KEY[m]);
+            const s = raw ? JSON.parse(raw) : {};
+            M.current[m].data = (m === "vocab" ? s.words : m === "listening" ? s.lessons : s.items) || {};
+            M.current[m].ratings = s.ratings || {};
+            M.current[m].genCount = s.genCount || 0;
+            if (m === "vocab" || m === "listening") M.current[m].missQ = s.missQ || {};
+          } catch (e) { /* no data for this mode */ }
+        }
+        // first-launch consistency: if the user has NO saved model prefs and NO saved difficulty,
+        // seed the recommended model + thinking from the DEFAULT difficulty (Near-native) so the
+        // app doesn't start at "Near-native" while quietly using the cheap default models.
+        let savedModelsRaw = null, savedDiffRaw = null;
+        try { savedModelsRaw = await STORAGE.get(MODEL_KEY); } catch (e) {}
+        try { savedDiffRaw = await STORAGE.get(DIFF_KEY); } catch (e) {}
+        if (savedModelsRaw) {
+          try {
+            const saved = JSON.parse(savedModelsRaw) || {};
+            setModelsByEngine(prev => {
+              const next = { ...prev };
+              for (const eid of Object.keys(ENGINES)) {
+                const list = ENGINES[eid].models;
+                const rec = ENGINES[eid].recommended;
+                const sv = (saved && saved[eid]) || {};
+                next[eid] = {
+                  vocab: list.some(x => x.id === sv.vocab) ? sv.vocab : rec.vocab,
+                  grammar: list.some(x => x.id === sv.grammar) ? sv.grammar : rec.grammar,
+                  listening: list.some(x => x.id === sv.listening) ? sv.listening : rec.listening,
+                };
+              }
+              return next;
+            });
+          } catch (e) { /* bad saved model prefs */ }
+        } else if (!savedDiffRaw) {
+          // brand-new user → apply default difficulty's recommendation across all engines
+          const d = diffById(DEFAULT_DIFFICULTY);
+          setModelsByEngine(prev => {
+            const next = { ...prev };
+            for (const eid of Object.keys(ENGINES)) {
+              const recModel = (d.rec && d.rec[eid]);
+              if (recModel && ENGINES[eid].models.some(x => x.id === recModel)) {
+                next[eid] = { vocab: recModel, grammar: recModel, listening: recModel };
+              }
+            }
+            return next;
+          });
+          if (d.rec && d.rec.thinking) setThinkingByMode({ grammar: true, listening: true });
+        }
+        try {
+          const rt = await STORAGE.get(THINKING_KEY);
+          if (rt) {
+            const sv = JSON.parse(rt) || {};
+            setThinkingByMode(prev => ({
+              grammar: !!sv.grammar,
+              listening: !!sv.listening,
+            }));
+          }
+        } catch (e) { /* no saved thinking prefs */ }
+        try {
+          const rdiff = await STORAGE.get(DIFF_KEY);
+          if (rdiff) { const id = JSON.parse(rdiff); if (DIFFICULTIES.some(d => d.id === id)) setDifficultyState(id); }
+        } catch (e) { /* no saved difficulty */ }
+        try {
+          const rd = await STORAGE.get(DAY_KEY);
+          if (rd) { const d = parseInt(JSON.parse(rd), 10); if (!isNaN(d) && d >= 0) setDayCount(d); }
+        } catch (e) { /* no saved day */ }
+      } finally { setLoaded(true); }
+    })();
+  }, []);
+
+  function chooseModel(id) {
+    setModelsByEngine(prev => {
+      const next = { ...prev, [engine]: { ...prev[engine], [mode]: id } };
+      STORAGE.set(MODEL_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
+
+  // toggle adaptive thinking for the current mode; persists immediately
+  function toggleThinking(modeName) {
+    setThinkingByMode(prev => {
+      const next = { ...prev, [modeName]: !prev[modeName] };
+      STORAGE.set(THINKING_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
+
+  // choose a difficulty level. Auto-applies the recommended model (for the CURRENT engine,
+  // across all 3 modes) and the recommended thinking on/off (for thinking-eligible modes).
+  function applyDifficulty(id) {
+    const d = diffById(id);
+    setDifficultyState(id);
+    STORAGE.set(DIFF_KEY, JSON.stringify(id));
+
+    // 1) recommended model for the current engine (fall back to the engine's own recommended)
+    const recModel = (d.rec && d.rec[engine]) || RECOMMENDED[mode];
+    if (recModel && MODELS.some(x => x.id === recModel)) {
+      setModelsByEngine(prev => {
+        const next = { ...prev, [engine]: { vocab: recModel, grammar: recModel, listening: recModel } };
+        STORAGE.set(MODEL_KEY, JSON.stringify(next));
+        return next;
+      });
+    }
+
+    // 2) recommended thinking on/off — only meaningful for engines/models that support it
+    const wantThinking = !!(d.rec && d.rec.thinking) && (ENG.thinkingModes || []).length > 0;
+    setThinkingByMode(prev => {
+      const next = { grammar: wantThinking, listening: wantThinking };
+      STORAGE.set(THINKING_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
+
+  function changeDay(delta) {
+    setDayCount(prev => {
+      const next = Math.max(0, prev + delta);
+      STORAGE.set(DAY_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
+
+  // open backup modal; for export, fill text asynchronously (compression is async)
+  async function openBackup(kind) {
+    if (kind === "export") {
+      setBackup({ kind: "export", text: "กำลังเตรียมข้อมูล…", msg: null });
+      const t = await exportData();
+      setBackup(b => (b && b.kind === "export" ? { ...b, text: t } : b));
+    } else {
+      setBackup({ kind: "import", text: "", msg: null });
+    }
+  }
+
+  const cur = () => M.current[mode];
+
+  async function persist(m) {
+    const st = M.current[m];
+    const payload = m === "vocab"
+      ? { words: st.data, ratings: st.ratings, genCount: st.genCount, missQ: st.missQ }
+      : m === "listening"
+      ? { lessons: st.data, ratings: st.ratings, genCount: st.genCount, missQ: st.missQ }
+      : { items: st.data, ratings: st.ratings, genCount: st.genCount };
+    const ok = await STORAGE.set(STORAGE_KEY[m], JSON.stringify(payload));
+    if (!ok) setStorageOk(false);
+  }
+
+  async function generate() {
+    const m = mode, st = cur();
+    st.generating = true; st.genErr = null; st.lastAdded = null; rerender();
+    try {
+      const avoid = m === "vocab"
+        ? Object.keys(st.data)
+        : Object.values(st.data).map(x => x.q);
+      const category = pickCategory();
+      const mdl = MODELS.find(x => x.id === models[m]) || MODELS[0];
+      const diffP = diffById(difficulty).prompt;
+      const prompt = m === "vocab" ? vocabPrompt(avoid, category, diffP) : grammarPrompt(avoid, category, diffP);
+      // adaptive thinking applies only to grammar (never vocab), AND only when engine+model support it AND user toggled it on
+      const useThinking = m !== "vocab" && thinkingSupported(m) && !!thinkingByMode[m];
+      const clean = await aiComplete({ engineId: engine, model: mdl.str, maxTokens: m === "vocab" ? 4000 : 3000, prompt, thinking: useThinking });
+      let arr;
+      try { arr = JSON.parse(clean); }
+      catch (pe) { throw new Error("แปลงคำตอบเป็น JSON ไม่ได้ — AI ตอบมาว่า: " + clean.slice(0, 200)); }
+      if (!Array.isArray(arr) || !arr.length) throw new Error("bad shape");
+
+      const newGen = st.genCount + 1;
+      const nextData = { ...st.data };
+      const fresh = [];
+      if (m === "vocab") {
+        for (const item of arr) {
+          if (!item || !item.w) continue;
+          const key = String(item.w).toLowerCase().trim();
+          if (nextData[key]) continue;
+          const obj = { w: key, pos: item.pos || "", ipa: item.ipa || "", th: item.th || "", def: item.def || "", ex: item.ex || "", gen: newGen, model: mdl.label };
+          nextData[key] = obj; fresh.push(obj);
+        }
+      } else {
+        arr.forEach((it, i) => {
+          if (!it || !it.q || !it.options || !it.answer) return;
+          const id = `g${newGen}-${i}-${Math.random().toString(36).slice(2, 6)}`;
+          const obj = { id, q: it.q, options: it.options, answer: it.answer, point: it.point || "", explain: it.explain || "", gen: newGen, model: mdl.label };
+          nextData[id] = obj; fresh.push(obj);
+        });
+      }
+      st.data = nextData; st.genCount = newGen;
+      st.deck = shuffle(fresh); st.pos = 0; st.flipped = false; st.pickedMap = {};
+      st.tab = "study"; st.lastAdded = fresh.length; st.lastCategory = category;
+      if (m === "grammar") { st.startTime = Date.now(); st.endTime = null; }
+      await persist(m);
+    } catch (e) {
+      st.genErr = "สร้างชุดใหม่ไม่สำเร็จ — " + (e && e.message ? e.message : String(e));
+    } finally {
+      st.generating = false; rerender();
+      if (!st.genErr) scrollToCards();
+    }
+  }
+
+  function buildReviewDeck() {
+    const st = cur();
+    const all = Object.values(st.data);
+    const key = m => (st.data[m]); // unused
+    const idOf = x => (mode === "vocab" ? x.w : x.id);
+    const forgot = all.filter(x => st.ratings[idOf(x)] === "forgot");
+    const sort = all.filter(x => st.ratings[idOf(x)] === "sort");
+    const built = shuffle([...forgot.slice(0, 20), ...sort.slice(0, 10)]);
+    st.deck = built; st.pos = 0; st.flipped = false; st.pickedMap = {}; st.tab = "study";
+    if (mode === "grammar") { st.startTime = Date.now(); st.endTime = null; }
+    rerender();
+    scrollToCards();
+  }
+
+  function rate(id, status, advance) {
+    const st = cur();
+    st.ratings = { ...st.ratings, [id]: status };
+    persist(mode);
+    if (advance) { st.flipped = false; st.pos = Math.min(st.pos + 1, st.deck.length); }
+    rerender();
+  }
+
+  function choose(id, key) {
+    const st = cur();
+    if (st.pickedMap[id]) return;
+    st.pickedMap = { ...st.pickedMap, [id]: key };
+    rerender();
+  }
+
+  // ---- Vocab Quiz (cloze / fill-in-the-sentence only) ----
+  function makeClozeItem(word, pool, idx, idPrefix) {
+    const letters = ["A", "B", "C", "D"];
+    const safe = word.w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp("\\b" + safe + "\\b", "i");
+    const prompt = word.ex.replace(re, "____");
+    const others = shuffle(pool.filter(x => x.w !== word.w)).slice(0, 3).map(x => x.w);
+    const opts = shuffle([word.w, ...others]);
+    return {
+      id: idPrefix + idx, prompt, options: { A: opts[0], B: opts[1], C: opts[2], D: opts[3] },
+      answer: letters[opts.indexOf(word.w)], word: word.w, th: word.th, model: word.model || "",
+    };
+  }
+  function buildVocabQuiz() {
+    const all = Object.values(M.current.vocab.data);
+    // cloze needs the word to appear in its own example sentence
+    const usable = all.filter(w => w.ex && new RegExp("\\b" + w.w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i").test(w.ex));
+    if (usable.length < 4) { setVquiz({ deck: [], pos: 0, picked: {}, start: null, end: null, tooFew: true }); return; }
+    const picks = shuffle(usable).slice(0, Math.min(10, usable.length));
+    const deck = picks.map((w, i) => makeClozeItem(w, all, i, "vq"));
+    setVquiz({ deck, pos: 0, picked: {}, start: Date.now(), end: null, isReview: false });
+  }
+  function buildMissedQuiz() {
+    const missed = Object.values(M.current.vocab.missQ || {});
+    if (!missed.length) return;
+    // re-shuffle options each review attempt
+    const deck = shuffle(missed).map((q, i) => {
+      const letters = ["A", "B", "C", "D"];
+      const correctText = q.options[q.answer];
+      const opts = shuffle(Object.values(q.options));
+      return { ...q, id: "rv" + i, options: { A: opts[0], B: opts[1], C: opts[2], D: opts[3] }, answer: letters[opts.indexOf(correctText)] };
+    });
+    setVquiz({ deck, pos: 0, picked: {}, start: Date.now(), end: null, isReview: true });
+  }
+  function chooseQuiz(id, key) {
+    setVquiz(v => (v.picked[id] ? v : { ...v, picked: { ...v.picked, [id]: key } }));
+  }
+  function nextQuiz() {
+    setVquiz(v => ({ ...v, pos: Math.min(v.pos + 1, v.deck.length) }));
+  }
+  // add a missed question to the persistent review bank (keyed by word)
+  function addMissed(item) {
+    const st = M.current.vocab;
+    const key = item.word;
+    st.missQ = { ...st.missQ, [key]: { prompt: item.prompt, options: item.options, answer: item.answer, word: item.word, th: item.th, model: item.model || "" } };
+    persist("vocab");
+  }
+  function removeMissed(word) {
+    const st = M.current.vocab;
+    const next = { ...st.missQ };
+    delete next[word];
+    st.missQ = next;
+    persist("vocab");
+    rerender();
+  }
+  function flagWrongForReview(missedWords) {
+    const st = M.current.vocab;
+    const next = { ...st.ratings };
+    missedWords.forEach(w => { next[w] = "forgot"; });
+    st.ratings = next;
+    persist("vocab");
+    rerender();
+  }
+
+  // ---- Reading: Practice (Part 7 passage + questions, timed) ----
+  async function genPractice() {
+    const st = M.current.listening;
+    st.generating = true; st.genErr = null; rerender();
+    try {
+      const category = pickCategory();
+      const mdl = MODELS.find(x => x.id === models.listening) || MODELS[0];
+      const useThinking = thinkingSupported("listening") && !!thinkingByMode.listening;
+      const clean = await aiComplete({ engineId: engine, model: mdl.str, maxTokens: 2500, prompt: listeningPracticePrompt(category, diffById(difficulty).prompt), thinking: useThinking });
+      let obj;
+      try { obj = JSON.parse(clean); }
+      catch (pe) { throw new Error("แปลงคำตอบเป็น JSON ไม่ได้ — AI ตอบมาว่า: " + clean.slice(0, 200)); }
+      if (!obj || !obj.transcript || !Array.isArray(obj.questions) || !obj.questions.length) throw new Error("bad shape");
+      const deck = obj.questions.filter(q => q && q.q && q.options && q.answer).map((q, i) => ({
+        id: "lq" + i + "-" + Math.random().toString(36).slice(2, 6),
+        q: q.q, options: q.options, answer: q.answer, explain: q.explain || "",
+      }));
+      setLquiz({ ptype: obj.ptype || "Part 7", transcript: obj.transcript, model: mdl.label, deck, pos: 0, picked: {}, start: Date.now(), end: null });
+    } catch (e) {
+      st.genErr = "สร้างชุดฝึกอ่านไม่สำเร็จ — " + (e && e.message ? e.message : String(e));
+    } finally { st.generating = false; rerender(); }
+  }
+  function chooseLQ(id, key) { setLquiz(v => (v.picked[id] ? v : { ...v, picked: { ...v.picked, [id]: key } })); }
+  function nextLQ() { setLquiz(v => ({ ...v, pos: Math.min(v.pos + 1, v.deck.length) })); }
+  function addMissedL(item, transcript, ptype) {
+    const st = M.current.listening;
+    st.missQ = { ...st.missQ, [item.id]: { id: item.id, q: item.q, options: item.options, answer: item.answer, explain: item.explain, transcript, ptype, model: lquiz ? lquiz.model : "" } };
+    persist("listening");
+  }
+  function removeMissedL(id) {
+    const st = M.current.listening;
+    const next = { ...st.missQ }; delete next[id];
+    st.missQ = next; persist("listening"); rerender();
+  }
+  function buildMissedListening() {
+    const missed = Object.values(M.current.listening.missQ || {});
+    if (!missed.length) return;
+    const deck = shuffle(missed).map((q, i) => {
+      const letters = ["A", "B", "C", "D"];
+      const correctText = q.options[q.answer];
+      const opts = shuffle(Object.values(q.options));
+      return { ...q, id: "lrv" + i, options: { A: opts[0], B: opts[1], C: opts[2], D: opts[3] }, answer: letters[opts.indexOf(correctText)] };
+    });
+    // group review: keep each transcript; show per question
+    setLquiz({ ptype: "ทวนข้อพลาด", transcript: null, model: "", deck, pos: 0, picked: {}, start: Date.now(), end: null, isReview: true });
+  }
+
+  // ---- copy helpers (for asking Coach in chat) ----
+  function openCopy(title, text) { setCopyBox({ title, text, msg: null }); }
+  function copyUnmasteredVocab() {
+    const st = M.current.vocab;
+    const all = Object.values(st.data);
+    const list = all.filter(w => { const s = st.ratings[w.w]; return s === "forgot" || s === "sort"; });
+    if (!list.length) { openCopy("คำที่ยังไม่แม่น", "ยังไม่มีคำที่ทำเครื่องหมาย 'จำไม่ได้' หรือ 'จำได้บ้าง' เลยครับ"); return; }
+    const lines = list.map((w, i) => {
+      const tag = st.ratings[w.w] === "forgot" ? "[จำไม่ได้]" : "[จำได้บ้าง]";
+      return `${i + 1}. ${w.w} ${w.pos || ""} ${w.ipa || ""} ${tag}\n   แปล: ${w.th || "-"}\n   นิยาม: ${w.def || "-"}\n   ตัวอย่าง: ${w.ex || "-"}`;
+    });
+    const text = `Coach ช่วยติวคำพวกนี้ให้หน่อย (คำที่ผมยังไม่แม่นจากแอป) — อธิบายความหมาย จุดที่ต้องระวัง แล้วลองให้ผมแต่งประโยคใช้เองด้วยนะครับ:\n\n${lines.join("\n\n")}`;
+    openCopy(`คำที่ยังไม่แม่น (${list.length} คำ)`, text);
+  }
+  function copyGrammarItem(x) {
+    const opts = ["A", "B", "C", "D"].filter(k => x.options[k]).map(k => `   ${k}. ${x.options[k]}`).join("\n");
+    const text = `Coach ช่วยอธิบายข้อนี้ให้ละเอียดหน่อยครับ — ทำไมตอบข้อนี้ และตัวเลือกอื่นผิดเพราะอะไร:\n\nโจทย์: ${x.q}\n${opts}\nเฉลย: ${x.answer}. ${x.options[x.answer]}\nคำอธิบายในแอป: ${x.explain || "-"}`;
+    openCopy("ก๊อปข้อนี้ไปถาม Coach", text);
+  }
+
+  function resetAll() {
+    setConfirmReset(true); // show in-app confirm (native confirm is blocked in the sandbox)
+  }
+  async function doReset() {
+    M.current[mode] = emptyMode();
+    if (mode === "vocab") setVquiz(null);
+    if (mode === "listening") setLquiz(null);
+    await persist(mode);
+    setConfirmReset(false);
+    rerender();
+  }
+
+  // ---- backup / restore (export/import the whole app state as a portable text blob) ----
+  function buildBackupJson() {
+    const payload = {
+      _toeic_trainer: 1,
+      day: dayCount,
+      vocab: { words: M.current.vocab.data, ratings: M.current.vocab.ratings, genCount: M.current.vocab.genCount, missQ: M.current.vocab.missQ },
+      grammar: { items: M.current.grammar.data, ratings: M.current.grammar.ratings, genCount: M.current.grammar.genCount },
+      listening: { lessons: M.current.listening.data, ratings: M.current.listening.ratings, genCount: M.current.listening.genCount, missQ: M.current.listening.missQ },
+    };
+    payload._checksum = fnv1a(canonicalBackup(payload)); // integrity tag (verified on import)
+    return JSON.stringify(payload);
+  }
+  // returns compressed backup string (or raw JSON if pako unavailable)
+  async function exportData() {
+    return await compressBackup(buildBackupJson());
+  }
+  // save backup as a downloadable .json file (resilient: no copy-paste char loss)
+  function downloadBackup() {
+    try {
+      const json = buildBackupJson(); // plain, human-readable JSON with checksum inside
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const d = new Date();
+      const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `toeic-backup-day${dayCount}-${stamp}.json`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setBackup(b => (b ? { ...b, msg: "บันทึกไฟล์แล้ว ✓ (เช็คในโฟลเดอร์ดาวน์โหลด)" } : b));
+    } catch (e) {
+      setBackup(b => (b ? { ...b, msg: "บันทึกไฟล์อัตโนมัติไม่ได้ — ใช้วิธีก๊อปข้อความด้านล่างแทนได้ครับ" } : b));
+    }
+  }
+
+  // mode="overwrite" (default) replaces everything; mode="merge" keeps existing data + ratings
+  // and only ADDS new words/items/lessons from the backup (so studied progress isn't lost).
+  async function importData(text, mode = "overwrite") {
+    let jsonStr;
+    try { jsonStr = await decompressBackup(text); }
+    catch (e) { return "คลายโค้ดบีบอัดไม่สำเร็จ (เชื่อมเน็ตแล้วลองใหม่ หรือโค้ดไม่ครบ)"; }
+    let obj;
+    try { obj = JSON.parse((jsonStr || "").trim()); } catch (e) { return "โค้ดไม่ถูกต้อง (อ่านไม่ได้)"; }
+    if (!obj || !obj._toeic_trainer) return "โค้ดนี้ไม่ใช่ข้อมูลของแอปนี้";
+    // integrity check: if the backup carries a checksum, make sure data isn't damaged
+    if (obj._checksum) {
+      const calc = fnv1a(canonicalBackup(obj));
+      if (calc !== obj._checksum) return "ไฟล์/โค้ดสำรองนี้เสียหาย (checksum ไม่ตรง) — ข้อมูลถูกแก้หรือไม่ครบ จึงไม่กู้คืนเพื่อกันข้อมูลพัง";
+    }
+    const isMerge = mode === "merge";
+    // merge rule for the data/ratings maps:
+    //  - data:    existing entries WIN (keep what's already there), incoming adds only new keys
+    //  - ratings: existing ratings WIN (don't clobber studied progress with backup's older state)
+    const mergeMap = (existing, incoming, existingWins) =>
+      existingWins ? { ...(incoming || {}), ...(existing || {}) } : { ...(existing || {}), ...(incoming || {}) };
+    try {
+      if (obj.vocab) {
+        M.current.vocab.data = isMerge ? mergeMap(M.current.vocab.data, obj.vocab.words, true) : (obj.vocab.words || {});
+        M.current.vocab.ratings = isMerge ? mergeMap(M.current.vocab.ratings, obj.vocab.ratings, true) : (obj.vocab.ratings || {});
+        M.current.vocab.genCount = isMerge ? Math.max(M.current.vocab.genCount || 0, obj.vocab.genCount || 0) : (obj.vocab.genCount || 0);
+        M.current.vocab.missQ = isMerge ? mergeMap(M.current.vocab.missQ, obj.vocab.missQ, true) : (obj.vocab.missQ || {});
+        M.current.vocab.deck = []; M.current.vocab.pos = 0; M.current.vocab.pickedMap = {};
+        await persist("vocab");
+      }
+      if (obj.grammar) {
+        M.current.grammar.data = isMerge ? mergeMap(M.current.grammar.data, obj.grammar.items, true) : (obj.grammar.items || {});
+        M.current.grammar.ratings = isMerge ? mergeMap(M.current.grammar.ratings, obj.grammar.ratings, true) : (obj.grammar.ratings || {});
+        M.current.grammar.genCount = isMerge ? Math.max(M.current.grammar.genCount || 0, obj.grammar.genCount || 0) : (obj.grammar.genCount || 0);
+        M.current.grammar.deck = []; M.current.grammar.pos = 0; M.current.grammar.pickedMap = {};
+        await persist("grammar");
+      }
+      if (obj.listening) {
+        M.current.listening.data = isMerge ? mergeMap(M.current.listening.data, obj.listening.lessons, true) : (obj.listening.lessons || {});
+        M.current.listening.ratings = isMerge ? mergeMap(M.current.listening.ratings, obj.listening.ratings, true) : (obj.listening.ratings || {});
+        M.current.listening.genCount = isMerge ? Math.max(M.current.listening.genCount || 0, obj.listening.genCount || 0) : (obj.listening.genCount || 0);
+        M.current.listening.missQ = isMerge ? mergeMap(M.current.listening.missQ, obj.listening.missQ, true) : (obj.listening.missQ || {});
+        M.current.listening.deck = []; M.current.listening.pos = 0; M.current.listening.pickedMap = {};
+        await persist("listening");
+      }
+      if (typeof obj.day === "number" && obj.day >= 0) {
+        const nextDay = isMerge ? Math.max(dayCount || 0, obj.day) : obj.day; // merge keeps the higher day count
+        setDayCount(nextDay);
+        STORAGE.set(DAY_KEY, JSON.stringify(nextDay));
+      }
+      rerender();
+      return null; // success
+    } catch (e) { return "กู้คืนไม่สำเร็จ ลองตรวจโค้ดอีกครั้ง"; }
+  }
+
+  // shared handler for every restore button: import (overwrite|merge) then reset to a clean home view
+  async function runRestore(text, mode) {
+    if (!text || !text.trim()) { setBackup(b => ({ ...b, msg: "ยังไม่มีโค้ด/ไฟล์ให้กู้คืน" })); return; }
+    const err = await importData(text, mode);
+    if (err) { setBackup(b => ({ ...b, msg: err })); return; }
+    setVquiz(null); setLquiz(null);
+    setVSection("cards"); setGSection("drill"); setLSection("strategy");
+    cur().tab = "study";
+    setBackup(b => ({ ...b, msg: (mode === "merge" ? "รวมข้อมูลสำเร็จ ✓" : "กู้คืนสำเร็จ ✓") + " กำลังกลับหน้าแรก…" }));
+    setTimeout(() => setBackup(null), 900);
+  }
+
+  const setTab = t => { cur().tab = t; rerender(); };
+  const setFlip = () => { cur().flipped = !cur().flipped; setRevealTh(false); rerender(); };
+  const setPos = fn => { const st = cur(); st.flipped = false; st.pos = fn(st.pos); setRevealTh(false); rerender(); };
+  const setBankFilter = f => { cur().bankFilter = f; rerender(); };
+
+  const st = cur();
+  const S = STATUS[mode];
+  const idOf = x => (mode === "vocab" ? x.w : x.id);
+  const counts = Object.values(st.data).reduce(
+    (acc, x) => { const s = st.ratings[idOf(x)]; if (!s) acc.new++; else acc[s]++; return acc; },
+    { new: 0, forgot: 0, sort: 0, known: 0 }
+  );
+  const total = Object.keys(st.data).length;
+  const reviewable = counts.forgot + counts.sort;
+  const card = st.deck[st.pos];
+  const sessionDone = loaded && st.tab === "study" && st.deck.length > 0 && st.pos >= st.deck.length;
+  // freeze timer the moment a grammar session is completed
+  if (mode === "grammar" && sessionDone && st.startTime && !st.endTime) {
+    st.endTime = Date.now();
+  }
+  const emptyStudy = loaded && st.tab === "study" && st.deck.length === 0;
+  const picked = card && mode === "grammar" ? st.pickedMap[card.id] : null;
+  const revealed = !!picked;
+
+  return (
+    <div style={{ minHeight: "100vh", background: C.bg, color: C.ink, fontFamily: "'Spline Sans', sans-serif", padding: "20px 14px 48px" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Spline+Sans:wght@400;500;600&display=swap');
+        * { box-sizing: border-box; }
+        @keyframes rise { from { opacity:0; transform: translateY(10px);} to {opacity:1; transform:none;} }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .rise { animation: rise .3s ease both; }
+        .spin { animation: spin 1s linear infinite; }
+        .opt { transition: background .15s, border-color .15s, transform .08s; }
+        .opt:active { transform: scale(.99); }
+        button { font-family: inherit; cursor: pointer; }
+        .flip { perspective: 1200px; }
+        .flip-inner { transition: transform .5s cubic-bezier(.4,.2,.2,1); transform-style: preserve-3d; position: relative; }
+        .flip-inner.is-flipped { transform: rotateY(180deg); }
+        .face { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+        .back { position: absolute; inset: 0; transform: rotateY(180deg); }
+      `}</style>
+
+      <div style={{ maxWidth: 600, margin: "0 auto" }}>
+        {/* header */}
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
+          <h1 style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 27, margin: 0, letterSpacing: "-0.5px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span>TOEIC <span style={{ color: C.accent }}>Trainer</span></span>
+            <span onClick={() => setShowSettings(true)} title="แตะเพื่อสลับ AI / ตั้งค่า key"
+              style={{ fontFamily: "'Spline Sans', sans-serif", fontSize: 11, fontWeight: 600, color: ENG.color, cursor: "pointer",
+              background: "#fff", border: `1.5px solid ${ENG.color}40`, borderRadius: 20, padding: "3px 9px", lineHeight: 1, whiteSpace: "nowrap" }}>
+              {ENG.icon} {ENG.name} Ver
+            </span>
+          </h1>
+          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <button onClick={() => setShowSettings(true)}
+              style={{ background: "none", border: "none", color: hasKey ? C.accent : C.red, fontSize: 12, fontWeight: 700, textDecoration: "underline" }}>
+              ⚙️ {needsKey ? (hasKey ? "ตั้งค่า" : "ใส่ API key") : "ตั้งค่า"}
+            </button>
+            <button onClick={() => openBackup("export")}
+              style={{ background: "none", border: "none", color: C.accent, fontSize: 12, fontWeight: 600, textDecoration: "underline" }}>สำรอง/กู้คืน</button>
+            <button onClick={resetAll} style={{ background: "none", border: "none", color: C.sub, fontSize: 12, textDecoration: "underline" }}>รีเซ็ต</button>
+          </div>
+        </div>
+
+        {/* DAY COUNTER */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, margin: "12px 0 2px" }}>
+          <button onClick={() => changeDay(-1)} disabled={dayCount <= 0}
+            style={{ width: 34, height: 34, borderRadius: 9, border: `1.5px solid ${C.line}`, background: "#fff",
+              color: dayCount <= 0 ? C.line : C.sub, fontSize: 19, fontWeight: 700, lineHeight: 1, display: "grid", placeItems: "center" }}>−</button>
+          <div style={{ display: "inline-flex", alignItems: "baseline", gap: 7, background: C.accentSoft, color: C.accent,
+            borderRadius: 20, padding: "7px 18px", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+            <span style={{ fontSize: 13 }}>📅 Day</span>
+            <span style={{ fontFamily: "'Fraunces', serif", fontSize: 22, lineHeight: 1 }}>{dayCount}</span>
+          </div>
+          <button onClick={() => changeDay(1)}
+            style={{ width: 34, height: 34, borderRadius: 9, border: `1.5px solid ${C.accentSoft}`, background: C.accent,
+              color: "#fff", fontSize: 19, fontWeight: 700, lineHeight: 1, display: "grid", placeItems: "center", boxShadow: "0 4px 12px -6px rgba(191,77,40,.8)" }}>+</button>
+        </div>
+        <div style={{ textAlign: "center", fontSize: 11, color: C.sub, marginBottom: 8 }}>กด + เมื่อเริ่มเรียนวันใหม่ เพื่อมาร์คว่าเรียนมากี่วันแล้ว</div>
+
+        {/* SETTINGS MODAL — choose AI engine + its API key */}
+        {showSettings && (
+          <div onClick={() => { if (hasKey) setShowSettings(false); }}
+            style={{ position: "fixed", inset: 0, background: "rgba(33,29,24,.55)", display: "grid", placeItems: "center", padding: 18, zIndex: 60 }}>
+            <div onClick={e => e.stopPropagation()} className="rise"
+              style={{ background: C.panel, borderRadius: 16, padding: "20px 18px", maxWidth: 480, width: "100%", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 20px 50px -20px rgba(0,0,0,.5)" }}>
+              <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 20, marginBottom: 10 }}>⚙️ ตั้งค่า AI</div>
+
+              {/* engine switcher — only when more than one engine is available in this environment */}
+              {Object.keys(AVAILABLE_ENGINES).length > 1 && (
+                <>
+                  <div style={{ fontSize: 12.5, color: C.sub, marginBottom: 6 }}>เลือก AI ที่จะใช้สร้างคำศัพท์/ข้อสอบ</div>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+                    {Object.keys(AVAILABLE_ENGINES).map(eid => {
+                      const e = ENGINES[eid];
+                      const on = engine === eid;
+                      const ok = e.keyStorage ? !!getKey(eid) : true;
+                      return (
+                        <button key={eid} onClick={() => switchEngine(eid)}
+                          style={{ flex: 1, textAlign: "left", borderRadius: 12, padding: "10px 12px", cursor: "pointer",
+                            border: on ? `2px solid ${e.color}` : `1.5px solid ${C.line}`,
+                            background: on ? `${e.color}0d` : "#fff" }}>
+                          <div style={{ fontWeight: 700, fontSize: 14.5, color: on ? e.color : C.ink }}>{e.icon} {e.name}</div>
+                          <div style={{ fontSize: 11, color: ok ? C.green : C.sub, marginTop: 3 }}>{e.keyStorage ? (ok ? "✓ มี key แล้ว" : "ยังไม่มี key") : "ไม่ต้องใช้ key"}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+
+              {/* API key section — only shown when current engine requires a key */}
+              {needsKey ? (
+                <>
+                  <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 16, marginBottom: 6, color: ENG.color }}>
+                    {ENG.icon} API key ของ {ENG.name}
+                  </div>
+                  <div style={{ fontSize: 13, color: C.sub, lineHeight: 1.6, marginBottom: 10 }}>
+                    ต้องใช้ <b>API key ของคุณเอง</b> — เก็บไว้ในเบราว์เซอร์เครื่องนี้เท่านั้น ไม่ได้ส่งไปไหนนอกจาก {ENG.name}
+                  </div>
+                  <ol style={{ fontSize: 13, color: C.ink, lineHeight: 1.7, paddingLeft: 20, margin: "0 0 12px" }}>
+                    <li>เปิด <a href={ENG.keyUrl} target="_blank" rel="noopener" style={{ color: ENG.color, fontWeight: 600 }}>{ENG.keyUrlLabel}</a> ({ENG.keyLogin})</li>
+                    <li>{ENG.keyCreate}</li>
+                    <li>วางในช่องด้านล่าง แล้วกด "บันทึก"</li>
+                  </ol>
+                  <input type="password" value={keyDraft} onChange={e => setKeyDraft(e.target.value)}
+                    placeholder={"วาง API key ที่นี่ (ขึ้นต้นด้วย " + ENG.keyPrefix + ")"}
+                    autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                    style={{ width: "100%", boxSizing: "border-box", fontSize: 13, fontFamily: "monospace", padding: "10px 12px", borderRadius: 10, border: `1.5px solid ${C.line}`, background: "#fff", color: C.ink, outline: "none" }} />
+                  <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                    <button onClick={() => {
+                        const k = (keyDraft || "").trim();
+                        if (!k) return;
+                        setKey(engine, k); setKeyDraft(""); setKeyTick(t => t + 1); setShowSettings(false);
+                      }}
+                      disabled={!keyDraft.trim()}
+                      style={{ flex: 1, background: keyDraft.trim() ? ENG.color : "#b9c2cf", color: "#fff", border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600, cursor: keyDraft.trim() ? "pointer" : "default" }}>
+                      บันทึก key
+                    </button>
+                    {hasKey && (
+                      <button onClick={() => { setKey(engine, ""); setKeyTick(t => t + 1); }}
+                        style={{ background: "#fff", color: C.red, border: `1.5px solid ${C.red}`, borderRadius: 11, padding: "12px 14px", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}>
+                        ลบ key
+                      </button>
+                    )}
+                  </div>
+                  {hasKey && (
+                    <div style={{ fontSize: 12.5, color: C.green, marginTop: 10, textAlign: "center" }}>
+                      ✓ ใส่ key ของ {ENG.name} ไว้แล้ว (เก็บในเครื่องนี้เท่านั้น)
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div style={{ fontSize: 13, color: C.sub, lineHeight: 1.6, padding: "12px 14px", background: "#fff", borderRadius: 11, border: `1.5px solid ${C.line}` }}>
+                  คุณกำลังเปิดแอปในโหมด <b style={{ color: ENG.color }}>{ENG.icon} {ENG.name}</b> — Claude artifact จัดการ AI ให้แล้ว ไม่ต้องใส่ API key ใดๆ
+                </div>
+              )}
+              {hasKey && (
+                <button onClick={() => setShowSettings(false)}
+                  style={{ marginTop: 10, width: "100%", background: "none", border: "none", color: C.sub, fontSize: 13, textDecoration: "underline" }}>ปิด</button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* BACKUP / RESTORE MODAL */}
+        {backup && (
+          <div onClick={() => setBackup(null)}
+            style={{ position: "fixed", inset: 0, background: "rgba(33,29,24,.45)", display: "grid", placeItems: "center", padding: 18, zIndex: 50 }}>
+            <div onClick={e => e.stopPropagation()} className="rise"
+              style={{ background: C.panel, borderRadius: 16, padding: "20px 18px", maxWidth: 460, width: "100%", boxShadow: "0 20px 50px -20px rgba(0,0,0,.5)" }}>
+              <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+                {[["export", "📤 สำรอง"], ["import", "📥 กู้คืน"]].map(([k, lbl]) => (
+                  <button key={k} onClick={() => openBackup(k)}
+                    style={{ flex: 1, border: "none", borderRadius: 9, padding: "9px", fontSize: 14, fontWeight: 600,
+                      background: backup.kind === k ? C.accent : "#efe7d7", color: backup.kind === k ? "#fff" : C.sub }}>{lbl}</button>
+                ))}
+              </div>
+
+              {backup.kind === "export" ? (
+                IS_ARTIFACT ? (
+                  <>
+                    <div style={{ fontSize: 13.5, color: C.sub, lineHeight: 1.6, marginBottom: 10 }}>
+                      ข้อมูลของคุณ <b>เซฟอัตโนมัติในแอปนี้อยู่แล้ว</b> — สำรองด้วยตัวเองเผื่อย้ายเครื่อง/เปลี่ยนเวอร์ชัน โดยกดปุ่มก๊อปด้านล่าง (ก๊อปด้วยปุ่ม = ตัวอักษรไม่หลุด) <span style={{ color: C.accent }}>· มี checksum กันข้อมูลเพี้ยน</span>
+                    </div>
+                    <button onClick={async () => {
+                        try { await navigator.clipboard.writeText(backup.text); setBackup(b => ({ ...b, msg: "ก๊อปแล้ว ✓ เอาไปวางในโน้ต/แชตเก็บไว้ได้เลย" })); }
+                        catch (e) { setBackup(b => ({ ...b, msg: "ก๊อปอัตโนมัติไม่ได้ — แตะในกล่องค้างไว้ แล้วเลือกทั้งหมด (Select All) เพื่อก๊อป" })); }
+                      }}
+                      style={{ width: "100%", background: C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "13px", fontSize: 15, fontWeight: 700, marginBottom: 12 }}>
+                      📋 ก๊อปข้อความสำรอง
+                    </button>
+                    <div style={{ fontSize: 12.5, color: C.sub, lineHeight: 1.6, marginBottom: 8 }}>
+                      (ดาวน์โหลดเป็นไฟล์ใช้ได้เฉพาะตอนเปิดแบบเว็บ standalone — ในแอป Claude จะถูกบล็อก)
+                    </div>
+                    <textarea readOnly value={backup.text} onFocus={e => e.target.select()}
+                      style={{ width: "100%", height: 90, fontSize: 12, fontFamily: "monospace", padding: 10, borderRadius: 10, border: `1px solid ${C.line}`, background: "#fbf6ec", color: C.ink, resize: "none" }} />
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 13.5, color: C.sub, lineHeight: 1.6, marginBottom: 10 }}>
+                      <b>แนะนำ:</b> กด "บันทึกเป็นไฟล์" เพื่อโหลดไฟล์ <code>.json</code> เก็บไว้ — ปลอดภัยกว่าก๊อปข้อความ (ตัวอักษรไม่หลุด) <span style={{ color: C.accent }}>· มี checksum กันข้อมูลเพี้ยน</span>
+                    </div>
+                    <button onClick={() => downloadBackup(backup.text)}
+                      style={{ width: "100%", background: C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "13px", fontSize: 15, fontWeight: 700, marginBottom: 12 }}>
+                      💾 บันทึกเป็นไฟล์ (.json)
+                    </button>
+                    <div style={{ fontSize: 12.5, color: C.sub, lineHeight: 1.6, marginBottom: 8 }}>
+                      หรือก๊อปข้อความไปเก็บเอง (ระวังตัวอักษรหลุดตอนก๊อป — แตะในกล่องแล้วเลือกทั้งหมด):
+                    </div>
+                    <textarea readOnly value={backup.text} onFocus={e => e.target.select()}
+                      style={{ width: "100%", height: 90, fontSize: 12, fontFamily: "monospace", padding: 10, borderRadius: 10, border: `1px solid ${C.line}`, background: "#fbf6ec", color: C.ink, resize: "none" }} />
+                    <button onClick={async () => {
+                        try { await navigator.clipboard.writeText(backup.text); setBackup(b => ({ ...b, msg: "ก๊อปแล้ว ✓" })); }
+                        catch (e) { setBackup(b => ({ ...b, msg: "ก๊อปอัตโนมัติไม่ได้ — แตะในกล่องแล้วก๊อปเองนะครับ" })); }
+                      }}
+                      style={{ marginTop: 8, width: "100%", background: "#efe7d7", color: C.sub, border: "none", borderRadius: 11, padding: "10px", fontSize: 13.5, fontWeight: 600 }}>
+                      ก๊อปข้อความแทน
+                    </button>
+                  </>
+                )
+              ) : (
+                IS_ARTIFACT ? (
+                  <>
+                    <div style={{ fontSize: 13.5, color: C.sub, lineHeight: 1.6, marginBottom: 10 }}>
+                      วางโค้ดสำรองที่เคยก๊อปไว้ลงในกล่องนี้ <span style={{ color: C.accent }}>· ถ้าข้อมูลเพี้ยนจะเตือนทันที</span>
+                    </div>
+                    <textarea value={backup.text} onChange={e => setBackup(b => ({ ...b, text: e.target.value, msg: null }))}
+                      placeholder="วางโค้ดสำรองที่นี่…"
+                      style={{ width: "100%", height: 110, fontSize: 12, fontFamily: "monospace", padding: 10, borderRadius: 10, border: `1px solid ${C.line}`, background: "#fff", color: C.ink, resize: "none" }} />
+                    <button onClick={() => runRestore(backup.text, "merge")}
+                      style={{ marginTop: 10, width: "100%", background: C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 700 }}>
+                      ＋ รวมข้อมูล (เก็บ progress เดิม + เพิ่มของใหม่)
+                    </button>
+                    <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.55, margin: "10px 2px 0" }}>
+                      <b>รวมข้อมูล</b> = เก็บคำ/ข้อสอบและ progress เดิมไว้ แล้วเพิ่มของใหม่จากโค้ดเข้าไป (แนะนำ)<br />
+                      <b>เขียนทับ</b> = ลบของเดิมทั้งหมด ใช้ข้อมูลจากโค้ดแทน (เฉพาะตอนอยากล้างเริ่มใหม่)
+                    </div>
+                    <button onClick={() => runRestore(backup.text, "overwrite")}
+                      style={{ marginTop: 8, width: "100%", background: "#efe7d7", color: C.sub, border: "none", borderRadius: 11, padding: "10px", fontSize: 13.5, fontWeight: 600 }}>
+                      เขียนทับทั้งหมดแทน
+                    </button>
+                  </>
+                ) : (
+                <>
+                  <div style={{ fontSize: 13.5, color: C.sub, lineHeight: 1.6, marginBottom: 10 }}>
+                    <b>แนะนำ:</b> เลือกไฟล์ <code>.json</code> ที่เคยบันทึกไว้ — จะ <b>รวมข้อมูล</b> (เก็บ progress เดิม + เพิ่มของใหม่)
+                  </div>
+                  <label style={{ display: "block", width: "100%", background: C.accent, color: "#fff", borderRadius: 11, padding: "13px", fontSize: 15, fontWeight: 700, textAlign: "center", marginBottom: 12, cursor: "pointer" }}>
+                    📂 เลือกไฟล์แล้วรวมข้อมูล (.json)
+                    <input type="file" accept=".json,application/json,text/plain" style={{ display: "none" }}
+                      onChange={async (e) => {
+                        const f = e.target.files && e.target.files[0];
+                        if (!f) return;
+                        let txt; try { txt = await f.text(); } catch (err) { setBackup(b => ({ ...b, msg: "อ่านไฟล์ไม่ได้" })); return; }
+                        await runRestore(txt, "merge");
+                      }} />
+                  </label>
+                  <div style={{ fontSize: 12.5, color: C.sub, lineHeight: 1.6, marginBottom: 8 }}>
+                    หรือวางโค้ดข้อความที่เคยสำรองไว้:
+                  </div>
+                  <textarea value={backup.text} onChange={e => setBackup(b => ({ ...b, text: e.target.value, msg: null }))}
+                    placeholder="วางโค้ดสำรองที่นี่…"
+                    style={{ width: "100%", height: 90, fontSize: 12, fontFamily: "monospace", padding: 10, borderRadius: 10, border: `1px solid ${C.line}`, background: "#fff", color: C.ink, resize: "none" }} />
+                  <button onClick={() => runRestore(backup.text, "merge")}
+                    style={{ marginTop: 8, width: "100%", background: C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "11px", fontSize: 14, fontWeight: 700 }}>
+                    ＋ รวมข้อมูลจากข้อความ
+                  </button>
+                  <button onClick={() => runRestore(backup.text, "overwrite")}
+                    style={{ marginTop: 8, width: "100%", background: "#efe7d7", color: C.sub, border: "none", borderRadius: 11, padding: "10px", fontSize: 13, fontWeight: 600 }}>
+                    เขียนทับทั้งหมดแทน
+                  </button>
+                </>
+                )
+              )}
+
+              {backup.msg && <div style={{ marginTop: 10, fontSize: 13, fontWeight: 600, color: backup.msg.includes("✓") ? C.green : C.amber, textAlign: "center" }}>{backup.msg}</div>}
+              <button onClick={() => setBackup(null)}
+                style={{ marginTop: 12, width: "100%", background: "none", border: "none", color: C.sub, fontSize: 13, textDecoration: "underline" }}>ปิด</button>
+            </div>
+          </div>
+        )}
+
+        {/* COPY-TO-CHAT MODAL (reused by vocab/grammar/listening copy buttons) */}
+        {copyBox && (
+          <div onClick={() => setCopyBox(null)}
+            style={{ position: "fixed", inset: 0, background: "rgba(33,29,24,.45)", display: "grid", placeItems: "center", padding: 18, zIndex: 50 }}>
+            <div onClick={e => e.stopPropagation()} className="rise"
+              style={{ background: C.panel, borderRadius: 16, padding: "20px 18px", maxWidth: 460, width: "100%", boxShadow: "0 20px 50px -20px rgba(0,0,0,.5)" }}>
+              <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>📋 {copyBox.title}</div>
+              <div style={{ fontSize: 12.5, color: C.sub, lineHeight: 1.6, marginBottom: 10 }}>
+                ก๊อปข้อความนี้ไปวางถาม Coach ในแชตได้เลย (ถ้าก๊อปอัตโนมัติไม่ได้ ให้แตะค้างในกล่องแล้วเลือกทั้งหมด)
+              </div>
+              <textarea readOnly value={copyBox.text} onFocus={e => e.target.select()}
+                style={{ width: "100%", height: 150, fontSize: 12.5, fontFamily: "monospace", padding: 10, borderRadius: 10, border: `1px solid ${C.line}`, background: "#fbf6ec", color: C.ink, resize: "none", lineHeight: 1.5 }} />
+              <button onClick={async () => {
+                  try { await navigator.clipboard.writeText(copyBox.text); setCopyBox(b => ({ ...b, msg: "ก๊อปแล้ว ✓" })); }
+                  catch (e) { setCopyBox(b => ({ ...b, msg: "ก๊อปอัตโนมัติไม่ได้ — แตะในกล่องแล้วก๊อปเองนะครับ" })); }
+                }}
+                style={{ marginTop: 10, width: "100%", background: C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>
+                ก๊อปข้อความ
+              </button>
+              {copyBox.msg && <div style={{ marginTop: 10, fontSize: 13, fontWeight: 600, color: copyBox.msg.includes("✓") ? C.green : C.amber, textAlign: "center" }}>{copyBox.msg}</div>}
+              <button onClick={() => setCopyBox(null)}
+                style={{ marginTop: 10, width: "100%", background: "none", border: "none", color: C.sub, fontSize: 13, textDecoration: "underline" }}>ปิด</button>
+            </div>
+          </div>
+        )}
+
+        {/* RESET CONFIRM MODAL */}
+        {confirmReset && (
+          <div onClick={() => setConfirmReset(false)}
+            style={{ position: "fixed", inset: 0, background: "rgba(33,29,24,.45)", display: "grid", placeItems: "center", padding: 18, zIndex: 50 }}>
+            <div onClick={e => e.stopPropagation()} className="rise"
+              style={{ background: C.panel, borderRadius: 16, padding: "22px 18px", maxWidth: 400, width: "100%", boxShadow: "0 20px 50px -20px rgba(0,0,0,.5)", textAlign: "center" }}>
+              <div style={{ fontSize: 34 }}>⚠️</div>
+              <div style={{ fontWeight: 700, fontSize: 17, margin: "8px 0 6px" }}>ล้างข้อมูล{MODE_LABEL[mode]}ทั้งหมด?</div>
+              <div style={{ fontSize: 13.5, color: C.sub, lineHeight: 1.65, marginBottom: 16 }}>
+                การล้างจะลบ{mode === "vocab" ? "คำศัพท์" : mode === "listening" ? "บทเรียน/ข้อฝึก" : "ข้อสอบ"} สถานะ และจำนวนชุดที่สร้างของโหมดนี้ทั้งหมด (โหมดอื่นยังอยู่ครบ) เมื่อล้างแล้ว<b style={{ color: C.red }}>จะกู้คืนไม่ได้</b> ถ้าไม่ได้กดสำรองไว้ก่อน
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => setConfirmReset(false)}
+                  style={{ flex: 1, background: "#fff", color: C.ink, border: `1.5px solid ${C.line}`, borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ยกเลิก</button>
+                <button onClick={doReset}
+                  style={{ flex: 1, background: C.red, color: "#fff", border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ล้างเลย</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODE SWITCHER */}
+        <div style={{ display: "flex", background: "#efe7d7", borderRadius: 13, padding: 4, gap: 4, margin: "12px 0 14px" }}>
+          {[["vocab", "📕 Vocab"], ["grammar", "✏️ Grammar"], ["listening", "📖 Reading"]].map(([id, lbl]) => {
+            const on = mode === id;
+            return (
+              <button key={id} onClick={() => { setMode(id); }}
+                style={{ flex: 1, border: "none", borderRadius: 10, padding: "11px 4px", fontSize: 13.5, fontWeight: 600,
+                  background: on ? C.accent : "transparent", color: on ? "#fff" : "#7a7062",
+                  boxShadow: on ? "0 4px 12px -5px rgba(191,77,40,.7)" : "none", transition: "all .15s" }}>
+                {lbl}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* DIFFICULTY SELECTOR — applies to all generation; auto-switches recommended AI */}
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+            <span style={{ fontSize: 12.5, color: C.sub, fontWeight: 600 }}>🎯 ระดับความยาก</span>
+            <span style={{ fontSize: 11, color: C.sub }}>{diffById(difficulty).band}</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+            {DIFFICULTIES.map(d => {
+              const on = difficulty === d.id;
+              const recModelObj = (ENG.models || []).find(x => x.id === (d.rec && d.rec[engine]));
+              const recLabel = recModelObj ? recModelObj.label : "";
+              return (
+                <button key={d.id} onClick={() => applyDifficulty(d.id)}
+                  style={{ textAlign: "left", border: on ? `2px solid ${C.accent}` : `1.5px solid ${C.line}`,
+                    background: on ? "#fff6f0" : "#fff", borderRadius: 11, padding: "9px 10px", cursor: "pointer", lineHeight: 1.3 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: on ? C.accent : C.ink }}>{d.icon} {d.label}</div>
+                  <div style={{ fontSize: 10.5, color: C.sub, marginTop: 3 }}>{d.blurb}</div>
+                  {recLabel && (
+                    <div style={{ fontSize: 10, color: on ? C.accent : "#9a8f7f", marginTop: 4, fontWeight: 600 }}>
+                      → {recLabel}{d.rec && d.rec.thinking ? " + thinking" : ""}
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ fontSize: 11, color: C.sub, marginTop: 6, lineHeight: 1.5 }}>
+            * เลือกระดับแล้วแอปจะ <b>สลับรุ่น AI ที่แนะนำให้อัตโนมัติ</b> (ปรับเองทีหลังได้)
+          </div>
+        </div>
+
+        {/* GRAMMAR SUB-SWITCHER: lesson vs drill */}
+        {mode === "grammar" && (
+          <div style={{ display: "flex", background: "#f0e7d5", borderRadius: 11, padding: 3, gap: 3, marginBottom: 14 }}>
+            {[["lesson", "📖 เรียน (บทเรียน)"], ["drill", "📝 ทำโจทย์"]].map(([id, lbl]) => {
+              const on = gSection === id;
+              return (
+                <button key={id} onClick={() => setGSection(id)}
+                  style={{ flex: 1, border: "none", borderRadius: 9, padding: "9px 6px", fontSize: 13.5, fontWeight: 600,
+                    background: on ? "#fffdf8" : "transparent", color: on ? C.ink : "#8a7f70",
+                    boxShadow: on ? "0 2px 6px -3px rgba(40,30,20,.5)" : "none" }}>{lbl}</button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* VOCAB SUB-SWITCHER: cards vs quiz */}
+        {mode === "vocab" && (
+          <div style={{ display: "flex", background: "#f0e7d5", borderRadius: 11, padding: 3, gap: 3, marginBottom: 14 }}>
+            {[["cards", "📇 เรียน (การ์ด)"], ["quiz", "📝 ทำโจทย์"]].map(([id, lbl]) => {
+              const on = vSection === id;
+              return (
+                <button key={id} onClick={() => setVSection(id)}
+                  style={{ flex: 1, border: "none", borderRadius: 9, padding: "9px 6px", fontSize: 13.5, fontWeight: 600,
+                    background: on ? "#fffdf8" : "transparent", color: on ? C.ink : "#8a7f70",
+                    boxShadow: on ? "0 2px 6px -3px rgba(40,30,20,.5)" : "none" }}>{lbl}</button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* LISTENING SUB-SWITCHER: strategy vs practice */}
+        {mode === "listening" && (
+          <div style={{ display: "flex", background: "#f0e7d5", borderRadius: 11, padding: 3, gap: 3, marginBottom: 14 }}>
+            {[["strategy", "🧭 Strategy (เทคนิค)"], ["practice", "📝 ฝึกอ่าน (Part 7)"]].map(([id, lbl]) => {
+              const on = lSection === id;
+              return (
+                <button key={id} onClick={() => setLSection(id)}
+                  style={{ flex: 1, border: "none", borderRadius: 9, padding: "9px 6px", fontSize: 13, fontWeight: 600,
+                    background: on ? "#fffdf8" : "transparent", color: on ? C.ink : "#8a7f70",
+                    boxShadow: on ? "0 2px 6px -3px rgba(40,30,20,.5)" : "none" }}>{lbl}</button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* ===== VOCAB QUIZ VIEW ===== */}
+        {mode === "vocab" && vSection === "quiz" && (() => {
+          const v = vquiz;
+          const total = Object.keys(M.current.vocab.data).length;
+          const missCount = Object.keys(M.current.vocab.missQ || {}).length;
+          // not started yet — show start screen + model picker + missed bank
+          if (!v) {
+            return (
+              <div className="rise">
+                <div style={{ fontSize: 13.5, color: C.sub, lineHeight: 1.6, marginBottom: 12 }}>
+                  โจทย์แบบ <b>เติมคำในประโยค</b> (เหมือนข้อสอบจริง) จากคำที่คุณสะสมไว้ ({total} คำ) ตัวเลือกหยิบจากคำอื่นในคลังของคุณเอง พร้อมจับเวลา
+                </div>
+                {/* model picker for quiz */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                  <span style={{ fontSize: 12.5, color: C.sub, flex: "0 0 auto" }}>รุ่น AI:</span>
+                  <div style={{ display: "flex", flex: 1, background: "#efe7d7", borderRadius: 10, padding: 3, gap: 3 }}>
+                    {MODELS.map(mm => {
+                      const on = models.vocab === mm.id;
+                      const rec = RECOMMENDED.vocab === mm.id;
+                      return (
+                        <button key={mm.id} onClick={() => chooseModel(mm.id)}
+                          style={{ flex: 1, border: "none", borderRadius: 8, padding: "7px 4px", fontSize: 12, fontWeight: 600, lineHeight: 1.25,
+                            background: on ? "#fffdf8" : "transparent", color: on ? C.ink : "#8a7f70",
+                            boxShadow: on ? "0 2px 6px -3px rgba(40,30,20,.5)" : "none" }}>
+                          {mm.label}<br /><span style={{ fontSize: 10, fontWeight: 400, opacity: .75 }}>{rec ? "★ แนะนำ" : mm.note}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div style={{ fontSize: 11.5, color: C.sub, marginBottom: 14 }}>* รุ่น AI ใช้กับคำที่ "สุ่มคำใหม่" ในแท็บการ์ด — ป้ายรุ่นที่สร้างประโยคจะติดอยู่กับแต่ละข้อ</div>
+
+                {total < 4 ? (
+                  <Centered>ยังมีคำไม่พอ — ไปที่ "📇 เรียน (การ์ด)" แล้วกด ✨ สร้างคำชุดแรกก่อนนะครับ</Centered>
+                ) : (
+                  <button onClick={buildVocabQuiz}
+                    style={{ width: "100%", background: C.accent, color: "#fff", border: "none", borderRadius: 13, padding: "14px", fontSize: 15.5, fontWeight: 600, boxShadow: "0 8px 20px -10px rgba(191,77,40,.9)", marginBottom: 10 }}>
+                    ▶ เริ่มทำโจทย์ ({Math.min(10, total)} ข้อ)
+                  </button>
+                )}
+                {missCount > 0 && (
+                  <button onClick={buildMissedQuiz}
+                    style={{ width: "100%", background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 13, padding: "11px", fontSize: 14, fontWeight: 600, marginBottom: 14 }}>
+                    🔁 ทวนข้อที่เคยพลาด ({missCount} ข้อ)
+                  </button>
+                )}
+
+                {/* missed bank list with remove */}
+                {missCount > 0 && (
+                  <div style={{ marginTop: 4 }}>
+                    <div style={{ fontSize: 12.5, color: C.sub, fontWeight: 600, marginBottom: 8 }}>คลังข้อที่พลาด — กด ✓ เมื่อจำได้แล้วเพื่อเอาออก</div>
+                    <div style={{ display: "grid", gap: 8 }}>
+                      {Object.values(M.current.vocab.missQ).map(q => (
+                        <div key={q.word} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 11, padding: "11px 13px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontWeight: 600, fontSize: 15 }}>{q.word} <span style={{ color: C.accent, fontWeight: 500 }}>· {q.th}</span></span>
+                            <ConfirmBtn onConfirm={() => removeMissed(q.word)} style={{ flex: "0 0 auto" }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          }
+          if (v.tooFew) {
+            return <Centered>ยังมีคำไม่พอสำหรับสร้างโจทย์เติมประโยค — ไปกด ✨ สร้างคำเพิ่มที่แท็บการ์ดก่อนนะครับ</Centered>;
+          }
+          const done = v.pos >= v.deck.length;
+          if (done && !v.end) { v.end = Date.now(); }
+          if (!done) {
+            const item = v.deck[v.pos];
+            const picked = v.picked[item.id];
+            const revealed = !!picked;
+            return (
+              <div className="rise" key={v.pos}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, color: C.sub, marginBottom: 8 }}>
+                  <span>ข้อ {v.pos + 1}/{v.deck.length}{v.isReview ? " · ทวนข้อพลาด" : ""}</span>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: C.accentSoft, color: C.accent,
+                    fontWeight: 700, fontSize: 14, padding: "4px 11px", borderRadius: 20, fontVariantNumeric: "tabular-nums" }}>
+                    ⏱ {fmtTime((v.end || now) - v.start)}
+                  </span>
+                </div>
+                <Progress pos={v.pos} len={v.deck.length} />
+                <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 16, padding: "20px 18px", boxShadow: "0 10px 30px -18px rgba(40,30,20,.4)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 8 }}>
+                    <span style={{ fontSize: 11, letterSpacing: 1, textTransform: "uppercase", color: C.accent, fontWeight: 600 }}>เติมคำในประโยค</span>
+                    {item.model ? <span style={{ fontSize: 10, color: C.accent, background: C.accentSoft, padding: "2px 8px", borderRadius: 10, fontWeight: 600 }}>ประโยคจาก {item.model}</span> : null}
+                  </div>
+                  <div style={{ fontSize: 16.5, lineHeight: 1.5, fontWeight: 500, marginBottom: 16 }}>{item.prompt}</div>
+                  <div style={{ display: "grid", gap: 9 }}>
+                    {["A", "B", "C", "D"].map(k => {
+                      const isAns = k === item.answer;
+                      const isPicked = k === picked;
+                      let bg = "#fff", bd = C.line, fg = C.ink;
+                      if (revealed) { if (isAns) { bg = C.greenBg; bd = C.green; } else if (isPicked) { bg = C.redBg; bd = C.red; } }
+                      return (
+                        <button key={k} className="opt" onClick={() => {
+                            chooseQuiz(item.id, k);
+                            if (k !== item.answer) addMissed(item); // wrong → save to bank
+                          }} disabled={revealed}
+                          style={{ textAlign: "left", display: "flex", gap: 12, alignItems: "center", background: bg, border: `1.5px solid ${bd}`, color: fg, borderRadius: 11, padding: "12px 14px", fontSize: 15.5, lineHeight: 1.4 }}>
+                          <span style={{ flex: "0 0 auto", width: 26, height: 26, borderRadius: 7,
+                            background: revealed && isAns ? C.green : revealed && isPicked ? C.red : C.accentSoft,
+                            color: revealed && (isAns || isPicked) ? "#fff" : C.accent, fontWeight: 700, fontSize: 13, display: "grid", placeItems: "center" }}>{k}</span>
+                          <span>{item.options[k]}</span>
+                          {revealed && isAns && <span style={{ marginLeft: "auto", color: C.green }}>✓</span>}
+                          {revealed && isPicked && !isAns && <span style={{ marginLeft: "auto", color: C.red }}>✕</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {revealed && (
+                    <div className="rise" style={{ marginTop: 14 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                        <span style={{ fontSize: 13.5, color: picked === item.answer ? C.green : C.red, fontWeight: 600 }}>
+                          {picked === item.answer ? "ถูกต้อง! 🎉" : `เฉลย: ${item.word} = ${item.th}`}
+                        </span>
+                        <div style={{ display: "flex", gap: 6, flex: "0 0 auto" }}>
+                          {v.isReview && picked === item.answer && (
+                            <ConfirmBtn onConfirm={() => removeMissed(item.word)} idleLabel="✓ จำได้" style={{ borderRadius: 10, padding: "10px 12px", fontSize: 13 }} />
+                          )}
+                          <button onClick={nextQuiz}
+                            style={{ background: C.accent, color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontSize: 15, fontWeight: 700, boxShadow: "0 6px 16px -8px rgba(191,77,40,.8)" }}>
+                            {v.pos + 1 >= v.deck.length ? "จบ" : "→"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          }
+          // summary
+          let correct = 0; const missedWords = [];
+          v.deck.forEach(it => { const p = v.picked[it.id]; if (p === it.answer) correct++; else missedWords.push(it.word); });
+          const n = v.deck.length;
+          const totalMs = (v.end || now) - v.start;
+          const pct = Math.round((correct / n) * 100);
+          return (
+            <div className="rise" style={{ textAlign: "center", background: C.panel, border: `1px solid ${C.line}`, borderRadius: 16, padding: "26px 18px" }}>
+              <div style={{ fontSize: 40 }}>🎉</div>
+              <div style={{ fontFamily: "'Fraunces', serif", fontSize: 24, fontWeight: 600, margin: "6px 0" }}>จบรอบนี้แล้ว!</div>
+              <div style={{ fontFamily: "'Fraunces', serif", fontSize: 46, fontWeight: 700, lineHeight: 1, color: C.accent }}>
+                {correct}<span style={{ fontSize: 24, color: C.sub }}>/{n}</span>
+              </div>
+              <div style={{ fontSize: 13, color: C.sub, marginTop: 2 }}>ถูก {pct}%</div>
+              <div style={{ display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap", margin: "16px 0 4px" }}>
+                <Stat label="ถูก" value={correct} color={C.green} bg={C.greenBg} />
+                <Stat label="ผิด" value={n - correct} color={C.red} bg={C.redBg} />
+                <Stat label="เวลารวม" value={fmtTime(totalMs)} color={C.ink} bg="#efe7d7" />
+                <Stat label="เฉลี่ย/ข้อ" value={`${(totalMs / 1000 / n).toFixed(1)}s`} color={C.ink} bg="#efe7d7" />
+              </div>
+              {missedWords.length > 0 ? (
+                <div style={{ margin: "14px auto 0", maxWidth: 420, background: C.redBg, borderRadius: 12, padding: "12px 14px", textAlign: "left" }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.red, marginBottom: 4 }}>ข้อที่พลาด ({missedWords.length}) — เก็บเข้าคลังทวนแล้ว ✓</div>
+                  <div style={{ fontSize: 14, color: C.ink, lineHeight: 1.6 }}>{missedWords.join(", ")}</div>
+                </div>
+              ) : (
+                <div style={{ margin: "14px auto 0", maxWidth: 420, fontSize: 13.5, color: C.green, fontWeight: 600 }}>ถูกหมดเลย ไม่มีข้อพลาด! 🌟</div>
+              )}
+              <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
+                <button onClick={buildVocabQuiz}
+                  style={{ flex: 1, background: C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>
+                  ทำชุดใหม่
+                </button>
+                <button onClick={() => setVquiz(null)}
+                  style={{ flex: 1, background: "#fff", color: C.sub, border: `1.5px solid ${C.line}`, borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>
+                  ออก
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+
+
+        {/* ===== GRAMMAR LESSON VIEW ===== */}
+        {mode === "grammar" && gSection === "lesson" && (() => {
+          const st = M.current.grammar;
+          const items = LESSONS.map((s, i) => ({ ...s, id: "glesson" + i, num: i + 1 }));
+          const shown = items.filter(x => { const s = st.ratings[x.id] || "new"; return gLessonFilter === "all" || s === gLessonFilter; });
+          const cnt = items.reduce((a, x) => { const s = st.ratings[x.id]; if (!s) a.new++; else a[s]++; return a; }, { new: 0, forgot: 0, sort: 0, known: 0 });
+          return (
+          <div className="rise">
+            <div style={{ fontSize: 13.5, color: C.sub, lineHeight: 1.6, marginBottom: 12 }}>
+              บทเรียนหลักไวยากรณ์ที่ออกสอบ TOEIC บ่อยที่สุด {LESSONS.length} หัวข้อ — แตะเปิดอ่าน แล้วมาร์คว่าเข้าใจแค่ไหน เก็บไว้ทวนเฉพาะที่ยังไม่แม่นได้
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "4px 0 12px" }}>
+              {[["all", `ทั้งหมด ${items.length}`], ["forgot", `ยังไม่เข้าใจ ${cnt.forgot}`], ["sort", `พอเข้าใจ ${cnt.sort}`], ["known", `เข้าใจ ${cnt.known}`]].map(([id, lbl]) => (
+                <button key={id} onClick={() => setGLessonFilter(id)}
+                  style={{ border: `1px solid ${gLessonFilter === id ? C.accent : C.line}`, background: gLessonFilter === id ? C.accentSoft : "#fff",
+                    color: gLessonFilter === id ? C.accent : C.sub, borderRadius: 20, padding: "6px 12px", fontSize: 12, fontWeight: 600 }}>{lbl}</button>
+              ))}
+            </div>
+            <div style={{ display: "grid", gap: 9 }}>
+              {shown.map((ls) => {
+                const open = openLesson === ls.id;
+                return (
+                  <div key={ls.id} style={{ background: C.panel, border: `1px solid ${open ? C.accent : C.line}`, borderRadius: 12, overflow: "hidden" }}>
+                    <button onClick={() => setOpenLesson(open ? null : ls.id)}
+                      style={{ width: "100%", textAlign: "left", background: "none", border: "none", padding: "14px 15px", display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ flex: "0 0 auto", width: 24, height: 24, borderRadius: 7, background: C.accentSoft, color: C.accent, fontWeight: 700, fontSize: 12.5, display: "grid", placeItems: "center" }}>{ls.num}</span>
+                      <span style={{ flex: 1, fontWeight: 600, fontSize: 15, color: C.ink, lineHeight: 1.35 }}>{ls.title}</span>
+                      <StatusBadge mode="grammar" status={st.ratings[ls.id]} />
+                      <span style={{ color: C.sub, fontSize: 18, transform: open ? "rotate(180deg)" : "none", transition: "transform .2s" }}>⌄</span>
+                    </button>
+                    {open && (
+                      <div className="rise" style={{ padding: "0 15px 16px 15px" }}>
+                        <div style={{ fontSize: 13.5, color: C.accent, fontWeight: 600, marginBottom: 8 }}>👉 {ls.point}</div>
+                        <div style={{ fontSize: 14, color: C.ink, lineHeight: 1.65, marginBottom: 12 }}>{ls.body}</div>
+                        <div style={{ background: "#fbf6ec", border: `1px solid ${C.line}`, borderRadius: 10, padding: "11px 13px", marginBottom: 10 }}>
+                          <div style={{ fontSize: 11.5, color: C.sub, fontWeight: 600, marginBottom: 6, textTransform: "uppercase", letterSpacing: .5 }}>ตัวอย่าง</div>
+                          {ls.examples.map((ex, j) => (
+                            <div key={j} style={{ fontSize: 14, color: C.ink, lineHeight: 1.5, marginBottom: j < ls.examples.length - 1 ? 5 : 0 }}>• {ex}</div>
+                          ))}
+                        </div>
+                        <div style={{ display: "flex", gap: 8, alignItems: "flex-start", background: C.redBg, borderRadius: 10, padding: "10px 12px", marginBottom: 10 }}>
+                          <span style={{ fontSize: 14 }}>⚠️</span>
+                          <span style={{ fontSize: 13.5, color: C.ink, lineHeight: 1.55 }}><b style={{ color: C.red }}>กับดัก:</b> {ls.trap}</span>
+                        </div>
+                        <RatingRow mode="grammar" current={st.ratings[ls.id]} onRate={s => rate(ls.id, s, false)} small />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {shown.length === 0 && <Centered>ไม่มีบทเรียนในหมวดนี้</Centered>}
+            </div>
+            <button onClick={() => setGSection("drill")}
+              style={{ width: "100%", marginTop: 16, background: C.accent, color: "#fff", border: "none", borderRadius: 13, padding: "13px", fontSize: 15, fontWeight: 600, boxShadow: "0 8px 20px -10px rgba(191,77,40,.9)" }}>
+              📝 ไปลองทำโจทย์ →
+            </button>
+          </div>
+          );
+        })()}
+
+        {/* ===== READING · STRATEGY VIEW (fixed lessons + status) ===== */}
+        {mode === "listening" && lSection === "strategy" && (() => {
+          const st = M.current.listening;
+          const items = STRATEGY.map((s, i) => ({ ...s, id: "strat" + i }));
+          const shown = items.filter(x => { const s = st.ratings[x.id] || "new"; return lFilter === "all" || s === lFilter; });
+          const cnt = items.reduce((a, x) => { const s = st.ratings[x.id]; if (!s) a.new++; else a[s]++; return a; }, { new: 0, forgot: 0, sort: 0, known: 0 });
+          return (
+            <div className="rise">
+              <div style={{ fontSize: 13.5, color: C.sub, lineHeight: 1.6, marginBottom: 12 }}>
+                เทคนิคทำ <b>TOEIC</b> ทั้งฝั่ง <b>Listening</b> (Part 1-4) และ <b>Reading</b> (Part 6-7) + กับดักที่เจอบ่อย — แตะเปิดอ่านทีละหัวข้อ แล้วมาร์คว่าเข้าใจแค่ไหน เก็บไว้ทวนเฉพาะที่ยังไม่แม่นได้
+              </div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "4px 0 12px" }}>
+                {[["all", `ทั้งหมด ${items.length}`], ["forgot", `ยังไม่เข้าใจ ${cnt.forgot}`], ["sort", `พอเข้าใจ ${cnt.sort}`], ["known", `เข้าใจ ${cnt.known}`]].map(([id, lbl]) => (
+                  <button key={id} onClick={() => setLFilter(id)}
+                    style={{ border: `1px solid ${lFilter === id ? C.accent : C.line}`, background: lFilter === id ? C.accentSoft : "#fff",
+                      color: lFilter === id ? C.accent : C.sub, borderRadius: 20, padding: "6px 12px", fontSize: 12, fontWeight: 600 }}>{lbl}</button>
+                ))}
+              </div>
+              <div style={{ display: "grid", gap: 9 }}>
+                {shown.map((ls) => {
+                  const open = openLesson === ls.id;
+                  return (
+                    <div key={ls.id} style={{ background: C.panel, border: `1px solid ${open ? C.accent : C.line}`, borderRadius: 12, overflow: "hidden" }}>
+                      <button onClick={() => setOpenLesson(open ? null : ls.id)}
+                        style={{ width: "100%", textAlign: "left", background: "none", border: "none", padding: "13px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ flex: "0 0 auto", fontSize: 10.5, color: C.accent, background: C.accentSoft, padding: "3px 8px", borderRadius: 9, fontWeight: 700 }}>{ls.part}</span>
+                        <span style={{ flex: 1, fontWeight: 600, fontSize: 14.5, color: C.ink, lineHeight: 1.35 }}>{ls.title}</span>
+                        <StatusBadge mode="listening" status={st.ratings[ls.id]} />
+                        <span style={{ color: C.sub, fontSize: 18, transform: open ? "rotate(180deg)" : "none", transition: "transform .2s" }}>⌄</span>
+                      </button>
+                      {open && (
+                        <div className="rise" style={{ padding: "0 14px 14px 14px" }}>
+                          <div style={{ fontSize: 13, color: C.accent, fontWeight: 600, marginBottom: 8 }}>{ls.point}</div>
+                          <div style={{ fontSize: 14, color: C.ink, lineHeight: 1.7, marginBottom: 10 }}>{ls.body}</div>
+                          {ls.examples && ls.examples.length > 0 && (
+                            <div style={{ background: "#fbf6ec", border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", marginBottom: 10 }}>
+                              {ls.examples.map((ex, j) => (
+                                <div key={j} style={{ fontSize: 13.5, color: C.ink, lineHeight: 1.6, marginBottom: j < ls.examples.length - 1 ? 4 : 0 }}>• {ex}</div>
+                              ))}
+                            </div>
+                          )}
+                          {ls.trap && (
+                            <div style={{ display: "flex", gap: 8, alignItems: "flex-start", background: C.redBg, borderRadius: 10, padding: "10px 12px", marginBottom: 10 }}>
+                              <span style={{ fontSize: 14 }}>⚠️</span>
+                              <span style={{ fontSize: 13.5, color: C.ink, lineHeight: 1.55 }}><b style={{ color: C.red }}>กับดัก:</b> {ls.trap}</span>
+                            </div>
+                          )}
+                          <RatingRow mode="listening" current={st.ratings[ls.id]} onRate={s => rate(ls.id, s, false)} small />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {shown.length === 0 && <Centered>ไม่มีบทเรียนในหมวดนี้</Centered>}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ===== LISTENING · PRACTICE VIEW ===== */}
+        {mode === "listening" && lSection === "practice" && (() => {
+          const st = M.current.listening;
+          const v = lquiz;
+          const missCount = Object.keys(st.missQ || {}).length;
+          if (!v) {
+            return (
+              <div className="rise">
+                <div style={{ fontSize: 13.5, color: C.sub, lineHeight: 1.6, marginBottom: 12 }}>
+                  ฝึก <b>อ่านจับใจความ</b> แนว <b>Part 7</b> (อีเมล ประกาศ โฆษณา บทความ) แล้วตอบคำถามจับเวลา — เน้นการ <b>paraphrase</b> (คำตอบมักไม่ใช้คำเดิมในเรื่อง) และการสแกนหา keyword เหมือนข้อสอบจริง
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                  <span style={{ fontSize: 12.5, color: C.sub, flex: "0 0 auto" }}>รุ่น AI:</span>
+                  <div style={{ display: "flex", flex: 1, background: "#efe7d7", borderRadius: 10, padding: 3, gap: 3 }}>
+                    {MODELS.map(mm => {
+                      const on = models.listening === mm.id; const rec = RECOMMENDED.listening === mm.id;
+                      return (
+                        <button key={mm.id} onClick={() => chooseModel(mm.id)} disabled={st.generating}
+                          style={{ flex: 1, border: "none", borderRadius: 8, padding: "7px 4px", fontSize: 12, fontWeight: 600, lineHeight: 1.25,
+                            background: on ? "#fffdf8" : "transparent", color: on ? C.ink : "#8a7f70", boxShadow: on ? "0 2px 6px -3px rgba(40,30,20,.5)" : "none" }}>
+                          {mm.label}<br /><span style={{ fontSize: 10, fontWeight: 400, opacity: .75 }}>{rec ? "★ แนะนำ" : mm.note}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Adaptive thinking toggle (listening) */}
+                {(ENG.thinkingModes || []).includes("listening") && (() => {
+                  const supported = thinkingSupported("listening");
+                  const on = !!thinkingByMode.listening && supported;
+                  return (
+                    <div onClick={() => { if (supported && !st.generating) toggleThinking("listening"); }}
+                      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+                        padding: "9px 12px", borderRadius: 11, marginBottom: 10,
+                        background: on ? "#fff" : "#efe7d7", border: on ? `1.5px solid ${ENG.color}55` : "1.5px solid transparent",
+                        opacity: supported ? 1 : 0.55, cursor: supported && !st.generating ? "pointer" : "default" }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: on ? ENG.color : C.ink }}>🧠 Adaptive thinking</span>
+                        <span style={{ fontSize: 11, color: C.sub, lineHeight: 1.4 }}>
+                          {supported
+                            ? "ให้ AI คิดละเอียดก่อนตอบ — ช้าลง แต่ข้อสอบ Part 7 เนียนขึ้น"
+                            : "Haiku ไม่รองรับ — เลือก Sonnet หรือ Opus เพื่อใช้ฟีเจอร์นี้"}
+                        </span>
+                      </div>
+                      <span style={{ flex: "0 0 auto", width: 38, height: 22, borderRadius: 999, background: on ? ENG.color : "#cdbfa6",
+                        position: "relative", boxShadow: "inset 0 1px 2px rgba(0,0,0,.15)" }}>
+                        <span style={{ position: "absolute", top: 2, left: on ? 18 : 2, width: 18, height: 18, borderRadius: "50%",
+                          background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.25)", transition: "left .15s" }} />
+                      </span>
+                    </div>
+                  );
+                })()}
+
+                <button onClick={genPractice} disabled={st.generating}
+                  style={{ width: "100%", background: st.generating ? "#d9a892" : C.accent, color: "#fff", border: "none", borderRadius: 13,
+                    padding: "14px", fontSize: 15.5, fontWeight: 600, boxShadow: "0 8px 20px -10px rgba(191,77,40,.9)",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 9, marginBottom: 10 }}>
+                  {st.generating
+                    ? <><span className="spin" style={{ width: 16, height: 16, border: "2px solid #fff", borderTopColor: "transparent", borderRadius: "50%", display: "inline-block" }} /> กำลังสร้างชุดฝึก…</>
+                    : <>✨ สร้างชุดฝึกอ่านใหม่ (Part 7)</>}
+                </button>
+                {st.genErr && <div style={{ color: C.red, fontSize: 12.5, marginBottom: 10, lineHeight: 1.5, wordBreak: "break-word", background: C.redBg, border: `1px solid ${C.red}`, borderRadius: 9, padding: "8px 10px" }}>{st.genErr}</div>}
+                {missCount > 0 && (
+                  <button onClick={buildMissedListening}
+                    style={{ width: "100%", background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 13, padding: "11px", fontSize: 14, fontWeight: 600, margin: "4px 0 14px" }}>
+                    🔁 ทวนข้อที่เคยพลาด ({missCount} ข้อ)
+                  </button>
+                )}
+                {missCount > 0 && (
+                  <div>
+                    <div style={{ fontSize: 12.5, color: C.sub, fontWeight: 600, marginBottom: 8 }}>คลังข้อที่พลาด — กด ✓ เมื่อเข้าใจแล้วเพื่อเอาออก</div>
+                    <div style={{ display: "grid", gap: 8 }}>
+                      {Object.values(st.missQ).map(q => (
+                        <div key={q.id} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 11, padding: "11px 13px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                            <span style={{ fontSize: 13.5, color: C.ink, lineHeight: 1.45 }}>{q.q}</span>
+                            <ConfirmBtn onConfirm={() => removeMissedL(q.id)} idleLabel="✓ เข้าใจแล้ว" style={{ flex: "0 0 auto", padding: "5px 10px", fontSize: 12 }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          }
+          const done = v.pos >= v.deck.length;
+          if (done && !v.end) { v.end = Date.now(); }
+          if (!done) {
+            const item = v.deck[v.pos];
+            const tx = v.transcript || item.transcript;
+            const picked = v.picked[item.id];
+            const revealed = !!picked;
+            return (
+              <div className="rise" key={v.pos}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, color: C.sub, marginBottom: 8 }}>
+                  <span>{v.ptype} · ข้อ {v.pos + 1}/{v.deck.length}</span>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    {v.model ? <span style={{ fontSize: 10, color: C.accent, background: C.accentSoft, padding: "2px 8px", borderRadius: 10, fontWeight: 600 }}>จาก {v.model}</span> : null}
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: C.accentSoft, color: C.accent,
+                      fontWeight: 700, fontSize: 14, padding: "4px 11px", borderRadius: 20, fontVariantNumeric: "tabular-nums" }}>⏱ {fmtTime((v.end || now) - v.start)}</span>
+                  </span>
+                </div>
+                <Progress pos={v.pos} len={v.deck.length} />
+                {tx && (
+                  <div style={{ background: "#fbf6ec", border: `1px solid ${C.line}`, borderRadius: 12, padding: "13px 15px", marginBottom: 12 }}>
+                    <div style={{ fontSize: 10.5, letterSpacing: 1, textTransform: "uppercase", color: C.accent, fontWeight: 600, marginBottom: 6 }}>Passage (เนื้อเรื่องสำหรับอ่าน)</div>
+                    <div style={{ fontSize: 14.5, color: C.ink, lineHeight: 1.7, whiteSpace: "pre-line" }}>{tx}</div>
+                  </div>
+                )}
+                <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 16, padding: "18px 16px", boxShadow: "0 10px 30px -18px rgba(40,30,20,.4)" }}>
+                  <div style={{ fontSize: 15.5, lineHeight: 1.5, fontWeight: 600, marginBottom: 14 }}>{item.q}</div>
+                  <div style={{ display: "grid", gap: 9 }}>
+                    {["A", "B", "C", "D"].map(k => {
+                      if (!item.options[k]) return null;
+                      const isAns = k === item.answer; const isPicked = k === picked;
+                      let bg = "#fff", bd = C.line, fg = C.ink;
+                      if (revealed) { if (isAns) { bg = C.greenBg; bd = C.green; } else if (isPicked) { bg = C.redBg; bd = C.red; } }
+                      return (
+                        <button key={k} className="opt" onClick={() => { chooseLQ(item.id, k); if (k !== item.answer && !v.isReview) addMissedL(item, tx, v.ptype); }} disabled={revealed}
+                          style={{ textAlign: "left", display: "flex", gap: 12, alignItems: "center", background: bg, border: `1.5px solid ${bd}`, color: fg, borderRadius: 11, padding: "12px 14px", fontSize: 15, lineHeight: 1.4 }}>
+                          <span style={{ flex: "0 0 auto", width: 26, height: 26, borderRadius: 7,
+                            background: revealed && isAns ? C.green : revealed && isPicked ? C.red : C.accentSoft,
+                            color: revealed && (isAns || isPicked) ? "#fff" : C.accent, fontWeight: 700, fontSize: 13, display: "grid", placeItems: "center" }}>{k}</span>
+                          <span>{item.options[k]}</span>
+                          {revealed && isAns && <span style={{ marginLeft: "auto", color: C.green }}>✓</span>}
+                          {revealed && isPicked && !isAns && <span style={{ marginLeft: "auto", color: C.red }}>✕</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {revealed && (
+                    <div className="rise" style={{ marginTop: 14 }}>
+                      <div style={{ fontWeight: 600, color: picked === item.answer ? C.green : C.red, marginBottom: 10 }}>
+                        {picked === item.answer ? "ถูกต้อง! 🎉" : `ยังไม่ใช่ — คำตอบคือ ${item.answer}`}
+                      </div>
+                      <div style={{ background: "#fbf6ec", border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", fontSize: 14, lineHeight: 1.65, marginBottom: 12 }}>
+                        <b style={{ color: C.accent }}>อธิบาย:</b> {item.explain}
+                      </div>
+                      <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                        {v.isReview && picked === item.answer && (
+                          <ConfirmBtn onConfirm={() => removeMissedL(item.id)} idleLabel="✓ เข้าใจแล้ว" style={{ borderRadius: 10, padding: "10px 12px", fontSize: 13 }} />
+                        )}
+                        <button onClick={nextLQ}
+                          style={{ background: C.accent, color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontSize: 15, fontWeight: 700, boxShadow: "0 6px 16px -8px rgba(191,77,40,.8)" }}>
+                          {v.pos + 1 >= v.deck.length ? "จบ" : "→"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          }
+          // summary
+          let correct = 0; v.deck.forEach(it => { if (v.picked[it.id] === it.answer) correct++; });
+          const n = v.deck.length; const totalMs = (v.end || now) - v.start; const pct = Math.round((correct / n) * 100);
+          return (
+            <div className="rise" style={{ textAlign: "center", background: C.panel, border: `1px solid ${C.line}`, borderRadius: 16, padding: "26px 18px" }}>
+              <div style={{ fontSize: 40 }}>🎉</div>
+              <div style={{ fontFamily: "'Fraunces', serif", fontSize: 24, fontWeight: 600, margin: "6px 0" }}>จบรอบนี้แล้ว!</div>
+              <div style={{ fontFamily: "'Fraunces', serif", fontSize: 46, fontWeight: 700, lineHeight: 1, color: C.accent }}>
+                {correct}<span style={{ fontSize: 24, color: C.sub }}>/{n}</span>
+              </div>
+              <div style={{ fontSize: 13, color: C.sub, marginTop: 2 }}>ถูก {pct}%</div>
+              <div style={{ display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap", margin: "16px 0 4px" }}>
+                <Stat label="ถูก" value={correct} color={C.green} bg={C.greenBg} />
+                <Stat label="ผิด" value={n - correct} color={C.red} bg={C.redBg} />
+                <Stat label="เวลารวม" value={fmtTime(totalMs)} color={C.ink} bg="#efe7d7" />
+              </div>
+              {correct < n
+                ? <div style={{ margin: "14px auto 0", maxWidth: 420, fontSize: 13, color: C.red, fontWeight: 600 }}>ข้อที่พลาดถูกเก็บเข้าคลังทวนแล้ว ✓</div>
+                : <div style={{ margin: "14px auto 0", fontSize: 13.5, color: C.green, fontWeight: 600 }}>ถูกหมดเลย! 🌟</div>}
+              <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
+                <button onClick={genPractice} disabled={st.generating}
+                  style={{ flex: 1, background: C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ชุดใหม่</button>
+                <button onClick={() => setLquiz(null)}
+                  style={{ flex: 1, background: "#fff", color: C.sub, border: `1.5px solid ${C.line}`, borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ออก</button>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ===== DRILL / VOCAB AREA (gen, stats, tabs, cards) ===== */}
+        {!(mode === "grammar" && gSection === "lesson") && !(mode === "vocab" && vSection === "quiz") && mode !== "listening" && (
+          <>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12, fontSize: 13, color: C.sub }}>
+          <span>สร้างไปแล้ว <b style={{ color: C.accent, fontSize: 15 }}>{st.genCount}</b> ชุด</span>
+          <span style={{ color: C.line }}>•</span>
+          <span>{mode === "vocab" ? "คำสะสม" : "ข้อสะสม"} <b style={{ color: C.ink }}>{total}</b></span>
+        </div>
+
+        {/* model picker (per mode, remembers choice) */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+          <span style={{ fontSize: 12.5, color: C.sub, flex: "0 0 auto" }}>รุ่น AI:</span>
+          <div style={{ display: "flex", flex: 1, background: "#efe7d7", borderRadius: 10, padding: 3, gap: 3 }}>
+            {MODELS.map(mm => {
+              const on = models[mode] === mm.id;
+              const rec = RECOMMENDED[mode] === mm.id;
+              return (
+                <button key={mm.id} onClick={() => chooseModel(mm.id)} disabled={st.generating}
+                  style={{ position: "relative", flex: 1, border: "none", borderRadius: 8, padding: "7px 4px", fontSize: 12, fontWeight: 600, lineHeight: 1.25,
+                    background: on ? "#fffdf8" : "transparent", color: on ? C.ink : "#8a7f70",
+                    boxShadow: on ? "0 2px 6px -3px rgba(40,30,20,.5)" : "none" }}>
+                  {mm.label}<br /><span style={{ fontSize: 10, fontWeight: 400, opacity: .75 }}>{rec ? "★ แนะนำ" : mm.note}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Adaptive thinking toggle — shown only for modes/engines/models that support it (never for vocab) */}
+        {mode !== "vocab" && (ENG.thinkingModes || []).includes(mode) && (() => {
+          const supported = thinkingSupported(mode);
+          const on = !!thinkingByMode[mode] && supported;
+          return (
+            <div onClick={() => { if (supported && !st.generating) toggleThinking(mode); }}
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+                padding: "9px 12px", borderRadius: 11, marginBottom: 10,
+                background: on ? "#fff" : "#efe7d7", border: on ? `1.5px solid ${ENG.color}55` : "1.5px solid transparent",
+                opacity: supported ? 1 : 0.55, cursor: supported && !st.generating ? "pointer" : "default" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: on ? ENG.color : C.ink }}>🧠 Adaptive thinking</span>
+                <span style={{ fontSize: 11, color: C.sub, lineHeight: 1.4 }}>
+                  {supported
+                    ? "ให้ AI คิดละเอียดก่อนตอบ — ช้าลง แต่ข้อสอบคุณภาพสูงขึ้น"
+                    : "Haiku ไม่รองรับ — เลือก Sonnet หรือ Opus เพื่อใช้ฟีเจอร์นี้"}
+                </span>
+              </div>
+              {/* simple visual switch */}
+              <span style={{ flex: "0 0 auto", width: 38, height: 22, borderRadius: 999, background: on ? ENG.color : "#cdbfa6",
+                position: "relative", transition: "background .15s", boxShadow: "inset 0 1px 2px rgba(0,0,0,.15)" }}>
+                <span style={{ position: "absolute", top: 2, left: on ? 18 : 2, width: 18, height: 18, borderRadius: "50%",
+                  background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.25)", transition: "left .15s" }} />
+              </span>
+            </div>
+          );
+        })()}
+
+        {/* generate */}
+        <button onClick={generate} disabled={st.generating}
+          style={{ width: "100%", background: st.generating ? "#d9a892" : C.accent, color: "#fff", border: "none", borderRadius: 13,
+            padding: "14px 18px", fontSize: 15.5, fontWeight: 600, boxShadow: "0 8px 20px -10px rgba(191,77,40,.9)",
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 9, marginBottom: 10 }}>
+          {st.generating ? (
+            <><span className="spin" style={{ width: 16, height: 16, border: "2px solid #fff", borderTopColor: "transparent", borderRadius: "50%", display: "inline-block" }} /> กำลังสร้าง{mode === "vocab" ? "คำ" : "ข้อ"}ใหม่…</>
+          ) : (
+            <>✨ สุ่ม{mode === "vocab" ? "คำ" : "ข้อ"}ชุดใหม่ ({BATCH[mode]} {mode === "vocab" ? "คำ" : "ข้อ"})</>
+          )}
+        </button>
+        {reviewable > 0 && !st.generating && (
+          <button onClick={buildReviewDeck}
+            style={{ width: "100%", background: C.amberBg, color: C.ink, border: `1.5px solid ${C.amber}`, borderRadius: 13, padding: "13px",
+              fontSize: 14.5, fontWeight: 700, marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            🔁 ทวน{mode === "vocab" ? "คำ" : "ข้อ"}ที่ยังไม่แม่น ({reviewable} {mode === "vocab" ? "คำ" : "ข้อ"})
+          </button>
+        )}
+        {st.genErr && <div style={{ color: C.red, fontSize: 12.5, marginBottom: 10, lineHeight: 1.5, wordBreak: "break-word", background: C.redBg, border: `1px solid ${C.red}`, borderRadius: 9, padding: "8px 10px" }}>{st.genErr}</div>}
+        {st.lastAdded != null && !st.generating && (
+          <div style={{ color: C.green, fontSize: 13, marginBottom: 10 }}>
+            เพิ่ม{mode === "vocab" ? "คำ" : "ข้อ"}ใหม่ {st.lastAdded} {mode === "vocab" ? "คำ" : "ข้อ"}เรียบร้อย ✓
+            {st.lastCategory ? <span style={{ color: C.sub }}> · หมวด: {st.lastCategory}</span> : null}
+          </div>
+        )}
+
+        {/* stat pills */}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+          <Pill bg={NEW_META.bg} fg={NEW_META.color} label={`ใหม่ ${counts.new}`} />
+          <Pill bg={S.forgot.bg} fg={S.forgot.color} label={`${S.forgot.short} ${counts.forgot}`} />
+          <Pill bg={S.sort.bg} fg={S.sort.color} label={`${S.sort.short} ${counts.sort}`} />
+          <Pill bg={S.known.bg} fg={S.known.color} label={`${S.known.short} ${counts.known}`} />
+        </div>
+
+        {/* VOCAB: shortcut to review missed quiz questions (jumps into quiz view) */}
+        {mode === "vocab" && Object.keys(M.current.vocab.missQ || {}).length > 0 && (
+          <button onClick={() => { setVSection("quiz"); buildMissedQuiz(); try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch (e) {} }}
+            style={{ width: "100%", background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 12, padding: "11px", fontSize: 13.5, fontWeight: 600, marginBottom: 14 }}>
+            🔁 ทวนข้อสอบที่เคยตอบผิด ({Object.keys(M.current.vocab.missQ).length} ข้อ)
+          </button>
+        )}
+
+        {/* tabs */}
+        <div style={{ display: "inline-flex", background: "#efe7d7", borderRadius: 11, padding: 3, gap: 3, marginBottom: 16 }}>
+          {[["study", mode === "vocab" ? "เรียน (การ์ด)" : "ฝึกทำ (ข้อสอบ)"], ["bank", mode === "vocab" ? "คลังคำศัพท์" : "คลังข้อสอบ"]].map(([id, lbl]) => (
+            <button key={id} onClick={() => setTab(id)}
+              style={{ border: "none", borderRadius: 9, padding: "8px 16px", fontSize: 13.5, fontWeight: 600,
+                background: st.tab === id ? "#fffdf8" : "transparent", color: st.tab === id ? C.ink : "#7a7062",
+                boxShadow: st.tab === id ? "0 2px 6px -3px rgba(40,30,20,.5)" : "none" }}>{lbl}</button>
+          ))}
+        </div>
+
+        {!storageOk && <div style={{ fontSize: 12, color: C.amber, marginBottom: 12, lineHeight: 1.5 }}>* ที่เปิดอยู่นี้บันทึกข้ามรอบอัตโนมัติไม่ได้ — กด "สำรอง/กู้คืน" มุมขวาบนเพื่อเก็บข้อมูลเองก่อนปิดนะครับ</div>}
+        {!loaded && <Centered>กำลังโหลด…</Centered>}
+
+        {/* scroll anchor: jump here when a deck is built (gen or review) */}
+        <div ref={cardAreaRef} style={{ scrollMarginTop: 12 }} />
+
+        {/* EMPTY */}
+        {loaded && st.tab === "study" && emptyStudy && (
+          <Centered>
+            {total === 0
+              ? `ยังไม่มี${mode === "vocab" ? "คำศัพท์" : "ข้อสอบ"} — กดปุ่ม ✨ ด้านบนเพื่อสร้างชุดแรกได้เลยครับ`
+              : "เด็คว่างอยู่ — กด ✨ สร้างใหม่ หรือ 🔁 ทวนของเก่า"}
+          </Centered>
+        )}
+
+        {/* ===== VOCAB STUDY ===== */}
+        {loaded && mode === "vocab" && st.tab === "study" && !emptyStudy && !sessionDone && card && (
+          <div className="rise" key={st.pos}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, color: C.sub, marginBottom: 8 }}>
+              <span>การ์ด {st.pos + 1}/{st.deck.length}</span>
+              <StatusBadge mode={mode} status={st.ratings[card.w]} />
+            </div>
+            <Progress pos={st.pos} len={st.deck.length} />
+            <div className="flip" onClick={setFlip} style={{ cursor: "pointer", marginBottom: 16 }}>
+              <div className={"flip-inner" + (st.flipped ? " is-flipped" : "")} style={{ minHeight: 230 }}>
+                <div className="face" style={faceStyle()}>
+                  <div style={{ fontSize: 11, letterSpacing: 1, textTransform: "uppercase", color: C.accent, fontWeight: 600 }}>คำศัพท์</div>
+                  <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 38, lineHeight: 1.1, margin: "14px 0 8px", textAlign: "center" }}>{card.w}</div>
+                  <div style={{ color: C.sub, fontSize: 16 }}>{card.ipa}</div>
+                  <div style={{ color: C.sub, fontSize: 13, marginTop: 4 }}>{card.pos}</div>
+                  <div style={{ marginTop: 18, fontSize: 12.5, color: C.sub }}>แตะเพื่อดูคำใบ้ (นิยาม + ประโยค) ↻</div>
+                </div>
+                <div className="face back" style={faceStyle()}>
+                  <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 22, marginBottom: 8 }}>{card.w}</div>
+                  {revealTh ? (
+                    <div style={{ fontSize: 19, fontWeight: 600, color: C.accent, marginBottom: 10, textAlign: "center" }}>{card.th}</div>
+                  ) : (
+                    <button onClick={(e) => { e.stopPropagation(); setRevealTh(true); }}
+                      style={{ marginBottom: 10, border: `1.5px dashed ${C.accent}`, background: C.accentSoft, color: C.accent,
+                        borderRadius: 10, padding: "7px 16px", fontSize: 13.5, fontWeight: 600 }}>
+                      👁 แตะเพื่อดูคำแปล (ลองเดาจากด้านล่างก่อน)
+                    </button>
+                  )}
+                  <div style={{ fontSize: 14, color: C.ink, lineHeight: 1.5, textAlign: "center" }}>{card.def}</div>
+                  <div style={{ marginTop: 12, fontSize: 14, color: C.sub, fontStyle: "italic", lineHeight: 1.5, textAlign: "center" }}>“{card.ex}”</div>
+                </div>
+              </div>
+            </div>
+            <RatingRow mode={mode} current={st.ratings[card.w]} onRate={s => rate(card.w, s, true)} big />
+            <NavRow pos={st.pos} len={st.deck.length} onPrev={() => setPos(p => Math.max(p - 1, 0))} onNext={() => setPos(p => Math.min(p + 1, st.deck.length))} />
+          </div>
+        )}
+
+        {/* ===== GRAMMAR STUDY ===== */}
+        {loaded && mode === "grammar" && st.tab === "study" && !emptyStudy && !sessionDone && card && (
+          <div className="rise" key={card.id}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, color: C.sub, marginBottom: 8 }}>
+              <span>ข้อ {st.pos + 1}/{st.deck.length}</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: C.accentSoft, color: C.accent,
+                  fontWeight: 700, fontSize: 14, padding: "4px 11px", borderRadius: 20, fontVariantNumeric: "tabular-nums" }}>
+                  ⏱ {fmtTime((st.endTime || now) - (st.startTime || now))}
+                </span>
+                <StatusBadge mode={mode} status={st.ratings[card.id]} />
+              </span>
+            </div>
+            <Progress pos={st.pos} len={st.deck.length} />
+            <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 16, padding: "20px 18px", boxShadow: "0 10px 30px -18px rgba(40,30,20,.4)" }}>
+              {card.point && (
+                <div style={{ fontSize: 11, letterSpacing: 1, textTransform: "uppercase", color: C.accent, fontWeight: 600, marginBottom: 10 }}>Part 5 · {card.point}</div>
+              )}
+              <div style={{ fontSize: 17.5, lineHeight: 1.55, fontWeight: 500, marginBottom: 16 }}>{card.q}</div>
+              <div style={{ display: "grid", gap: 9 }}>
+                {["A", "B", "C", "D"].map(k => {
+                  if (!card.options[k]) return null;
+                  const isAns = k === card.answer;
+                  const isPicked = k === picked;
+                  let bg = "#fff", bd = C.line, fg = C.ink;
+                  if (revealed) { if (isAns) { bg = C.greenBg; bd = C.green; } else if (isPicked) { bg = C.redBg; bd = C.red; } }
+                  return (
+                    <button key={k} className="opt" onClick={() => choose(card.id, k)} disabled={revealed}
+                      style={{ textAlign: "left", display: "flex", gap: 12, alignItems: "center", background: bg, border: `1.5px solid ${bd}`, color: fg, borderRadius: 11, padding: "12px 14px", fontSize: 15.5, lineHeight: 1.4 }}>
+                      <span style={{ flex: "0 0 auto", width: 26, height: 26, borderRadius: 7,
+                        background: revealed && isAns ? C.green : revealed && isPicked ? C.red : C.accentSoft,
+                        color: revealed && (isAns || isPicked) ? "#fff" : C.accent, fontWeight: 700, fontSize: 13, display: "grid", placeItems: "center" }}>{k}</span>
+                      <span>{card.options[k]}</span>
+                      {revealed && isAns && <span style={{ marginLeft: "auto", color: C.green }}>✓</span>}
+                      {revealed && isPicked && !isAns && <span style={{ marginLeft: "auto", color: C.red }}>✕</span>}
+                    </button>
+                  );
+                })}
+              </div>
+              {revealed && (
+                <div className="rise" style={{ marginTop: 16 }}>
+                  <div style={{ fontWeight: 600, color: picked === card.answer ? C.green : C.red, marginBottom: 10 }}>
+                    {picked === card.answer ? "ถูกต้อง! 🎉" : `ยังไม่ใช่ — คำตอบคือ ${card.answer}`}
+                  </div>
+
+                  {/* action row: rating + next in one line, above explanation (tap fast, read later) */}
+                  <div style={{ display: "flex", gap: 6, alignItems: "stretch", marginBottom: 14 }}>
+                    {[["forgot", "ไม่เข้าใจ"], ["sort", "พอเข้าใจ"], ["known", "เข้าใจ"]].map(([s, lbl]) => {
+                      const on = st.ratings[card.id] === s;
+                      const SS = STATUS.grammar[s];
+                      return (
+                        <button key={s} onClick={() => rate(card.id, s, false)}
+                          style={{ flex: 1, border: `1.5px solid ${on ? SS.color : C.line}`, background: on ? SS.bg : "#fff",
+                            color: on ? SS.color : C.ink, borderRadius: 10, padding: "11px 4px", fontSize: 12.5, fontWeight: 600, lineHeight: 1.2 }}>
+                          {lbl}
+                        </button>
+                      );
+                    })}
+                    <button onClick={() => setPos(p => Math.min(p + 1, st.deck.length))}
+                      style={{ flex: "0 0 auto", minWidth: 58, background: C.accent, color: "#fff", border: "none", borderRadius: 10,
+                        padding: "11px 14px", fontSize: 17, fontWeight: 700, boxShadow: "0 6px 16px -8px rgba(191,77,40,.8)" }}>
+                      {st.pos + 1 >= st.deck.length ? "จบ" : "→"}
+                    </button>
+                  </div>
+
+                  <div style={{ background: "#fbf6ec", border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", fontSize: 14.5, lineHeight: 1.65 }}>
+                    <b style={{ color: C.accent }}>อธิบาย:</b> {card.explain}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* SESSION DONE */}
+        {loaded && st.tab === "study" && sessionDone && (() => {
+          // grammar scoring
+          let correct = 0, answered = 0, totalMs = 0, n = st.deck.length;
+          if (mode === "grammar") {
+            st.deck.forEach(c => {
+              const p = st.pickedMap[c.id];
+              if (p) { answered++; if (p === c.answer) correct++; }
+            });
+            totalMs = (st.endTime || now) - st.startTime;
+          }
+          const wrong = answered - correct;
+          const avg = answered ? totalMs / answered : 0;
+          const pct = n ? Math.round((correct / n) * 100) : 0;
+          return (
+            <div className="rise" style={{ textAlign: "center", background: C.panel, border: `1px solid ${C.line}`, borderRadius: 16, padding: "28px 18px" }}>
+              <div style={{ fontSize: 40 }}>🎉</div>
+              <div style={{ fontFamily: "'Fraunces', serif", fontSize: 24, fontWeight: 600, margin: "8px 0" }}>จบรอบนี้แล้ว!</div>
+
+              {mode === "grammar" && (
+                <>
+                  <div style={{ fontFamily: "'Fraunces', serif", fontSize: 46, fontWeight: 700, lineHeight: 1, color: C.accent, marginTop: 6 }}>
+                    {correct}<span style={{ fontSize: 24, color: C.sub }}>/{n}</span>
+                  </div>
+                  <div style={{ fontSize: 13, color: C.sub, marginTop: 2 }}>ถูก {pct}%</div>
+
+                  <div style={{ display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap", margin: "16px 0 4px" }}>
+                    <Stat label="ถูก" value={correct} color={C.green} bg={C.greenBg} />
+                    <Stat label="ผิด" value={wrong} color={C.red} bg={C.redBg} />
+                    <Stat label="เวลารวม" value={fmtTime(totalMs)} color={C.ink} bg="#efe7d7" />
+                    <Stat label="เฉลี่ย/ข้อ" value={`${(avg / 1000).toFixed(1)}s`} color={C.ink} bg="#efe7d7" />
+                  </div>
+                  <div style={{ fontSize: 12.5, color: C.sub, maxWidth: 360, margin: "10px auto 0", lineHeight: 1.6 }}>
+                    เป้าความเร็ว Part 5 จริง ≈ <b>20–30 วินาที/ข้อ</b> · ตอบไป {answered}/{n} ข้อ
+                  </div>
+                </>
+              )}
+
+              <div style={{ color: C.sub, fontSize: 14, lineHeight: 1.6, maxWidth: 380, margin: "16px auto 0" }}>
+                สถานะบันทึกไว้แล้ว · กด ✨ ด้านบนเพื่อสร้างชุดใหม่ หรือ 🔁 ทวนของที่ยังไม่แม่น
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* BANK */}
+        {loaded && st.tab === "bank" && (
+          <div className="rise">
+            {total === 0 ? (
+              <Centered>ยังไม่มีของในคลัง — กด ✨ สร้างชุดแรกก่อนนะครับ</Centered>
+            ) : (
+              <>
+                {mode === "vocab" && reviewable > 0 && (
+                  <button onClick={copyUnmasteredVocab}
+                    style={{ width: "100%", background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 12, padding: "11px", fontSize: 13.5, fontWeight: 600, marginBottom: 12 }}>
+                    📋 ก๊อปคำที่ยังไม่แม่นไปถาม Coach ({reviewable} คำ)
+                  </button>
+                )}
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+                  {[["all", "ทั้งหมด"], ["new", "ใหม่"], ["forgot", S.forgot.short], ["sort", S.sort.short], ["known", S.known.short]].map(([id, lbl]) => (
+                    <button key={id} onClick={() => setBankFilter(id)}
+                      style={{ border: `1px solid ${st.bankFilter === id ? C.accent : C.line}`, background: st.bankFilter === id ? C.accentSoft : "#fff",
+                        color: st.bankFilter === id ? C.accent : C.sub, borderRadius: 20, padding: "6px 13px", fontSize: 12.5, fontWeight: 600 }}>{lbl}</button>
+                  ))}
+                </div>
+                <div style={{ display: "grid", gap: 10 }}>
+                  {Object.values(st.data).filter(x => { const s = st.ratings[idOf(x)] || "new"; return st.bankFilter === "all" || s === st.bankFilter; })
+                    .sort((a, b) => (b.gen || 0) - (a.gen || 0))
+                    .map(x => mode === "vocab" ? (
+                      <div key={x.w} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "13px 14px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+                          <div>
+                            <span style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 18 }}>{x.w}</span>
+                            <span style={{ color: C.sub, fontSize: 13, marginLeft: 8 }}>{x.ipa}</span>
+                          </div>
+                          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                            {x.model ? <span style={{ fontSize: 10, color: C.accent, background: C.accentSoft, padding: "1px 6px", borderRadius: 10 }}>{x.model}</span> : null}
+                            {x.gen ? <span style={{ fontSize: 11, color: C.sub }}>ชุด {x.gen}</span> : null}
+                            <StatusBadge mode={mode} status={st.ratings[x.w]} />
+                          </div>
+                        </div>
+                        <div style={{ fontSize: 14.5, color: C.accent, fontWeight: 600, marginTop: 3 }}>{x.th}</div>
+                        <div style={{ fontSize: 13.5, color: C.sub, marginTop: 2, lineHeight: 1.45 }}>{x.def}</div>
+                        <RatingRow mode={mode} current={st.ratings[x.w]} onRate={s => rate(x.w, s, false)} small />
+                      </div>
+                    ) : (
+                      <div key={x.id} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "13px 14px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
+                          <span style={{ fontSize: 11, color: C.accent, fontWeight: 600, textTransform: "uppercase", letterSpacing: .5 }}>{x.point || "Part 5"}</span>
+                          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                            {x.model ? <span style={{ fontSize: 10, color: C.accent, background: C.accentSoft, padding: "1px 6px", borderRadius: 10 }}>{x.model}</span> : null}
+                            {x.gen ? <span style={{ fontSize: 11, color: C.sub }}>ชุด {x.gen}</span> : null}
+                            <StatusBadge mode={mode} status={st.ratings[x.id]} />
+                          </div>
+                        </div>
+                        <div style={{ fontSize: 15, lineHeight: 1.5, fontWeight: 500 }}>{x.q}</div>
+                        <div style={{ fontSize: 13.5, color: C.green, fontWeight: 600, marginTop: 6 }}>เฉลย: {x.answer}. {x.options?.[x.answer]}</div>
+                        <div style={{ fontSize: 13, color: C.sub, marginTop: 3, lineHeight: 1.5 }}>{x.explain}</div>
+                        <button onClick={() => copyGrammarItem(x)}
+                          style={{ marginTop: 8, background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 9, padding: "7px 12px", fontSize: 12.5, fontWeight: 600 }}>
+                          📋 ก๊อปข้อนี้ไปถาม Coach
+                        </button>
+                        <RatingRow mode={mode} current={st.ratings[x.id]} onRate={s => rate(x.id, s, false)} small />
+                      </div>
+                    ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+        </>
+        )}
+
+        <p style={{ textAlign: "center", color: C.sub, fontSize: 12, marginTop: 22, lineHeight: 1.6 }}>
+          {mode === "vocab"
+            ? `คำสร้างโดย AI (${(MODELS.find(x => x.id === models[mode]) || MODELS[0]).label}) · ฟังเสียงจริงที่ YouGlish หรือ dictionary`
+            : mode === "listening"
+            ? `บทเรียน/ข้อฝึกสร้างโดย AI (${(MODELS.find(x => x.id === models[mode]) || MODELS[0]).label}) · Strategy ครอบคลุมทั้ง Listening + Reading · ฝึกฟังเสียงจริงเสริมที่ YouTube ("TOEIC Listening Practice Test full")`
+            : `ข้อสอบสร้างโดย AI (${(MODELS.find(x => x.id === models[mode]) || MODELS[0]).label}) เพื่อฝึกซ้อม`}
+          {" "}· สถานะบันทึกอัตโนมัติ แยกของแต่ละโหมด
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function Progress({ pos, len }) {
+  return (
+    <div style={{ height: 5, borderRadius: 3, background: C.line, marginBottom: 16, overflow: "hidden" }}>
+      <div style={{ height: "100%", width: `${(pos / len) * 100}%`, background: C.accent, transition: "width .3s" }} />
+    </div>
+  );
+}
+function RatingRow({ mode, current, onRate, big, small }) {
+  const S = STATUS[mode];
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: small ? 6 : 8, marginTop: small ? 10 : 0 }}>
+      {["forgot", "sort", "known"].map(s => {
+        const on = current === s;
+        return (
+          <button key={s} onClick={() => onRate(s)}
+            style={{ border: `1.5px solid ${on ? S[s].color : C.line}`, background: on ? S[s].bg : "#fff",
+              color: on ? S[s].color : (small ? C.sub : C.ink), borderRadius: small ? 9 : 11,
+              padding: small ? "8px 4px" : (big ? "11px 6px" : "10px 6px"), fontSize: small ? 12.5 : 13.5, fontWeight: 600 }}>
+            {small ? S[s].short : S[s].label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+function NavRow({ pos, len, onPrev, onNext }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", marginTop: 14 }}>
+      <button onClick={onPrev} disabled={pos === 0} style={{ background: "none", border: "none", color: pos === 0 ? C.line : C.sub, fontSize: 14 }}>← ก่อนหน้า</button>
+      <button onClick={onNext} style={{ background: "none", border: "none", color: C.sub, fontSize: 14 }}>ข้าม →</button>
+    </div>
+  );
+}
+function faceStyle() {
+  return { background: C.panel, border: `1px solid ${C.line}`, borderRadius: 16,
+    boxShadow: "0 10px 30px -18px rgba(40,30,20,.4)", padding: "26px 18px",
+    minHeight: 230, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" };
+}
+function StatusBadge({ mode, status }) {
+  const S = STATUS[mode];
+  const m = status ? S[status] : NEW_META;
+  return <span style={{ background: m.bg, color: m.color, fontSize: 11.5, fontWeight: 600, padding: "3px 9px", borderRadius: 20, whiteSpace: "nowrap" }}>{status ? S[status].short : "ใหม่"}</span>;
+}
+function Pill({ bg, fg, label }) {
+  return <span style={{ background: bg, color: fg, fontSize: 12.5, fontWeight: 600, padding: "5px 11px", borderRadius: 20 }}>{label}</span>;
+}
+function Stat({ label, value, color, bg }) {
+  return (
+    <div style={{ background: bg, borderRadius: 11, padding: "10px 14px", minWidth: 72 }}>
+      <div style={{ fontSize: 19, fontWeight: 700, color, lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>{value}</div>
+      <div style={{ fontSize: 11.5, color: C.sub, marginTop: 2 }}>{label}</div>
+    </div>
+  );
+}
+function Centered({ children }) {
+  return <div style={{ display: "grid", placeItems: "center", textAlign: "center", minHeight: 200, color: C.sub, padding: 20, lineHeight: 1.6 }}>{children}</div>;
+}
+
+// tap-once shows "แน่ใจ? ลบเลย"; tap-again confirms. auto-reverts after 3s so a stray tap is harmless.
+function ConfirmBtn({ onConfirm, idleLabel, confirmLabel, style }) {
+  const [armed, setArmed] = React.useState(false);
+  React.useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(false), 3000);
+    return () => clearTimeout(t);
+  }, [armed]);
+  const base = { borderRadius: 8, padding: "5px 11px", fontSize: 12.5, fontWeight: 600, border: "1px solid", whiteSpace: "nowrap" };
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); if (armed) { setArmed(false); onConfirm(); } else { setArmed(true); } }}
+      style={{ ...base,
+        background: armed ? C.red : C.greenBg, color: armed ? "#fff" : C.green,
+        borderColor: armed ? C.red : C.green, ...(style || {}) }}>
+      {armed ? (confirmLabel || "แน่ใจ? ลบเลย") : (idleLabel || "✓ จำได้แล้ว")}
+    </button>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
