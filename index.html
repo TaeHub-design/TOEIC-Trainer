@@ -1,32 +1,17 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="th">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="apple-mobile-web-app-capable" content="yes" />
-<meta name="mobile-web-app-capable" content="yes" />
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>TOEIC Trainer</title>
-<style>
-  html,body{margin:0;padding:0;background:#f5efe4;color:#211d18;-webkit-text-size-adjust:100%;}
-  *{box-sizing:border-box}
-  #root{min-height:100vh}
-  .boot{position:fixed;inset:0;display:grid;place-items:center;font-family:system-ui,-apple-system,sans-serif;color:#6f655a;text-align:center;padding:24px;}
-  .boot small{display:block;margin-top:8px;font-size:12px;color:#bf4d28}
-</style>
-<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
-<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>html,body{margin:0;padding:0;background:#f5efe4;}#root{min-height:100vh;}</style>
 </head>
 <body>
-<div id="root"><div class="boot">กำลังโหลด TOEIC Trainer…<small>(ครั้งแรกอาจใช้เวลา 2-3 วินาที)</small></div></div>
-
+<div id="root"></div>
 <script type="text/babel" data-presets="react">
-/* ============================================================
-   TOEIC Trainer — standalone build v0.22.1
-   - one source, two wrappers (.html for browsers, .jsx for Claude artifacts)
-   ============================================================ */
-
-// React, useState, useEffect, useRef come from global React (loaded via CDN in the HTML wrapper)
 const { useState, useEffect, useRef } = React;
 
 // ============================================================
@@ -91,6 +76,21 @@ const NEW_META = { color: C.sub, bg: "#efe7d7" };
 
 const STORAGE_KEY = { vocab: "toeic_vocab_ai_v1", grammar: "toeic_grammar_ai_v1", listening: "toeic_listening_ai_v1" };
 const BATCH = { vocab: 10, grammar: 5, listening: 3 };
+
+// ---- Spaced repetition (SRS) ----
+// Each rated item gets a "due" date. When due arrives, it surfaces for review.
+// forgot → soon, sort → a few days, known → a week (and doubles each time it stays known).
+const DAY_MS = 86400000;
+function nextSrs(prev, status, now) {
+  let interval;
+  if (status === "forgot") interval = 1;
+  else if (status === "sort") interval = 3;
+  else { const p = prev && prev.interval ? prev.interval : 0; interval = p >= 7 ? Math.min(p * 2, 30) : 7; }
+  return { due: now + interval * DAY_MS, interval, last: now };
+}
+// an item is "due" if it's rated but has no schedule yet (legacy) OR its due time has passed
+function isDue(entry, now) { return !entry || (entry.due || 0) <= now; }
+function todayStr(d) { const t = d ? new Date(d) : new Date(); return t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0"); }
 
 // ---- 25 themed categories (rotated each Gen to diversify words and cut repetition) ----
 const CATEGORIES = [
@@ -291,6 +291,9 @@ const MODEL_KEY = "toeic_models_v2"; // persists chosen model per mode, PER engi
 const THINKING_KEY = "toeic_thinking_v1"; // persists per-mode adaptive-thinking toggles: { grammar:bool, listening:bool }
 const DIFF_KEY = "toeic_difficulty_v1"; // persists the chosen difficulty level id
 const DAY_KEY = "toeic_day_v1"; // persists the manual "Day X" study-day counter
+const STREAK_KEY = "toeic_streak_v1"; // auto streak: { streak, best, last }
+const STATS_KEY = "toeic_stats_v1"; // { history: {date:snapshot}, sessions: [...] }
+const READTYPE_KEY = "toeic_readtype_v1"; // Reading practice type: part7 | part6 | mix
 const BACKUP_PREFIX = "TZv1:"; // marks a compressed backup string
 
 // ============================================================
@@ -685,6 +688,28 @@ Respond with ONLY a valid minified JSON array of 5 objects, no markdown, no back
 Shape: [{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"A","point":"...","explain":"..."}]`;
 }
 
+function listeningPart6Prompt(category, diffPrompt) {
+  const types = [
+    "an EMAIL or letter (with a subject line and greeting)",
+    "a NOTICE or company announcement",
+    "an ADVERTISEMENT or job posting",
+    "a memo or short business article",
+  ];
+  const kind = types[Math.floor(Math.random() * types.length)];
+  const diff = diffPrompt ? `\n${diffPrompt}` : "";
+  return `You are a TOEIC Part 6 (Text Completion) item writer for a Thai learner (target 850+).
+Write ${kind} as a realistic TOEIC Part 6 passage, 80-130 words, set in this CONTEXT/THEME: "${category}". Use natural written business/daily English.${diff}
+The passage MUST contain EXACTLY 4 numbered blanks shown literally as "(1) ______", "(2) ______", "(3) ______", "(4) ______" placed naturally in different sentences.
+Then write EXACTLY 4 multiple-choice questions, ONE per blank, in order. TOEIC Part 6 tests a MIX of: word form, verb tense/agreement, prepositions/conjunctions, vocabulary in context, AND (for at least ONE blank) choosing the best full SENTENCE that fits the paragraph's flow.
+For EACH question provide:
+- "q": the blank label in Thai, e.g. "ช่องที่ (1)"
+- "options": object with keys "A","B","C","D" (English; for the sentence-insertion blank, options are full sentences)
+- "answer": the correct key ("A"|"B"|"C"|"D")
+- "explain": a THAI explanation, 1-2 sentences: why the answer fits and which clue/grammar rule proves it
+Respond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
+Shape: {"ptype":"Part 6","transcript":"...(passage with (1) ______ ... (4) ______; use \\n for line breaks)...","questions":[{"q":"ช่องที่ (1)","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"A","explain":"..."}]}`;
+}
+
 function listeningPracticePrompt(category, diffPrompt) {
   const types = [
     "an EMAIL or letter (with a subject line and greeting)",
@@ -710,7 +735,7 @@ Shape: {"ptype":"Part 7","transcript":"...(the full passage; use \\n for line br
 
 // blank state per mode
 const emptyMode = () => ({
-  data: {}, ratings: {}, genCount: 0, missQ: {},
+  data: {}, ratings: {}, genCount: 0, missQ: {}, srs: {},
   deck: [], pos: 0, flipped: false, pickedMap: {}, tab: "study", bankFilter: "all",
   generating: false, genErr: null, lastAdded: null, lastCategory: null,
   startTime: null, endTime: null,
@@ -744,6 +769,10 @@ function App() {
   const [difficulty, setDifficultyState] = useState(DEFAULT_DIFFICULTY); // chosen difficulty level id
   const [copyBox, setCopyBox] = useState(null); // null | { title, text, msg }
   const [dayCount, setDayCount] = useState(0); // manual study-day counter "Day X"
+  const [streak, setStreak] = useState({ streak: 0, best: 0, last: null }); // auto consecutive-day streak
+  const [showStats, setShowStats] = useState(false); // statistics modal
+  const [statsView, setStatsView] = useState(null); // snapshot of stats taken when modal opens
+  const [readType, setReadType] = useState("part7"); // Reading practice: part7 | part6 | mix
   const [showSettings, setShowSettings] = useState(false); // settings modal (engine + API key)
   const [keyTick, setKeyTick] = useState(0); // bump to recompute key presence after save/delete
   const [keyDraft, setKeyDraft] = useState(""); // draft value in the settings input
@@ -787,6 +816,9 @@ function App() {
 
   // both modes live in a ref; we re-render manually so switching is instant
   const M = useRef({ vocab: emptyMode(), grammar: emptyMode(), listening: emptyMode() });
+  // stats live in a ref (history snapshots + completed-session log) — written directly to storage,
+  // never via setState, so they can be updated safely even from inside a render pass.
+  const STATS = useRef({ history: {}, sessions: [] });
   const cardAreaRef = useRef(null); // scroll target for the study card/deck area
   function scrollToCards() {
     // wait a tick so the deck has rendered, then bring it into view
@@ -813,6 +845,7 @@ function App() {
             M.current[m].data = (m === "vocab" ? s.words : m === "listening" ? s.lessons : s.items) || {};
             M.current[m].ratings = s.ratings || {};
             M.current[m].genCount = s.genCount || 0;
+            M.current[m].srs = s.srs || {};
             if (m === "vocab" || m === "listening") M.current[m].missQ = s.missQ || {};
           } catch (e) { /* no data for this mode */ }
         }
@@ -862,6 +895,18 @@ function App() {
           const rd = await STORAGE.get(DAY_KEY);
           if (rd) { const d = parseInt(JSON.parse(rd), 10); if (!isNaN(d) && d >= 0) setDayCount(d); }
         } catch (e) { /* no saved day */ }
+        try {
+          const rs = await STORAGE.get(STREAK_KEY);
+          if (rs) { const s = JSON.parse(rs); if (s && typeof s.streak === "number") setStreak({ streak: s.streak || 0, best: s.best || 0, last: s.last || null }); }
+        } catch (e) { /* no saved streak */ }
+        try {
+          const rst = await STORAGE.get(STATS_KEY);
+          if (rst) { const s = JSON.parse(rst); STATS.current = { history: (s && s.history) || {}, sessions: (s && Array.isArray(s.sessions)) ? s.sessions : [] }; }
+        } catch (e) { /* no saved stats */ }
+        try {
+          const rt = await STORAGE.get(READTYPE_KEY);
+          if (rt) { const t = JSON.parse(rt); if (t === "part6" || t === "part7" || t === "mix") setReadType(t); }
+        } catch (e) { /* no saved reading type */ }
       } finally { setLoaded(true); }
     })();
   }, []);
@@ -901,6 +946,99 @@ function App() {
     });
   }
 
+  // ---- auto streak: bump when the user does anything "study"-like on a new calendar day ----
+  function touchStreak() {
+    setStreak(prev => {
+      const today = todayStr();
+      if (prev.last === today) return prev; // already counted today
+      const y = todayStr(Date.now() - DAY_MS);
+      const next = prev.last === y ? (prev.streak || 0) + 1 : 1; // continued vs reset
+      const out = { streak: next, best: Math.max(prev.best || 0, next), last: today };
+      STORAGE.set(STREAK_KEY, JSON.stringify(out));
+      return out;
+    });
+  }
+
+  // ---- stats: persist the STATS ref to storage (no setState — safe to call anytime) ----
+  function persistStats() { try { STORAGE.set(STATS_KEY, JSON.stringify(STATS.current)); } catch (e) {} }
+  // count "mastered" (known) + totals per mode for a daily snapshot
+  function masteryCounts() {
+    const v = M.current.vocab, g = M.current.grammar, l = M.current.listening;
+    const vt = Object.keys(v.data).length;
+    const vk = Object.keys(v.data).filter(k => v.ratings[k] === "known").length;
+    const gItems = Object.values(g.data);
+    const gt = gItems.length;
+    const gk = gItems.filter(x => g.ratings[x.id] === "known").length;
+    let rt = 0, rk = 0;
+    for (const p of Object.values(l.data)) for (const q of (p.questions || [])) { rt++; if (l.ratings[q.id] === "known") rk++; }
+    return { vt, vk, gt, gk, rt, rk };
+  }
+  // write/refresh TODAY's snapshot of cumulative mastery (called after any change)
+  function updateHistory() {
+    const c = masteryCounts();
+    STATS.current.history = { ...STATS.current.history, [todayStr()]: c };
+    persistStats();
+  }
+  // log one completed practice session (for the accuracy-over-time chart)
+  function logSession(modeName, correct, total) {
+    if (!total) return;
+    const arr = (STATS.current.sessions || []).concat([{ d: Date.now(), m: modeName, c: correct, n: total }]);
+    STATS.current.sessions = arr.slice(-120); // keep the most recent 120
+    persistStats();
+  }
+
+  // ---- SRS scheduling: update an item's next-due date when it's rated ----
+  function bumpSrs(st, id, status) {
+    const now = Date.now();
+    st.srs = { ...st.srs, [id]: nextSrs(st.srs[id], status, now) };
+  }
+  // how many rated items in a mode are due for review right now
+  function dueCountFor(modeName) {
+    const st = M.current[modeName];
+    const now = Date.now();
+    if (modeName === "listening") {
+      let n = 0;
+      for (const p of Object.values(st.data || {})) for (const q of (p.questions || [])) {
+        const r = st.ratings[q.id]; if (r && isDue(st.srs[q.id], now)) n++;
+      }
+      return n;
+    }
+    const idOf = x => (modeName === "vocab" ? x.w : x.id);
+    return Object.values(st.data).filter(x => { const id = idOf(x); return st.ratings[id] && isDue(st.srs[id], now); }).length;
+  }
+  // build a review deck of only the items that are SRS-due (any rating)
+  function buildDueDeck() {
+    const st = cur();
+    const now = Date.now();
+    const idOf = x => (mode === "vocab" ? x.w : x.id);
+    const due = Object.values(st.data).filter(x => { const id = idOf(x); return st.ratings[id] && isDue(st.srs[id], now); });
+    const built = shuffle(due).slice(0, 40);
+    st.deck = built; st.pos = 0; st.flipped = false; st.pickedMap = {}; st.tab = "study";
+    if (mode === "grammar") { st.startTime = Date.now(); st.endTime = null; st.logged = false; }
+    rerender(); scrollToCards();
+  }
+  // Reading: build an SRS-due review deck from the saved passage bank
+  function buildReadingDue() {
+    const st = M.current.listening;
+    const now = Date.now();
+    const due = [];
+    for (const p of Object.values(st.data || {})) for (const q of (p.questions || [])) {
+      if (st.ratings[q.id] && isDue(st.srs[q.id], now)) due.push({ ...q, transcript: p.transcript, _ptype: p.ptype });
+    }
+    if (!due.length) return;
+    setLquiz({ passageId: null, ptype: "ถึงกำหนดทบทวน", transcript: null, model: "", deck: shuffle(due), pos: 0, picked: {}, start: Date.now(), end: null, isReview: true });
+    setLSection("practice");
+  }
+
+  function chooseReadType(t) { setReadType(t); STORAGE.set(READTYPE_KEY, JSON.stringify(t)); }
+
+  function openStats() {
+    // snapshot the ref into state so the modal renders a stable view
+    updateHistory();
+    setStatsView({ history: { ...STATS.current.history }, sessions: [...(STATS.current.sessions || [])] });
+    setShowStats(true);
+  }
+
   // open backup modal; for export, fill text asynchronously (compression is async)
   async function openBackup(kind) {
     if (kind === "export") {
@@ -917,10 +1055,10 @@ function App() {
   async function persist(m) {
     const st = M.current[m];
     const payload = m === "vocab"
-      ? { words: st.data, ratings: st.ratings, genCount: st.genCount, missQ: st.missQ }
+      ? { words: st.data, ratings: st.ratings, genCount: st.genCount, missQ: st.missQ, srs: st.srs }
       : m === "listening"
-      ? { lessons: st.data, ratings: st.ratings, genCount: st.genCount, missQ: st.missQ }
-      : { items: st.data, ratings: st.ratings, genCount: st.genCount };
+      ? { lessons: st.data, ratings: st.ratings, genCount: st.genCount, missQ: st.missQ, srs: st.srs }
+      : { items: st.data, ratings: st.ratings, genCount: st.genCount, srs: st.srs };
     const ok = await STORAGE.set(STORAGE_KEY[m], JSON.stringify(payload));
     if (!ok) setStorageOk(false);
   }
@@ -965,8 +1103,9 @@ function App() {
       st.data = nextData; st.genCount = newGen;
       st.deck = shuffle(fresh); st.pos = 0; st.flipped = false; st.pickedMap = {};
       st.tab = "study"; st.lastAdded = fresh.length; st.lastCategory = category;
-      if (m === "grammar") { st.startTime = Date.now(); st.endTime = null; }
+      if (m === "grammar") { st.startTime = Date.now(); st.endTime = null; st.logged = false; }
       await persist(m);
+      touchStreak(); updateHistory();
     } catch (e) {
       st.genErr = "สร้างชุดใหม่ไม่สำเร็จ — " + (e && e.message ? e.message : String(e));
     } finally {
@@ -984,7 +1123,7 @@ function App() {
     const sort = all.filter(x => st.ratings[idOf(x)] === "sort");
     const built = shuffle([...forgot.slice(0, 20), ...sort.slice(0, 10)]);
     st.deck = built; st.pos = 0; st.flipped = false; st.pickedMap = {}; st.tab = "study";
-    if (mode === "grammar") { st.startTime = Date.now(); st.endTime = null; }
+    if (mode === "grammar") { st.startTime = Date.now(); st.endTime = null; st.logged = false; }
     rerender();
     scrollToCards();
   }
@@ -992,7 +1131,9 @@ function App() {
   function rate(id, status, advance) {
     const st = cur();
     st.ratings = { ...st.ratings, [id]: status };
+    bumpSrs(st, id, status);
     persist(mode);
+    touchStreak(); updateHistory();
     if (advance) { st.flipped = false; st.pos = Math.min(st.pos + 1, st.deck.length); }
     rerender();
   }
@@ -1075,12 +1216,17 @@ function App() {
     try {
       const category = pickCategory();
       const mdl = MODELS.find(x => x.id === models.listening) || MODELS[0];
-      const clean = await aiComplete({ engineId: engine, model: mdl.str, maxTokens: 2500, prompt: listeningPracticePrompt(category, diffById(difficulty).prompt) });
+      // decide which TOEIC part to generate this round (mix = random 50/50)
+      const usePart6 = readType === "part6" || (readType === "mix" && Math.random() < 0.5);
+      const prompt = usePart6
+        ? listeningPart6Prompt(category, diffById(difficulty).prompt)
+        : listeningPracticePrompt(category, diffById(difficulty).prompt);
+      const clean = await aiComplete({ engineId: engine, model: mdl.str, maxTokens: 2500, prompt });
       let obj;
       try { obj = JSON.parse(clean); }
       catch (pe) { throw new Error("แปลงคำตอบเป็น JSON ไม่ได้ — AI ตอบมาว่า: " + clean.slice(0, 200)); }
       if (!obj || !obj.transcript || !Array.isArray(obj.questions) || !obj.questions.length) throw new Error("bad shape");
-      const ptype = obj.ptype || "Part 7";
+      const ptype = obj.ptype || (usePart6 ? "Part 6" : "Part 7");
       const passageId = "rp" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
       const deck = obj.questions.filter(q => q && q.q && q.options && q.answer).map((q, i) => ({
         id: passageId + "-q" + i,
@@ -1091,6 +1237,7 @@ function App() {
       // passage text + its questions. The bank powers "คลังข้อสอบ" and review-by-rating.
       st.data = { ...st.data, [passageId]: { id: passageId, transcript: obj.transcript, ptype, model: mdl.label, questions: deck, gen: Date.now(), category } };
       await persist("listening");
+      touchStreak(); updateHistory();
       setLquiz({ passageId, ptype, transcript: obj.transcript, model: mdl.label, deck, pos: 0, picked: {}, start: Date.now(), end: null });
     } catch (e) {
       st.genErr = "สร้างชุดฝึกอ่านไม่สำเร็จ — " + (e && e.message ? e.message : String(e));
@@ -1119,7 +1266,10 @@ function App() {
   function rateReading(qid, status) {
     const st = M.current.listening;
     st.ratings = { ...st.ratings, [qid]: status };
-    persist("listening"); rerender();
+    bumpSrs(st, qid, status);
+    persist("listening");
+    touchStreak(); updateHistory();
+    rerender();
   }
   function chooseLQ(id, key) { setLquiz(v => (v.picked[id] ? v : { ...v, picked: { ...v.picked, [id]: key } })); }
   function nextLQ() { setLquiz(v => ({ ...v, pos: Math.min(v.pos + 1, v.deck.length) })); }
@@ -1169,6 +1319,7 @@ function App() {
     if (mode === "vocab") setVquiz(null);
     if (mode === "listening") setLquiz(null);
     await persist(mode);
+    updateHistory();
     setConfirmReset(false);
     rerender();
   }
@@ -1177,12 +1328,17 @@ function App() {
   function buildBackupJson() {
     const payload = {
       _toeic_trainer: 1,
+      _v: 2, // backup format version (extra fields below are NOT covered by the legacy checksum)
       day: dayCount,
       vocab: { words: M.current.vocab.data, ratings: M.current.vocab.ratings, genCount: M.current.vocab.genCount, missQ: M.current.vocab.missQ },
       grammar: { items: M.current.grammar.data, ratings: M.current.grammar.ratings, genCount: M.current.grammar.genCount },
       listening: { lessons: M.current.listening.data, ratings: M.current.listening.ratings, genCount: M.current.listening.genCount, missQ: M.current.listening.missQ },
+      // ---- v2 extras (purposely excluded from canonicalBackup so the checksum stays backward-compatible) ----
+      srs: { vocab: M.current.vocab.srs || {}, grammar: M.current.grammar.srs || {}, listening: M.current.listening.srs || {} },
+      streak: streak,
+      stats: { history: STATS.current.history || {}, sessions: STATS.current.sessions || [] },
     };
-    payload._checksum = fnv1a(canonicalBackup(payload)); // integrity tag (verified on import)
+    payload._checksum = fnv1a(canonicalBackup(payload)); // integrity tag (verified on import) — legacy fields only
     return JSON.stringify(payload);
   }
   // returns compressed backup string (or raw JSON if pako unavailable)
@@ -1259,6 +1415,33 @@ function App() {
         setDayCount(nextDay);
         STORAGE.set(DAY_KEY, JSON.stringify(nextDay));
       }
+      // ---- v2 extras (absent in old backups → simply skipped) ----
+      if (obj.srs) {
+        M.current.vocab.srs = isMerge ? mergeMap(M.current.vocab.srs, obj.srs.vocab, true) : (obj.srs.vocab || {});
+        M.current.grammar.srs = isMerge ? mergeMap(M.current.grammar.srs, obj.srs.grammar, true) : (obj.srs.grammar || {});
+        M.current.listening.srs = isMerge ? mergeMap(M.current.listening.srs, obj.srs.listening, true) : (obj.srs.listening || {});
+        await persist("vocab"); await persist("grammar"); await persist("listening");
+      }
+      if (obj.streak && typeof obj.streak.streak === "number") {
+        const incoming = { streak: obj.streak.streak || 0, best: obj.streak.best || 0, last: obj.streak.last || null };
+        const nextStreak = isMerge
+          ? { streak: Math.max(streak.streak || 0, incoming.streak), best: Math.max(streak.best || 0, incoming.best), last: (streak.last || "") > (incoming.last || "") ? streak.last : incoming.last }
+          : incoming;
+        setStreak(nextStreak);
+        STORAGE.set(STREAK_KEY, JSON.stringify(nextStreak));
+      }
+      if (obj.stats) {
+        const inHist = obj.stats.history || {};
+        const inSess = Array.isArray(obj.stats.sessions) ? obj.stats.sessions : [];
+        if (isMerge) {
+          STATS.current.history = { ...inHist, ...(STATS.current.history || {}) }; // existing day snapshots win
+          const merged = [...(STATS.current.sessions || []), ...inSess].sort((a, b) => (a.d || 0) - (b.d || 0));
+          STATS.current.sessions = merged.slice(-120);
+        } else {
+          STATS.current = { history: inHist, sessions: inSess.slice(-120) };
+        }
+        persistStats();
+      }
       rerender();
       return null; // success
     } catch (e) { return "กู้คืนไม่สำเร็จ ลองตรวจโค้ดอีกครั้ง"; }
@@ -1315,6 +1498,11 @@ function App() {
   // freeze timer the moment a grammar session is completed
   if (mode === "grammar" && sessionDone && st.startTime && !st.endTime) {
     st.endTime = Date.now();
+    if (!st.logged) {
+      st.logged = true;
+      let c = 0; st.deck.forEach(cd => { const p = st.pickedMap[cd.id]; if (p === cd.answer) c++; });
+      logSession("grammar", c, st.deck.length);
+    }
   }
   const emptyStudy = loaded && st.tab === "study" && st.deck.length === 0;
   const picked = card && mode === "grammar" ? st.pickedMap[card.id] : null;
@@ -1351,6 +1539,8 @@ function App() {
             </span>
           </h1>
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <button onClick={openStats}
+              style={{ background: "none", border: "none", color: C.accent, fontSize: 12, fontWeight: 700, textDecoration: "underline" }}>📊 สถิติ</button>
             <button onClick={() => setShowSettings(true)}
               style={{ background: "none", border: "none", color: hasKey ? C.accent : C.red, fontSize: 12, fontWeight: 700, textDecoration: "underline" }}>
               ⚙️ {needsKey ? (hasKey ? "ตั้งค่า" : "ใส่ API key") : "ตั้งค่า"}
@@ -1376,6 +1566,16 @@ function App() {
               color: "#fff", fontSize: 19, fontWeight: 700, lineHeight: 1, display: "grid", placeItems: "center", boxShadow: "0 4px 12px -6px rgba(191,77,40,.8)" }}>+</button>
         </div>
         <div style={{ textAlign: "center", fontSize: 11, color: C.sub, marginBottom: 8 }}>กด + เมื่อเริ่มเรียนวันใหม่ เพื่อมาร์คว่าเรียนมากี่วันแล้ว</div>
+
+        {/* AUTO STREAK — consecutive days with any study activity */}
+        {streak.streak > 0 && (
+          <div onClick={openStats} style={{ display: "flex", justifyContent: "center", marginBottom: 10, cursor: "pointer" }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: C.amberBg, color: C.amber,
+              border: `1px solid ${C.amber}55`, borderRadius: 20, padding: "5px 13px", fontSize: 12.5, fontWeight: 700 }}>
+              🔥 เรียนต่อเนื่อง {streak.streak} วัน{streak.best > streak.streak ? ` · สถิติสูงสุด ${streak.best}` : ""}
+            </span>
+          </div>
+        )}
 
         {/* SETTINGS MODAL — choose AI engine + its API key */}
         {showSettings && (
@@ -1636,6 +1836,90 @@ function App() {
           </div>
         )}
 
+        {/* STATS MODAL — streak, mastery-over-time, recent accuracy */}
+        {showStats && statsView && (() => {
+          const hist = statsView.history || {};
+          const dates = Object.keys(hist).sort();
+          const last = dates.slice(-30);
+          const masterySeries = last.map(d => {
+            const s = hist[d] || {};
+            return { x: d.slice(5), y: (s.vk || 0) + (s.gk || 0) + (s.rk || 0) };
+          });
+          const today = hist[todayStr()] || {};
+          const totalKnown = (today.vk || 0) + (today.gk || 0) + (today.rk || 0);
+          const sessions = (statsView.sessions || []).slice(-14);
+          const recent = (statsView.sessions || []).slice(-20);
+          const avgPct = recent.length ? Math.round(recent.reduce((a, s) => a + (s.c / s.n) * 100, 0) / recent.length) : null;
+          const sColor = { vocab: C.accent, grammar: "#3f7d3a", listening: "#1a73e8" };
+          const sLabel = { vocab: "Vocab", grammar: "Grammar", listening: "Reading" };
+          const daysStudied = dates.length;
+          return (
+            <div onClick={() => setShowStats(false)}
+              style={{ position: "fixed", inset: 0, background: "rgba(33,29,24,.5)", display: "grid", placeItems: "center", padding: 16, zIndex: 60 }}>
+              <div onClick={e => e.stopPropagation()} className="rise"
+                style={{ background: C.panel, borderRadius: 16, padding: "20px 18px", maxWidth: 520, width: "100%", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 50px -20px rgba(0,0,0,.5)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                  <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 21 }}>📊 สถิติการเรียน</div>
+                  <button onClick={() => setShowStats(false)} style={{ background: "none", border: "none", color: C.sub, fontSize: 22, lineHeight: 1 }}>×</button>
+                </div>
+
+                {/* top stat row */}
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+                  <Stat label="ต่อเนื่อง (วัน)" value={`🔥 ${streak.streak}`} color={C.amber} bg={C.amberBg} />
+                  <Stat label="สูงสุด (วัน)" value={streak.best} color={C.ink} bg="#efe7d7" />
+                  <Stat label="วันที่เรียน" value={daysStudied} color={C.ink} bg="#efe7d7" />
+                  <Stat label="แม่นแล้วรวม" value={totalKnown} color={C.green} bg={C.greenBg} />
+                </div>
+
+                {/* mastery now, per mode */}
+                <div style={{ fontSize: 12.5, color: C.sub, fontWeight: 600, marginBottom: 6 }}>แม่นแล้ว (เข้าใจ/จำได้) ตอนนี้</div>
+                <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+                  {[["vocab", today.vk || 0, today.vt || 0], ["grammar", today.gk || 0, today.gt || 0], ["listening", today.rk || 0, today.rt || 0]].map(([m, k, t]) => (
+                    <div key={m} style={{ flex: 1, background: "#fff", border: `1px solid ${C.line}`, borderRadius: 11, padding: "10px 8px", textAlign: "center" }}>
+                      <div style={{ fontSize: 11, color: sColor[m], fontWeight: 700 }}>{sLabel[m]}</div>
+                      <div style={{ fontSize: 18, fontWeight: 700, color: C.ink, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>{k}<span style={{ fontSize: 12, color: C.sub }}>/{t}</span></div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* mastery over time */}
+                <div style={{ fontSize: 12.5, color: C.sub, fontWeight: 600, marginBottom: 8 }}>📈 คำ/ข้อที่แม่นสะสม (30 วันล่าสุด)</div>
+                {masterySeries.length >= 2 ? (
+                  <MiniLineChart series={masterySeries} color={C.accent} />
+                ) : (
+                  <div style={{ fontSize: 12.5, color: C.sub, background: "#fff", border: `1px dashed ${C.line}`, borderRadius: 11, padding: "16px 12px", textAlign: "center", lineHeight: 1.6 }}>
+                    ยังมีข้อมูลไม่พอวาดกราฟ — เรียนสัก 2 วันขึ้นไปแล้วกลับมาดูแนวโน้มได้ครับ
+                  </div>
+                )}
+
+                {/* recent accuracy */}
+                <div style={{ fontSize: 12.5, color: C.sub, fontWeight: 600, margin: "18px 0 8px" }}>
+                  🎯 ความแม่นรอบล่าสุด{avgPct != null ? ` · เฉลี่ย ${avgPct}%` : ""}
+                </div>
+                {sessions.length ? (
+                  <>
+                    <MiniBars items={sessions.map(s => ({ value: Math.round((s.c / s.n) * 100), color: sColor[s.m] || C.accent }))} />
+                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 8, justifyContent: "center" }}>
+                      {Object.keys(sLabel).map(m => (
+                        <span key={m} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, color: C.sub }}>
+                          <span style={{ width: 10, height: 10, borderRadius: 3, background: sColor[m], display: "inline-block" }} /> {sLabel[m]}
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ fontSize: 12.5, color: C.sub, background: "#fff", border: `1px dashed ${C.line}`, borderRadius: 11, padding: "16px 12px", textAlign: "center", lineHeight: 1.6 }}>
+                    ยังไม่มีรอบที่ทำเสร็จ — ไปทำชุดข้อสอบ (Vocab quiz / Grammar / Reading) ให้จบสักรอบ แล้วคะแนนจะมาโชว์ที่นี่
+                  </div>
+                )}
+
+                <button onClick={() => setShowStats(false)}
+                  style={{ marginTop: 16, width: "100%", background: C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ปิด</button>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* MODE SWITCHER */}
         <div style={{ display: "flex", background: "#efe7d7", borderRadius: 13, padding: 4, gap: 4, margin: "12px 0 14px" }}>
           {[["vocab", "📕 Vocab"], ["grammar", "✏️ Grammar"], ["listening", "📖 Reading"]].map(([id, lbl]) => {
@@ -1715,7 +1999,7 @@ function App() {
         {/* LISTENING SUB-SWITCHER: strategy vs practice */}
         {mode === "listening" && (
           <div style={{ display: "flex", background: "#f0e7d5", borderRadius: 11, padding: 3, gap: 3, marginBottom: 14 }}>
-            {[["strategy", "🧭 Strategy (เทคนิค)"], ["practice", "📝 ฝึกอ่าน (Part 7)"]].map(([id, lbl]) => {
+            {[["strategy", "🧭 Strategy (เทคนิค)"], ["practice", "📝 ฝึกอ่าน (Part 6-7)"]].map(([id, lbl]) => {
               const on = lSection === id;
               return (
                 <button key={id} onClick={() => setLSection(id)}
@@ -1797,7 +2081,10 @@ function App() {
             return <Centered>ยังมีคำไม่พอสำหรับสร้างโจทย์เติมประโยค — ไปกด ✨ สร้างคำเพิ่มที่แท็บการ์ดก่อนนะครับ</Centered>;
           }
           const done = v.pos >= v.deck.length;
-          if (done && !v.end) { v.end = Date.now(); }
+          if (done && !v.end) {
+            v.end = Date.now();
+            if (!v.logged) { v.logged = true; let c = 0; v.deck.forEach(it => { if (v.picked[it.id] === it.answer) c++; }); logSession("vocab", c, v.deck.length); }
+          }
           if (!done) {
             const item = v.deck[v.pos];
             const picked = v.picked[item.id];
@@ -2033,7 +2320,23 @@ function App() {
             return (
               <div className="rise">
                 <div style={{ fontSize: 13.5, color: C.sub, lineHeight: 1.6, marginBottom: 12 }}>
-                  ฝึก <b>อ่านจับใจความ</b> แนว <b>Part 7</b> (อีเมล ประกาศ โฆษณา บทความ) แล้วตอบคำถามจับเวลา — เน้นการ <b>paraphrase</b> (คำตอบมักไม่ใช้คำเดิมในเรื่อง) และการสแกนหา keyword เหมือนข้อสอบจริง
+                  ฝึกอ่านแนวข้อสอบจริงแล้วตอบคำถามจับเวลา — <b>Part 7</b> (จับใจความจากอีเมล/ประกาศ/บทความ เน้น paraphrase + สแกน keyword) และ <b>Part 6</b> (เติมคำ/ประโยคลงในย่อหน้า ดูบริบทรอบช่องว่าง)
+                </div>
+                {/* Part 6 / 7 / mix selector */}
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 12.5, color: C.sub, marginBottom: 6 }}>เลือกแนวข้อสอบ</div>
+                  <div style={{ display: "flex", background: "#efe7d7", borderRadius: 10, padding: 3, gap: 3 }}>
+                    {[["part7", "Part 7", "จับใจความ"], ["part6", "Part 6", "เติมย่อหน้า"], ["mix", "สุ่ม", "สลับ 6/7"]].map(([id, lbl, sub]) => {
+                      const on = readType === id;
+                      return (
+                        <button key={id} onClick={() => chooseReadType(id)} disabled={st.generating}
+                          style={{ flex: 1, border: "none", borderRadius: 8, padding: "8px 4px", fontSize: 12.5, fontWeight: 600, lineHeight: 1.25,
+                            background: on ? "#fffdf8" : "transparent", color: on ? C.ink : "#8a7f70", boxShadow: on ? "0 2px 6px -3px rgba(40,30,20,.5)" : "none" }}>
+                          {lbl}<br /><span style={{ fontSize: 10, fontWeight: 400, opacity: .75 }}>{sub}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                   <span style={{ fontSize: 12.5, color: C.sub, flex: "0 0 auto" }}>รุ่น AI:</span>
@@ -2057,7 +2360,7 @@ function App() {
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 9, marginBottom: 10 }}>
                   {st.generating
                     ? <><span className="spin" style={{ width: 16, height: 16, border: "2px solid #fff", borderTopColor: "transparent", borderRadius: "50%", display: "inline-block" }} /> กำลังสร้างชุดฝึก…</>
-                    : <>✨ สร้างชุดฝึกอ่านใหม่ (Part 7)</>}
+                    : <>✨ สร้างชุดฝึกอ่านใหม่ ({readType === "part6" ? "Part 6" : readType === "mix" ? "สุ่ม 6/7" : "Part 7"})</>}
                 </button>
                 {st.genErr && <div style={{ color: C.red, fontSize: 12.5, marginBottom: 10, lineHeight: 1.5, wordBreak: "break-word", background: C.redBg, border: `1px solid ${C.red}`, borderRadius: 9, padding: "8px 10px" }}>{st.genErr}</div>}
                 {(() => {
@@ -2069,6 +2372,16 @@ function App() {
                     <button onClick={buildReadingReview}
                       style={{ width: "100%", background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 13, padding: "11px", fontSize: 14, fontWeight: 600, margin: "4px 0 14px" }}>
                       🔁 ทวนข้อที่ยังไม่แม่น ({due} ข้อ)
+                    </button>
+                  );
+                })()}
+                {(() => {
+                  const due = dueCountFor("listening");
+                  if (!due) return null;
+                  return (
+                    <button onClick={buildReadingDue}
+                      style={{ width: "100%", background: "#fff", color: C.accent, border: `1.5px solid ${C.accent}`, borderRadius: 13, padding: "11px", fontSize: 14, fontWeight: 700, margin: "0 0 14px" }}>
+                      🔔 ถึงกำหนดทบทวน (SRS) · {due} ข้อ
                     </button>
                   );
                 })()}
@@ -2112,7 +2425,10 @@ function App() {
             );
           }
           const done = v.pos >= v.deck.length;
-          if (done && !v.end) { v.end = Date.now(); }
+          if (done && !v.end) {
+            v.end = Date.now();
+            if (!v.logged) { v.logged = true; let c = 0; v.deck.forEach(it => { if (v.picked[it.id] === it.answer) c++; }); logSession("listening", c, v.deck.length); }
+          }
           if (!done) {
             const item = v.deck[v.pos];
             const tx = v.transcript || item.transcript;
@@ -2253,6 +2569,17 @@ function App() {
             🔁 ทวน{mode === "vocab" ? "คำ" : "ข้อ"}ที่ยังไม่แม่น ({reviewable} {mode === "vocab" ? "คำ" : "ข้อ"})
           </button>
         )}
+        {(() => {
+          const due = dueCountFor(mode);
+          if (!due || st.generating) return null;
+          return (
+            <button onClick={buildDueDeck}
+              style={{ width: "100%", background: "#fff", color: C.accent, border: `1.5px solid ${C.accent}`, borderRadius: 13, padding: "12px",
+                fontSize: 14, fontWeight: 700, marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+              🔔 ถึงกำหนดทบทวน (SRS) · {due} {mode === "vocab" ? "คำ" : "ข้อ"}
+            </button>
+          );
+        })()}
         {st.genErr && <div style={{ color: C.red, fontSize: 12.5, marginBottom: 10, lineHeight: 1.5, wordBreak: "break-word", background: C.redBg, border: `1px solid ${C.red}`, borderRadius: 9, padding: "8px 10px" }}>{st.genErr}</div>}
         {st.lastAdded != null && !st.generating && (
           <div style={{ color: C.green, fontSize: 13, marginBottom: 10 }}>
@@ -2547,6 +2874,60 @@ function Progress({ pos, len }) {
     </div>
   );
 }
+
+// hand-drawn SVG line chart (no chart library, so it works identically in the
+// artifact build and the standalone HTML build).
+function MiniLineChart({ series, color }) {
+  const W = 460, H = 150, padL = 30, padR = 10, padT = 12, padB = 22;
+  const ys = series.map(p => p.y);
+  const maxY = Math.max(1, ...ys);
+  const n = series.length;
+  const xAt = i => padL + (n === 1 ? 0 : (i * (W - padL - padR)) / (n - 1));
+  const yAt = v => padT + (H - padT - padB) * (1 - v / maxY);
+  const line = series.map((p, i) => `${i === 0 ? "M" : "L"}${xAt(i).toFixed(1)},${yAt(p.y).toFixed(1)}`).join(" ");
+  const area = `${line} L${xAt(n - 1).toFixed(1)},${(H - padB).toFixed(1)} L${xAt(0).toFixed(1)},${(H - padB).toFixed(1)} Z`;
+  const ticks = [0, Math.round(maxY / 2), maxY];
+  // label a few x positions only, to avoid clutter
+  const labelEvery = Math.max(1, Math.ceil(n / 6));
+  return (
+    <div style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, padding: "8px 6px 4px" }}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }}>
+        {ticks.map((t, i) => (
+          <g key={i}>
+            <line x1={padL} y1={yAt(t)} x2={W - padR} y2={yAt(t)} stroke={C.line} strokeWidth="1" />
+            <text x={padL - 5} y={yAt(t) + 3} textAnchor="end" fontSize="9" fill={C.sub}>{t}</text>
+          </g>
+        ))}
+        <path d={area} fill={color} opacity="0.12" />
+        <path d={line} fill="none" stroke={color} strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" />
+        {series.map((p, i) => (
+          <circle key={i} cx={xAt(i)} cy={yAt(p.y)} r={n > 20 ? 1.6 : 2.6} fill={color} />
+        ))}
+        {series.map((p, i) => (i % labelEvery === 0 || i === n - 1) ? (
+          <text key={"x" + i} x={xAt(i)} y={H - 7} textAnchor="middle" fontSize="8.5" fill={C.sub}>{p.x}</text>
+        ) : null)}
+      </svg>
+    </div>
+  );
+}
+
+// simple colored accuracy bars (0-100%)
+function MiniBars({ items }) {
+  const H = 110;
+  return (
+    <div style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 10px 8px" }}>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 5, height: H }}>
+        {items.map((it, i) => (
+          <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" }} title={it.value + "%"}>
+            <span style={{ fontSize: 9, color: C.sub, marginBottom: 2 }}>{it.value}</span>
+            <div style={{ width: "100%", maxWidth: 26, height: `${Math.max(3, it.value)}%`, background: it.color, borderRadius: "4px 4px 0 0" }} />
+          </div>
+        ))}
+      </div>
+      <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 2, paddingTop: 4, textAlign: "center", fontSize: 10, color: C.sub }}>เก่า → ใหม่</div>
+    </div>
+  );
+}
 function RatingRow({ mode, current, onRate, big, small }) {
   const S = STATUS[mode];
   return (
@@ -2618,7 +2999,8 @@ function ConfirmBtn({ onConfirm, idleLabel, confirmLabel, style }) {
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
 </script>
 </body>
 </html>
