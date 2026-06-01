@@ -22,7 +22,7 @@
 
 <script type="text/babel" data-presets="react">
 /* ============================================================
-   TOEIC Trainer — standalone build v0.17.0
+   TOEIC Trainer — standalone build v0.19.0
    - one source, two wrappers (.html for browsers, .jsx for Claude artifacts)
    ============================================================ */
 
@@ -1231,18 +1231,20 @@ function App() {
       const json = buildBackupJson(); // plain, human-readable JSON with checksum inside
       const blob = new Blob([json], { type: "application/json" });
       const url = URL.createObjectURL(blob);
-      const d = new Date();
-      const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+      // fixed filename (no date/day) so each save REPLACES the previous file instead of
+      // piling up many copies in the downloads folder. The newest data is always in toeic-backup.json.
       const a = document.createElement("a");
       a.href = url;
-      a.download = `toeic-backup-day${dayCount}-${stamp}.json`;
+      a.download = "toeic-backup.json";
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-      setBackup(b => (b ? { ...b, msg: "บันทึกไฟล์แล้ว ✓ (เช็คในโฟลเดอร์ดาวน์โหลด)" } : b));
+      setBackup(b => (b ? { ...b, msg: "บันทึกไฟล์ toeic-backup.json แล้ว ✓ (ทับไฟล์เดิม ไม่กองหลายไฟล์)" } : b));
     } catch (e) {
       setBackup(b => (b ? { ...b, msg: "บันทึกไฟล์อัตโนมัติไม่ได้ — ใช้วิธีก๊อปข้อความด้านล่างแทนได้ครับ" } : b));
     }
   }
+  // human-readable length helper for the char-count badges
+  const fmtLen = n => (n || 0).toLocaleString("en-US");
 
   // mode="overwrite" (default) replaces everything; mode="merge" keeps existing data + ratings
   // and only ADDS new words/items/lessons from the backup (so studied progress isn't lost).
@@ -1308,6 +1310,26 @@ function App() {
     cur().tab = "study";
     setBackup(b => ({ ...b, msg: (mode === "merge" ? "รวมข้อมูลสำเร็จ ✓" : "กู้คืนสำเร็จ ✓") + " กำลังกลับหน้าแรก…" }));
     setTimeout(() => setBackup(null), 900);
+  }
+
+  // Read the clipboard directly via the JS API. This bypasses the mobile <textarea>
+  // paste limit (~20,000 chars) that silently truncates a long pasted code, because the
+  // text never goes through a paste event — we get the full string and set it ourselves.
+  async function pasteFromClipboard() {
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.readText) {
+        setBackup(b => ({ ...b, msg: "เบราว์เซอร์นี้ไม่รองรับวางอัตโนมัติ — แตะในกล่องแล้ววางเองได้ครับ" }));
+        return;
+      }
+      const txt = await navigator.clipboard.readText();
+      if (!txt || !txt.trim()) {
+        setBackup(b => ({ ...b, msg: "คลิปบอร์ดว่าง — ไปกดก๊อปโค้ดสำรองก่อนนะครับ" }));
+        return;
+      }
+      setBackup(b => ({ ...b, text: txt, msg: `วางอัตโนมัติแล้ว ${fmtLen(txt.length)} ตัวอักษร ✓ (ครบไม่ติด limit)` }));
+    } catch (e) {
+      setBackup(b => ({ ...b, msg: "วางอัตโนมัติไม่ได้ (เบราว์เซอร์ไม่อนุญาตอ่านคลิปบอร์ด) — แตะในกล่องแล้ววางเองได้ครับ" }));
+    }
   }
 
   const setTab = t => { cur().tab = t; rerender(); };
@@ -1504,10 +1526,12 @@ function App() {
                       📋 ก๊อปข้อความสำรอง
                     </button>
                     <div style={{ fontSize: 12.5, color: C.sub, lineHeight: 1.6, marginBottom: 8 }}>
-                      (ดาวน์โหลดเป็นไฟล์ใช้ได้เฉพาะตอนเปิดแบบเว็บ standalone — ในแอป Claude จะถูกบล็อก)
+                      หลังกดก๊อป <b>รอ 2-3 วิ</b>ก่อนวาง (โค้ดยาว มือถือใช้เวลาก๊อป ถ้ารีบวางจะหายบางส่วน) · ดาวน์โหลดไฟล์ใช้ได้เฉพาะเว็บ standalone
                     </div>
                     <textarea readOnly value={backup.text} onFocus={e => e.target.select()}
                       style={{ width: "100%", height: 90, fontSize: 12, fontFamily: "monospace", padding: 10, borderRadius: 10, border: `1px solid ${C.line}`, background: "#fbf6ec", color: C.ink, resize: "none" }} />
+                    <div style={{ fontSize: 12, color: C.sub, marginTop: 6, textAlign: "right" }}>
+                      ความยาวโค้ด: <b style={{ color: C.accent }}>{fmtLen((backup.text || "").length)}</b> ตัวอักษร — จำไว้เทียบตอนวาง</div>
                   </>
                 ) : (
                   <>
@@ -1523,24 +1547,25 @@ function App() {
                     </div>
                     <textarea readOnly value={backup.text} onFocus={e => e.target.select()}
                       style={{ width: "100%", height: 90, fontSize: 12, fontFamily: "monospace", padding: 10, borderRadius: 10, border: `1px solid ${C.line}`, background: "#fbf6ec", color: C.ink, resize: "none" }} />
-                    <button onClick={async () => {
-                        try { await navigator.clipboard.writeText(backup.text); setBackup(b => ({ ...b, msg: "ก๊อปแล้ว ✓" })); }
-                        catch (e) { setBackup(b => ({ ...b, msg: "ก๊อปอัตโนมัติไม่ได้ — แตะในกล่องแล้วก๊อปเองนะครับ" })); }
-                      }}
-                      style={{ marginTop: 8, width: "100%", background: "#efe7d7", color: C.sub, border: "none", borderRadius: 11, padding: "10px", fontSize: 13.5, fontWeight: 600 }}>
-                      ก๊อปข้อความแทน
-                    </button>
+                    <div style={{ fontSize: 12, color: C.sub, marginTop: 6, textAlign: "right" }}>
+                      ความยาวโค้ด: <b style={{ color: C.accent }}>{fmtLen((backup.text || "").length)}</b> ตัวอักษร</div>
                   </>
                 )
               ) : (
                 IS_ARTIFACT ? (
                   <>
                     <div style={{ fontSize: 13.5, color: C.sub, lineHeight: 1.6, marginBottom: 10 }}>
-                      วางโค้ดสำรองที่เคยก๊อปไว้ลงในกล่องนี้ <span style={{ color: C.accent }}>· ถ้าข้อมูลเพี้ยนจะเตือนทันที</span>
+                      กดปุ่มด้านล่างเพื่อ <b>วางอัตโนมัติ</b> (เลี่ยงปัญหาวางในกล่องแล้วโค้ดหายเพราะติด limit) <span style={{ color: C.accent }}>· ถ้าข้อมูลเพี้ยนจะเตือนทันที</span>
                     </div>
+                    <button onClick={pasteFromClipboard}
+                      style={{ width: "100%", background: "#efe7d7", color: C.ink, border: `1px solid ${C.line}`, borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 700, marginBottom: 8 }}>
+                      📋 วางจากคลิปบอร์ดอัตโนมัติ
+                    </button>
                     <textarea value={backup.text} onChange={e => setBackup(b => ({ ...b, text: e.target.value, msg: null }))}
-                      placeholder="วางโค้ดสำรองที่นี่…"
+                      placeholder="…หรือแตะที่นี่แล้ววางเอง"
                       style={{ width: "100%", height: 110, fontSize: 12, fontFamily: "monospace", padding: 10, borderRadius: 10, border: `1px solid ${C.line}`, background: "#fff", color: C.ink, resize: "none" }} />
+                    <div style={{ fontSize: 12, color: C.sub, marginTop: 6, textAlign: "right" }}>
+                      วางมาแล้ว: <b style={{ color: (backup.text || "").length ? C.accent : C.sub }}>{fmtLen((backup.text || "").length)}</b> ตัวอักษร — ต้องเท่ากับตอนสำรอง</div>
                     <button onClick={() => runRestore(backup.text, "merge")}
                       style={{ marginTop: 10, width: "100%", background: C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 700 }}>
                       ＋ รวมข้อมูล (เก็บ progress เดิม + เพิ่มของใหม่)
@@ -1570,11 +1595,17 @@ function App() {
                       }} />
                   </label>
                   <div style={{ fontSize: 12.5, color: C.sub, lineHeight: 1.6, marginBottom: 8 }}>
-                    หรือวางโค้ดข้อความที่เคยสำรองไว้:
+                    หรือวางโค้ดข้อความที่เคยสำรองไว้ (กดปุ่มวางอัตโนมัติเลี่ยง limit):
                   </div>
+                  <button onClick={pasteFromClipboard}
+                    style={{ width: "100%", background: "#efe7d7", color: C.ink, border: `1px solid ${C.line}`, borderRadius: 11, padding: "11px", fontSize: 14, fontWeight: 700, marginBottom: 8 }}>
+                    📋 วางจากคลิปบอร์ดอัตโนมัติ
+                  </button>
                   <textarea value={backup.text} onChange={e => setBackup(b => ({ ...b, text: e.target.value, msg: null }))}
-                    placeholder="วางโค้ดสำรองที่นี่…"
+                    placeholder="…หรือแตะที่นี่แล้ววางเอง"
                     style={{ width: "100%", height: 90, fontSize: 12, fontFamily: "monospace", padding: 10, borderRadius: 10, border: `1px solid ${C.line}`, background: "#fff", color: C.ink, resize: "none" }} />
+                  <div style={{ fontSize: 12, color: C.sub, marginTop: 6, textAlign: "right" }}>
+                    วางมาแล้ว: <b style={{ color: (backup.text || "").length ? C.accent : C.sub }}>{fmtLen((backup.text || "").length)}</b> ตัวอักษร</div>
                   <button onClick={() => runRestore(backup.text, "merge")}
                     style={{ marginTop: 8, width: "100%", background: C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "11px", fontSize: 14, fontWeight: 700 }}>
                     ＋ รวมข้อมูลจากข้อความ
