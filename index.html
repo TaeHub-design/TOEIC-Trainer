@@ -441,6 +441,52 @@ async function aiComplete({ engineId, model, maxTokens, prompt }) {
   return text;
 }
 
+// Tolerant JSON parser. AI output is occasionally cut off mid-stream when it hits the
+// token cap, leaving an unterminated string and unclosed [ { brackets — so JSON.parse
+// throws. This first tries a normal parse, then attempts a best-effort repair: walk the
+// text tracking string/escape state, drop any trailing partial token, and append the
+// closing " ] } needed to balance what we did receive. Returns the parsed value, or
+// throws the ORIGINAL error if even the repaired text won't parse.
+function parseLooseJson(text) {
+  try { return JSON.parse(text); } catch (firstErr) {
+    let s = text.trim();
+    // strip anything before the first { or [ (stray preamble the model may add)
+    const start = s.search(/[\[{]/);
+    if (start > 0) s = s.slice(start);
+    const stack = [];
+    let inStr = false, esc = false, lastSafe = -1;
+    for (let i = 0; i < s.length; i++) {
+      const c = s[i];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (c === "\\") esc = true;
+        else if (c === '"') { inStr = false; lastSafe = i; }
+      } else {
+        if (c === '"') inStr = true;
+        else if (c === "{" || c === "[") { stack.push(c); }
+        else if (c === "}" || c === "]") { stack.pop(); lastSafe = i; }
+        else if (c === "," || (c >= "0" && c <= "9") || c === "t" || c === "f" || c === "n" || c === "}" || c === "]") lastSafe = i;
+        else if (!/\s/.test(c)) lastSafe = i;
+      }
+    }
+    // if we ended inside a string, cut back to the last point that closed a token cleanly
+    let repaired = inStr && lastSafe >= 0 ? s.slice(0, lastSafe + 1) : s;
+    // drop a dangling comma or partial key/value, then close all open brackets
+    repaired = repaired.replace(/,\s*$/, "").replace(/:\s*$/, ": null");
+    // recompute open brackets on the (possibly trimmed) repaired text
+    const open = [];
+    let inS = false, es = false;
+    for (let i = 0; i < repaired.length; i++) {
+      const c = repaired[i];
+      if (inS) { if (es) es = false; else if (c === "\\") es = true; else if (c === '"') inS = false; }
+      else { if (c === '"') inS = true; else if (c === "{" || c === "[") open.push(c); else if (c === "}" || c === "]") open.pop(); }
+    }
+    if (inS) repaired += '"'; // close a still-open string
+    for (let i = open.length - 1; i >= 0; i--) repaired += open[i] === "{" ? "}" : "]";
+    return JSON.parse(repaired); // may throw — caller treats that as a real failure
+  }
+}
+
 // ---- curated Grammar lessons (fixed, high-yield TOEIC points) ----
 const LESSONS = [
   {
@@ -1077,7 +1123,7 @@ function App() {
       // adaptive thinking applies only to grammar (never vocab), AND only when engine+model support it AND user toggled it on
       const clean = await aiComplete({ engineId: engine, model: mdl.str, maxTokens: m === "vocab" ? 4000 : 3000, prompt });
       let arr;
-      try { arr = JSON.parse(clean); }
+      try { arr = parseLooseJson(clean); }
       catch (pe) { throw new Error("แปลงคำตอบเป็น JSON ไม่ได้ — AI ตอบมาว่า: " + clean.slice(0, 200)); }
       if (!Array.isArray(arr) || !arr.length) throw new Error("bad shape");
 
@@ -1221,9 +1267,9 @@ function App() {
       const prompt = usePart6
         ? listeningPart6Prompt(category, diffById(difficulty).prompt)
         : listeningPracticePrompt(category, diffById(difficulty).prompt);
-      const clean = await aiComplete({ engineId: engine, model: mdl.str, maxTokens: 2500, prompt });
+      const clean = await aiComplete({ engineId: engine, model: mdl.str, maxTokens: 4000, prompt });
       let obj;
-      try { obj = JSON.parse(clean); }
+      try { obj = parseLooseJson(clean); }
       catch (pe) { throw new Error("แปลงคำตอบเป็น JSON ไม่ได้ — AI ตอบมาว่า: " + clean.slice(0, 200)); }
       if (!obj || !obj.transcript || !Array.isArray(obj.questions) || !obj.questions.length) throw new Error("bad shape");
       const ptype = obj.ptype || (usePart6 ? "Part 6" : "Part 7");
@@ -1232,6 +1278,7 @@ function App() {
         id: passageId + "-q" + i,
         q: q.q, options: q.options, answer: q.answer, explain: q.explain || "",
       }));
+      if (!deck.length) throw new Error("คำตอบจาก AI ถูกตัดกลางคัน เลยไม่มีคำถามที่สมบูรณ์ — ลองกดสร้างใหม่อีกครั้งครับ");
       // SAVE the whole passage to the persistent bank (so a generated reading is never lost —
       // it cost tokens to make). Stored as one bank entry keyed by passageId, holding the
       // passage text + its questions. The bank powers "คลังข้อสอบ" and review-by-rating.
@@ -2514,7 +2561,7 @@ function App() {
                 ? <div style={{ margin: "14px auto 0", maxWidth: 420, fontSize: 13, color: C.red, fontWeight: 600 }}>ข้อที่พลาดถูกเก็บเข้าคลังทวนแล้ว ✓</div>
                 : <div style={{ margin: "14px auto 0", fontSize: 13.5, color: C.green, fontWeight: 600 }}>ถูกหมดเลย! 🌟</div>}
               <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
-                <button onClick={genPractice} disabled={st.generating}
+                <button onClick={() => { setLquiz(null); genPractice(); }} disabled={st.generating}
                   style={{ flex: 1, background: C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ชุดใหม่</button>
                 <button onClick={() => setLquiz(null)}
                   style={{ flex: 1, background: "#fff", color: C.sub, border: `1.5px solid ${C.line}`, borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ออก</button>
