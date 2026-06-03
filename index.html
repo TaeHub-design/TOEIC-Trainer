@@ -294,7 +294,24 @@ const DAY_KEY = "toeic_day_v1"; // persists the manual "Day X" study-day counter
 const STREAK_KEY = "toeic_streak_v1"; // auto streak: { streak, best, last }
 const STATS_KEY = "toeic_stats_v1"; // { history: {date:snapshot}, sessions: [...] }
 const READTYPE_KEY = "toeic_readtype_v1"; // Reading practice type: part7 | part6 | mix
+const GOAL_KEY = "toeic_goal_v1"; // daily goal: how many cards/questions to do per day
+const GOAL_OPTIONS = [10, 20, 30, 50];
 const BACKUP_PREFIX = "TZv1:"; // marks a compressed backup string
+
+// ---- Text-to-speech (pronunciation) ----
+// Uses the browser's built-in speechSynthesis — free, no network. Hidden if unsupported.
+const TTS_OK = typeof window !== "undefined" && typeof window.speechSynthesis !== "undefined";
+function speak(text, ev) {
+  if (ev && ev.stopPropagation) ev.stopPropagation(); // don't trigger card flip / parent click
+  try {
+    const synth = window.speechSynthesis;
+    if (!synth || !text) return;
+    synth.cancel(); // stop anything already playing
+    const u = new SpeechSynthesisUtterance(String(text));
+    u.lang = "en-US"; u.rate = 0.92; u.pitch = 1;
+    synth.speak(u);
+  } catch (e) { /* speech not available */ }
+}
 
 // ============================================================
 //  DIFFICULTY LEVELS
@@ -787,6 +804,38 @@ const emptyMode = () => ({
   startTime: null, endTime: null,
 });
 
+// ---- set ("ชุด") numbering helpers ----
+// `gen` tags which generation batch an item belongs to. These derive clean, consistent
+// set numbers from the DATA itself, so the count never drifts from what's in the bank.
+function topGen(data) { // highest gen present (0 if none)
+  let mx = 0;
+  for (const x of Object.values(data || {})) { const g = x && typeof x.gen === "number" ? x.gen : 0; if (g > mx) mx = g; }
+  return mx;
+}
+function distinctGenCount(data) { // how many real sets exist (ignores gaps from deduped batches)
+  const s = new Set();
+  for (const x of Object.values(data || {})) if (x && typeof x.gen === "number" && x.gen > 0) s.add(x.gen);
+  return s.size;
+}
+function genIndexMap(data) { // { rawGen: 1..N } sorted ascending → gapless display numbers
+  const gens = [...new Set(Object.values(data || {}).map(x => (x && typeof x.gen === "number") ? x.gen : 0).filter(g => g > 0))].sort((a, b) => a - b);
+  const m = {}; gens.forEach((g, i) => { m[g] = i + 1; });
+  return m;
+}
+// merge incoming into existing (existing wins on key clash). NEW incoming entries get their
+// gen RE-NUMBERED to continue after the existing max, so a merged backup forms fresh sets
+// instead of collapsing onto "ชุด 1". Relative order of incoming sets is preserved.
+function mergeRenumberGen(existing, incoming) {
+  existing = existing || {}; incoming = incoming || {};
+  const base = topGen(existing);
+  const newKeys = Object.keys(incoming).filter(k => !(k in existing));
+  const gensAsc = [...new Set(newKeys.map(k => (incoming[k] && incoming[k].gen) || 0))].sort((a, b) => a - b);
+  const remap = {}; gensAsc.forEach((g, i) => { remap[g] = base + i + 1; });
+  const out = { ...existing };
+  for (const k of newKeys) { const it = incoming[k]; out[k] = { ...it, gen: remap[(it && it.gen) || 0] || (base + 1) }; }
+  return out;
+}
+
 function fmtTime(ms) {
   if (ms == null || ms < 0) ms = 0;
   const s = Math.round(ms / 1000);
@@ -819,6 +868,7 @@ function App() {
   const [showStats, setShowStats] = useState(false); // statistics modal
   const [statsView, setStatsView] = useState(null); // snapshot of stats taken when modal opens
   const [readType, setReadType] = useState("part7"); // Reading practice: part7 | part6 | mix
+  const [goal, setGoal] = useState(20); // daily goal (cards/questions per day)
   const [showSettings, setShowSettings] = useState(false); // settings modal (engine + API key)
   const [keyTick, setKeyTick] = useState(0); // bump to recompute key presence after save/delete
   const [keyDraft, setKeyDraft] = useState(""); // draft value in the settings input
@@ -890,7 +940,8 @@ function App() {
             const s = raw ? JSON.parse(raw) : {};
             M.current[m].data = (m === "vocab" ? s.words : m === "listening" ? s.lessons : s.items) || {};
             M.current[m].ratings = s.ratings || {};
-            M.current[m].genCount = s.genCount || 0;
+            // trust the data over the stored counter (which can reset, e.g. in the artifact sandbox)
+            M.current[m].genCount = Math.max(s.genCount || 0, topGen(M.current[m].data));
             M.current[m].srs = s.srs || {};
             if (m === "vocab" || m === "listening") M.current[m].missQ = s.missQ || {};
           } catch (e) { /* no data for this mode */ }
@@ -947,12 +998,16 @@ function App() {
         } catch (e) { /* no saved streak */ }
         try {
           const rst = await STORAGE.get(STATS_KEY);
-          if (rst) { const s = JSON.parse(rst); STATS.current = { history: (s && s.history) || {}, sessions: (s && Array.isArray(s.sessions)) ? s.sessions : [] }; }
+          if (rst) { const s = JSON.parse(rst); STATS.current = { history: (s && s.history) || {}, sessions: (s && Array.isArray(s.sessions)) ? s.sessions : [], daily: (s && s.daily) || {} }; }
         } catch (e) { /* no saved stats */ }
         try {
           const rt = await STORAGE.get(READTYPE_KEY);
           if (rt) { const t = JSON.parse(rt); if (t === "part6" || t === "part7" || t === "mix") setReadType(t); }
         } catch (e) { /* no saved reading type */ }
+        try {
+          const rg = await STORAGE.get(GOAL_KEY);
+          if (rg) { const n = parseInt(JSON.parse(rg), 10); if (GOAL_OPTIONS.includes(n)) setGoal(n); }
+        } catch (e) { /* no saved goal */ }
       } finally { setLoaded(true); }
     })();
   }, []);
@@ -1032,6 +1087,24 @@ function App() {
     STATS.current.sessions = arr.slice(-120); // keep the most recent 120
     persistStats();
   }
+  // daily-goal counter: one tick per card/question the user actually engages with today.
+  // Called from the PRIMARY interaction of each mode so a single item is never double-counted
+  // (vocab card = its rating; quizzes = the answer). Stored under STATS.daily[date].
+  function bumpDaily() {
+    const t = todayStr();
+    const daily = { ...(STATS.current.daily || {}) };
+    daily[t] = (daily[t] || 0) + 1;
+    STATS.current.daily = daily;
+    persistStats();
+    // note: no rerender here — every caller already triggers one (rate/choose/setVquiz/setLquiz)
+  }
+  function todayDone() { return (STATS.current.daily || {})[todayStr()] || 0; }
+  function cycleGoal() {
+    const idx = GOAL_OPTIONS.indexOf(goal);
+    const next = GOAL_OPTIONS[(idx + 1) % GOAL_OPTIONS.length];
+    setGoal(next);
+    STORAGE.set(GOAL_KEY, JSON.stringify(next));
+  }
 
   // ---- SRS scheduling: update an item's next-due date when it's rated ----
   function bumpSrs(st, id, status) {
@@ -1052,31 +1125,52 @@ function App() {
     const idOf = x => (modeName === "vocab" ? x.w : x.id);
     return Object.values(st.data).filter(x => { const id = idOf(x); return st.ratings[id] && isDue(st.srs[id], now); }).length;
   }
-  // build a review deck of only the items that are SRS-due (any rating)
+  // build a review deck of only the items that are SRS-due (any rating),
+  // ordered by urgency: forgot first, then sort, then known (shuffled within each tier)
   function buildDueDeck() {
     const st = cur();
     const now = Date.now();
     const idOf = x => (mode === "vocab" ? x.w : x.id);
     const due = Object.values(st.data).filter(x => { const id = idOf(x); return st.ratings[id] && isDue(st.srs[id], now); });
-    const built = shuffle(due).slice(0, 40);
+    const tiers = { forgot: [], sort: [], known: [] };
+    due.forEach(x => { const r = st.ratings[idOf(x)]; (tiers[r] || tiers.known).push(x); });
+    const built = [...shuffle(tiers.forgot), ...shuffle(tiers.sort), ...shuffle(tiers.known)].slice(0, 40);
     st.deck = built; st.pos = 0; st.flipped = false; st.pickedMap = {}; st.tab = "study";
     if (mode === "grammar") { st.startTime = Date.now(); st.endTime = null; st.logged = false; }
     rerender(); scrollToCards();
   }
-  // Reading: build an SRS-due review deck from the saved passage bank
+  // Reading: build an SRS-due review deck from the saved passage bank (urgency-ordered)
   function buildReadingDue() {
     const st = M.current.listening;
     const now = Date.now();
-    const due = [];
+    const tiers = { forgot: [], sort: [], known: [] };
     for (const p of Object.values(st.data || {})) for (const q of (p.questions || [])) {
-      if (st.ratings[q.id] && isDue(st.srs[q.id], now)) due.push({ ...q, transcript: p.transcript, _ptype: p.ptype });
+      if (st.ratings[q.id] && isDue(st.srs[q.id], now)) { const r = st.ratings[q.id]; (tiers[r] || tiers.known).push({ ...q, transcript: p.transcript, _ptype: p.ptype }); }
     }
-    if (!due.length) return;
-    setLquiz({ passageId: null, ptype: "ถึงกำหนดทบทวน", transcript: null, model: "", deck: shuffle(due), pos: 0, picked: {}, start: Date.now(), end: null, isReview: true });
+    const deck = [...shuffle(tiers.forgot), ...shuffle(tiers.sort), ...shuffle(tiers.known)];
+    if (!deck.length) return;
+    setLquiz({ passageId: null, ptype: "ถึงกำหนดทบทวน", transcript: null, model: "", deck, pos: 0, picked: {}, start: Date.now(), end: null, isReview: true });
     setLSection("practice");
   }
 
   function chooseReadType(t) { setReadType(t); STORAGE.set(READTYPE_KEY, JSON.stringify(t)); }
+
+  // weakness-by-topic for grammar: group RATED drill questions by their (normalized) grammar point,
+  // count weak (forgot+sort) vs known, sorted weakest-first. Uses data already stored — no new logging.
+  function grammarWeakness() {
+    const g = M.current.grammar;
+    const norm = p => (p || "").replace(/\s*\(.*?\)\s*/g, " ").replace(/\s+/g, " ").trim() || "อื่น ๆ";
+    const map = {};
+    for (const it of Object.values(g.data || {})) {
+      const r = g.ratings[it.id];
+      if (!r) continue; // only count questions the user has rated
+      const key = norm(it.point);
+      if (!map[key]) map[key] = { topic: key, total: 0, weak: 0, known: 0 };
+      map[key].total++;
+      if (r === "known") map[key].known++; else map[key].weak++;
+    }
+    return Object.values(map).sort((a, b) => b.weak - a.weak || b.total - a.total);
+  }
 
   function openStats() {
     // snapshot the ref into state so the modal renders a stable view
@@ -1180,6 +1274,7 @@ function App() {
     bumpSrs(st, id, status);
     persist(mode);
     touchStreak(); updateHistory();
+    if (mode === "vocab") bumpDaily(); // vocab card: the rating IS the interaction (grammar counts via choose())
     if (advance) { st.flipped = false; st.pos = Math.min(st.pos + 1, st.deck.length); }
     rerender();
   }
@@ -1188,6 +1283,7 @@ function App() {
     const st = cur();
     if (st.pickedMap[id]) return;
     st.pickedMap = { ...st.pickedMap, [id]: key };
+    bumpDaily(); // first answer of this grammar question
     rerender();
   }
 
@@ -1226,6 +1322,8 @@ function App() {
     setVquiz({ deck, pos: 0, picked: {}, start: Date.now(), end: null, isReview: true });
   }
   function chooseQuiz(id, key) {
+    if (vquiz && vquiz.picked[id]) return; // already answered — don't double count
+    bumpDaily();
     setVquiz(v => (v.picked[id] ? v : { ...v, picked: { ...v.picked, [id]: key } }));
   }
   function nextQuiz() {
@@ -1318,7 +1416,7 @@ function App() {
     touchStreak(); updateHistory();
     rerender();
   }
-  function chooseLQ(id, key) { setLquiz(v => (v.picked[id] ? v : { ...v, picked: { ...v.picked, [id]: key } })); }
+  function chooseLQ(id, key) { if (lquiz && lquiz.picked[id]) return; bumpDaily(); setLquiz(v => (v.picked[id] ? v : { ...v, picked: { ...v.picked, [id]: key } })); }
   function nextLQ() { setLquiz(v => ({ ...v, pos: Math.min(v.pos + 1, v.deck.length) })); }
   // build a review deck from Reading questions the user rated "forgot"/"sort" (not yet mastered),
   // pulling them straight out of the saved passage bank — same logic as Grammar review.
@@ -1383,7 +1481,7 @@ function App() {
       // ---- v2 extras (purposely excluded from canonicalBackup so the checksum stays backward-compatible) ----
       srs: { vocab: M.current.vocab.srs || {}, grammar: M.current.grammar.srs || {}, listening: M.current.listening.srs || {} },
       streak: streak,
-      stats: { history: STATS.current.history || {}, sessions: STATS.current.sessions || [] },
+      stats: { history: STATS.current.history || {}, sessions: STATS.current.sessions || [], daily: STATS.current.daily || {} },
     };
     payload._checksum = fnv1a(canonicalBackup(payload)); // integrity tag (verified on import) — legacy fields only
     return JSON.stringify(payload);
@@ -1435,17 +1533,17 @@ function App() {
       existingWins ? { ...(incoming || {}), ...(existing || {}) } : { ...(existing || {}), ...(incoming || {}) };
     try {
       if (obj.vocab) {
-        M.current.vocab.data = isMerge ? mergeMap(M.current.vocab.data, obj.vocab.words, true) : (obj.vocab.words || {});
+        M.current.vocab.data = isMerge ? mergeRenumberGen(M.current.vocab.data, obj.vocab.words) : (obj.vocab.words || {});
         M.current.vocab.ratings = isMerge ? mergeMap(M.current.vocab.ratings, obj.vocab.ratings, true) : (obj.vocab.ratings || {});
-        M.current.vocab.genCount = isMerge ? Math.max(M.current.vocab.genCount || 0, obj.vocab.genCount || 0) : (obj.vocab.genCount || 0);
+        M.current.vocab.genCount = Math.max(M.current.vocab.genCount || 0, obj.vocab.genCount || 0, topGen(M.current.vocab.data));
         M.current.vocab.missQ = isMerge ? mergeMap(M.current.vocab.missQ, obj.vocab.missQ, true) : (obj.vocab.missQ || {});
         M.current.vocab.deck = []; M.current.vocab.pos = 0; M.current.vocab.pickedMap = {};
         await persist("vocab");
       }
       if (obj.grammar) {
-        M.current.grammar.data = isMerge ? mergeMap(M.current.grammar.data, obj.grammar.items, true) : (obj.grammar.items || {});
+        M.current.grammar.data = isMerge ? mergeRenumberGen(M.current.grammar.data, obj.grammar.items) : (obj.grammar.items || {});
         M.current.grammar.ratings = isMerge ? mergeMap(M.current.grammar.ratings, obj.grammar.ratings, true) : (obj.grammar.ratings || {});
-        M.current.grammar.genCount = isMerge ? Math.max(M.current.grammar.genCount || 0, obj.grammar.genCount || 0) : (obj.grammar.genCount || 0);
+        M.current.grammar.genCount = Math.max(M.current.grammar.genCount || 0, obj.grammar.genCount || 0, topGen(M.current.grammar.data));
         M.current.grammar.deck = []; M.current.grammar.pos = 0; M.current.grammar.pickedMap = {};
         await persist("grammar");
       }
@@ -1480,12 +1578,17 @@ function App() {
       if (obj.stats) {
         const inHist = obj.stats.history || {};
         const inSess = Array.isArray(obj.stats.sessions) ? obj.stats.sessions : [];
+        const inDaily = obj.stats.daily || {};
         if (isMerge) {
           STATS.current.history = { ...inHist, ...(STATS.current.history || {}) }; // existing day snapshots win
           const merged = [...(STATS.current.sessions || []), ...inSess].sort((a, b) => (a.d || 0) - (b.d || 0));
           STATS.current.sessions = merged.slice(-120);
+          // daily: keep the larger count per day (in case both devices studied that day)
+          const mergedDaily = { ...inDaily };
+          for (const [d, n] of Object.entries(STATS.current.daily || {})) mergedDaily[d] = Math.max(mergedDaily[d] || 0, n);
+          STATS.current.daily = mergedDaily;
         } else {
-          STATS.current = { history: inHist, sessions: inSess.slice(-120) };
+          STATS.current = { history: inHist, sessions: inSess.slice(-120), daily: inDaily };
         }
         persistStats();
       }
@@ -1539,6 +1642,7 @@ function App() {
     { new: 0, forgot: 0, sort: 0, known: 0 }
   );
   const total = Object.keys(st.data).length;
+  const genIdx = genIndexMap(st.data); // rawGen → 1..N for gapless "ชุด N" labels in the bank
   const reviewable = counts.forgot + counts.sort;
   const card = st.deck[st.pos];
   const sessionDone = loaded && st.tab === "study" && st.deck.length > 0 && st.pos >= st.deck.length;
@@ -1613,6 +1717,31 @@ function App() {
               color: "#fff", fontSize: 19, fontWeight: 700, lineHeight: 1, display: "grid", placeItems: "center", boxShadow: "0 4px 12px -6px rgba(191,77,40,.8)" }}>+</button>
         </div>
         <div style={{ textAlign: "center", fontSize: 11, color: C.sub, marginBottom: 8 }}>กด + เมื่อเริ่มเรียนวันใหม่ เพื่อมาร์คว่าเรียนมากี่วันแล้ว</div>
+
+        {/* DAILY GOAL — today's progress; tap to change the target */}
+        {loaded && (() => {
+          const done = todayDone();
+          const pct = Math.min(100, Math.round((done / goal) * 100));
+          const hit = done >= goal;
+          return (
+            <div onClick={cycleGoal} title="แตะเพื่อปรับเป้าหมาย"
+              style={{ cursor: "pointer", background: hit ? C.greenBg : "#fff", border: `1px solid ${hit ? C.green : C.line}`,
+                borderRadius: 13, padding: "10px 14px", marginBottom: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 7 }}>
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: hit ? C.green : C.ink }}>
+                  {hit ? "🎉 ถึงเป้าวันนี้แล้ว!" : "🎯 เป้าหมายวันนี้"}
+                </span>
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: hit ? C.green : C.accent, fontVariantNumeric: "tabular-nums" }}>
+                  {done}/{goal} <span style={{ fontWeight: 400, color: C.sub, fontSize: 11 }}>ข้อ</span>
+                </span>
+              </div>
+              <div style={{ height: 7, borderRadius: 4, background: C.line, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${pct}%`, background: hit ? C.green : C.accent, transition: "width .35s" }} />
+              </div>
+              <div style={{ fontSize: 10.5, color: C.sub, marginTop: 5, textAlign: "right" }}>แตะเพื่อปรับเป้า (10·20·30·50)</div>
+            </div>
+          );
+        })()}
 
         {/* AUTO STREAK — consecutive days with any study activity */}
         {streak.streak > 0 && (
@@ -1959,6 +2088,40 @@ function App() {
                     ยังไม่มีรอบที่ทำเสร็จ — ไปทำชุดข้อสอบ (Vocab quiz / Grammar / Reading) ให้จบสักรอบ แล้วคะแนนจะมาโชว์ที่นี่
                   </div>
                 )}
+
+                {/* weakness by topic (grammar) — built from rated drill questions */}
+                {(() => {
+                  const weak = grammarWeakness();
+                  if (!weak.length) return null;
+                  const top = weak.slice(0, 6);
+                  const maxTotal = Math.max(...top.map(t => t.total), 1);
+                  return (
+                    <div style={{ marginTop: 18 }}>
+                      <div style={{ fontSize: 12.5, color: C.sub, fontWeight: 600, marginBottom: 8 }}>🧩 จุดอ่อนรายหัวข้อ (ไวยากรณ์) · เรียงจากพลาดบ่อยสุด</div>
+                      <div style={{ display: "grid", gap: 8, background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 12px" }}>
+                        {top.map((t, i) => {
+                          const pctKnown = Math.round((t.known / t.total) * 100);
+                          return (
+                            <div key={i}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, marginBottom: 3 }}>
+                                <span style={{ fontSize: 13, color: C.ink, fontWeight: 600, lineHeight: 1.3 }}>{t.topic}</span>
+                                <span style={{ fontSize: 11, color: t.weak > 0 ? C.red : C.green, fontWeight: 700, flex: "0 0 auto" }}>
+                                  {t.weak > 0 ? `ยังไม่แม่น ${t.weak}/${t.total}` : `แม่นครบ ${t.total}`}
+                                </span>
+                              </div>
+                              <div style={{ height: 7, borderRadius: 4, background: C.redBg, overflow: "hidden", width: `${Math.max(28, (t.total / maxTotal) * 100)}%` }}>
+                                <div style={{ height: "100%", width: `${pctKnown}%`, background: C.green }} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div style={{ fontSize: 11, color: C.sub, marginTop: 6, lineHeight: 1.5 }}>
+                        แถบเขียว = สัดส่วนที่ "เข้าใจแล้ว" · ความยาวแถบ = จำนวนข้อที่เคยทำในหัวข้อนั้น · เน้นฝึกหัวข้อบนสุดก่อน
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <button onClick={() => setShowStats(false)}
                   style={{ marginTop: 16, width: "100%", background: C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ปิด</button>
@@ -2410,26 +2573,36 @@ function App() {
                     : <>✨ สร้างชุดฝึกอ่านใหม่ ({readType === "part6" ? "Part 6" : readType === "mix" ? "สุ่ม 6/7" : "Part 7"})</>}
                 </button>
                 {st.genErr && <div style={{ color: C.red, fontSize: 12.5, marginBottom: 10, lineHeight: 1.5, wordBreak: "break-word", background: C.redBg, border: `1px solid ${C.red}`, borderRadius: 9, padding: "8px 10px" }}>{st.genErr}</div>}
+                {/* unified review zone (Reading): SRS-due primary, all-weak fallback */}
                 {(() => {
-                  // count Reading questions rated not-yet-mastered (forgot/sort) across the whole bank
-                  let due = 0;
-                  for (const p of Object.values(st.data || {})) for (const q of (p.questions || [])) { const r = st.ratings[q.id]; if (r === "forgot" || r === "sort") due++; }
-                  if (!due) return null;
-                  return (
-                    <button onClick={buildReadingReview}
-                      style={{ width: "100%", background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 13, padding: "11px", fontSize: 14, fontWeight: 600, margin: "4px 0 14px" }}>
-                      🔁 ทวนข้อที่ยังไม่แม่น ({due} ข้อ)
-                    </button>
-                  );
-                })()}
-                {(() => {
+                  let weak = 0;
+                  for (const p of Object.values(st.data || {})) for (const q of (p.questions || [])) { const r = st.ratings[q.id]; if (r === "forgot" || r === "sort") weak++; }
                   const due = dueCountFor("listening");
-                  if (!due) return null;
+                  if (!weak && !due) return null;
                   return (
-                    <button onClick={buildReadingDue}
-                      style={{ width: "100%", background: "#fff", color: C.accent, border: `1.5px solid ${C.accent}`, borderRadius: 13, padding: "11px", fontSize: 14, fontWeight: 700, margin: "0 0 14px" }}>
-                      🔔 ถึงกำหนดทบทวน (SRS) · {due} ข้อ
-                    </button>
+                    <div style={{ border: `1px solid ${C.line}`, borderRadius: 13, padding: "12px 12px 13px", margin: "4px 0 14px", background: "#fcf8f0" }}>
+                      <div style={{ fontSize: 12, color: C.sub, fontWeight: 700, marginBottom: 9 }}>
+                        🔁 ทบทวน <span style={{ fontWeight: 400, fontSize: 11 }}>· ทวนข้อที่ใกล้ลืมมาก่อน</span>
+                      </div>
+                      {due > 0 ? (
+                        <button onClick={buildReadingDue}
+                          style={{ width: "100%", background: C.amberBg, color: C.ink, border: `1.5px solid ${C.amber}`, borderRadius: 11, padding: "13px",
+                            fontSize: 14.5, fontWeight: 700, marginBottom: weak > 0 ? 8 : 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                          🔔 ถึงกำหนดทบทวนวันนี้ ({due} ข้อ)
+                        </button>
+                      ) : (
+                        <div style={{ fontSize: 12.5, color: C.green, fontWeight: 600, textAlign: "center", padding: "4px 0 9px" }}>
+                          ✓ วันนี้ทบทวนครบแล้ว — ที่เหลือยังไม่ถึงกำหนด
+                        </div>
+                      )}
+                      {weak > 0 && (
+                        <button onClick={buildReadingReview}
+                          style={{ width: "100%", background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "11px",
+                            fontSize: 13.5, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 7 }}>
+                          {due > 0 ? "หรือทวน" : "ทวน"}ข้อที่ยังไม่แม่นทั้งหมด ({weak} ข้อ)
+                        </button>
+                      )}
+                    </div>
                   );
                 })()}
                 {/* คลังข้อสอบ: passages saved from previous generations (never lost) */}
@@ -2574,7 +2747,7 @@ function App() {
         {!(mode === "grammar" && gSection === "lesson") && !(mode === "vocab" && vSection === "quiz") && mode !== "listening" && (
           <>
         <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12, fontSize: 13, color: C.sub }}>
-          <span>สร้างไปแล้ว <b style={{ color: C.accent, fontSize: 15 }}>{Math.ceil((total || 0) / (BATCH[mode] || 5))}</b> ชุด</span>
+          <span>สร้างไปแล้ว <b style={{ color: C.accent, fontSize: 15 }}>{distinctGenCount(st.data)}</b> ชุด</span>
           <span style={{ color: C.line }}>•</span>
           <span>{mode === "vocab" ? "คำสะสม" : "ข้อสะสม"} <b style={{ color: C.ink }}>{total}</b></span>
         </div>
@@ -2609,22 +2782,34 @@ function App() {
             <>✨ สุ่ม{mode === "vocab" ? "คำ" : "ข้อ"}ชุดใหม่ ({BATCH[mode]} {mode === "vocab" ? "คำ" : "ข้อ"})</>
           )}
         </button>
-        {reviewable > 0 && !st.generating && (
-          <button onClick={buildReviewDeck}
-            style={{ width: "100%", background: C.amberBg, color: C.ink, border: `1.5px solid ${C.amber}`, borderRadius: 13, padding: "13px",
-              fontSize: 14.5, fontWeight: 700, marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-            🔁 ทวน{mode === "vocab" ? "คำ" : "ข้อ"}ที่ยังไม่แม่น ({reviewable} {mode === "vocab" ? "คำ" : "ข้อ"})
-          </button>
-        )}
-        {(() => {
+        {/* unified review zone: SRS-due is the primary action; "all weak" is the study-ahead fallback */}
+        {!st.generating && (reviewable > 0 || dueCountFor(mode) > 0) && (() => {
           const due = dueCountFor(mode);
-          if (!due || st.generating) return null;
+          const unit = mode === "vocab" ? "คำ" : "ข้อ";
           return (
-            <button onClick={buildDueDeck}
-              style={{ width: "100%", background: "#fff", color: C.accent, border: `1.5px solid ${C.accent}`, borderRadius: 13, padding: "12px",
-                fontSize: 14, fontWeight: 700, marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-              🔔 ถึงกำหนดทบทวน (SRS) · {due} {mode === "vocab" ? "คำ" : "ข้อ"}
-            </button>
+            <div style={{ border: `1px solid ${C.line}`, borderRadius: 13, padding: "12px 12px 13px", marginBottom: 12, background: "#fcf8f0" }}>
+              <div style={{ fontSize: 12, color: C.sub, fontWeight: 700, marginBottom: 9 }}>
+                🔁 ทบทวน <span style={{ fontWeight: 400, fontSize: 11 }}>· ระบบจัดคิว{unit}ที่ใกล้ลืมมาก่อน</span>
+              </div>
+              {due > 0 ? (
+                <button onClick={buildDueDeck}
+                  style={{ width: "100%", background: C.amberBg, color: C.ink, border: `1.5px solid ${C.amber}`, borderRadius: 11, padding: "13px",
+                    fontSize: 14.5, fontWeight: 700, marginBottom: reviewable > 0 ? 8 : 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                  🔔 ถึงกำหนดทบทวนวันนี้ ({due} {unit})
+                </button>
+              ) : (
+                <div style={{ fontSize: 12.5, color: C.green, fontWeight: 600, textAlign: "center", padding: "4px 0 9px" }}>
+                  ✓ วันนี้ทบทวนครบแล้ว — ที่เหลือยังไม่ถึงกำหนด
+                </div>
+              )}
+              {reviewable > 0 && (
+                <button onClick={buildReviewDeck}
+                  style={{ width: "100%", background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "11px",
+                    fontSize: 13.5, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 7 }}>
+                  {due > 0 ? "หรือทวน" : "ทวน"}{unit}ที่ยังไม่แม่นทั้งหมด ({reviewable} {unit})
+                </button>
+              )}
+            </div>
           );
         })()}
         {st.genErr && <div style={{ color: C.red, fontSize: 12.5, marginBottom: 10, lineHeight: 1.5, wordBreak: "break-word", background: C.redBg, border: `1px solid ${C.red}`, borderRadius: 9, padding: "8px 10px" }}>{st.genErr}</div>}
@@ -2688,10 +2873,17 @@ function App() {
               <div className={"flip-inner" + (st.flipped ? " is-flipped" : "")} style={{ minHeight: 230 }}>
                 <div className="face" style={faceStyle()}>
                   <div style={{ fontSize: 11, letterSpacing: 1, textTransform: "uppercase", color: C.accent, fontWeight: 600 }}>คำศัพท์</div>
-                  <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 38, lineHeight: 1.1, margin: "14px 0 8px", textAlign: "center" }}>{card.w}</div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, margin: "14px 0 8px" }}>
+                    <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 38, lineHeight: 1.1, textAlign: "center" }}>{card.w}</div>
+                    {TTS_OK && (
+                      <button onClick={(e) => speak(card.w, e)} title="ฟังเสียงอ่าน" aria-label="ฟังเสียงอ่าน"
+                        style={{ flex: "0 0 auto", width: 38, height: 38, borderRadius: "50%", border: `1.5px solid ${C.accentSoft}`, background: "#fff",
+                          color: C.accent, fontSize: 18, display: "grid", placeItems: "center", lineHeight: 1 }}>🔊</button>
+                    )}
+                  </div>
                   <div style={{ color: C.sub, fontSize: 16 }}>{card.ipa}</div>
                   <div style={{ color: C.sub, fontSize: 13, marginTop: 4 }}>{card.pos}</div>
-                  <div style={{ marginTop: 18, fontSize: 12.5, color: C.sub }}>แตะเพื่อดูคำใบ้ (นิยาม + ประโยค) ↻</div>
+                  <div style={{ marginTop: 18, fontSize: 12.5, color: C.sub }}>แตะการ์ดเพื่อดูคำใบ้ (นิยาม + ประโยค) ↻</div>
                 </div>
                 <div className="face back" style={faceStyle()}>
                   <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 22, marginBottom: 8 }}>{card.w}</div>
@@ -2705,7 +2897,14 @@ function App() {
                     </button>
                   )}
                   <div style={{ fontSize: 14, color: C.ink, lineHeight: 1.5, textAlign: "center" }}>{card.def}</div>
-                  <div style={{ marginTop: 12, fontSize: 14, color: C.sub, fontStyle: "italic", lineHeight: 1.5, textAlign: "center" }}>“{card.ex}”</div>
+                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "center", gap: 8, marginTop: 12 }}>
+                    <div style={{ fontSize: 14, color: C.sub, fontStyle: "italic", lineHeight: 1.5, textAlign: "center" }}>“{card.ex}”</div>
+                    {TTS_OK && card.ex && (
+                      <button onClick={(e) => speak(card.ex, e)} title="ฟังประโยคตัวอย่าง" aria-label="ฟังประโยคตัวอย่าง"
+                        style={{ flex: "0 0 auto", width: 30, height: 30, borderRadius: "50%", border: `1.5px solid ${C.accentSoft}`, background: "#fff",
+                          color: C.accent, fontSize: 14, display: "grid", placeItems: "center", lineHeight: 1, marginTop: 1 }}>🔊</button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -2865,7 +3064,7 @@ function App() {
                           </div>
                           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                             {x.model ? <span style={{ fontSize: 10, color: C.accent, background: C.accentSoft, padding: "1px 6px", borderRadius: 10 }}>{x.model}</span> : null}
-                            {x.gen ? <span style={{ fontSize: 11, color: C.sub }}>ชุด {x.gen}</span> : null}
+                            {x.gen ? <span style={{ fontSize: 11, color: C.sub }}>ชุด {genIdx[x.gen] || x.gen}</span> : null}
                             <StatusBadge mode={mode} status={st.ratings[x.w]} />
                           </div>
                         </div>
@@ -2879,7 +3078,7 @@ function App() {
                           <span style={{ fontSize: 11, color: C.accent, fontWeight: 600, textTransform: "uppercase", letterSpacing: .5 }}>{x.point || "Part 5"}</span>
                           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                             {x.model ? <span style={{ fontSize: 10, color: C.accent, background: C.accentSoft, padding: "1px 6px", borderRadius: 10 }}>{x.model}</span> : null}
-                            {x.gen ? <span style={{ fontSize: 11, color: C.sub }}>ชุด {x.gen}</span> : null}
+                            {x.gen ? <span style={{ fontSize: 11, color: C.sub }}>ชุด {genIdx[x.gen] || x.gen}</span> : null}
                             <StatusBadge mode={mode} status={st.ratings[x.id]} />
                           </div>
                         </div>
