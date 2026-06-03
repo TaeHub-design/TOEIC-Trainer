@@ -869,6 +869,7 @@ function App() {
   const [statsView, setStatsView] = useState(null); // snapshot of stats taken when modal opens
   const [readType, setReadType] = useState("part7"); // Reading practice: part7 | part6 | mix
   const [goal, setGoal] = useState(20); // daily goal (cards/questions per day)
+  const [vocabSearch, setVocabSearch] = useState(""); // bank search box (vocab only)
   const [showSettings, setShowSettings] = useState(false); // settings modal (engine + API key)
   const [keyTick, setKeyTick] = useState(0); // bump to recompute key presence after save/delete
   const [keyDraft, setKeyDraft] = useState(""); // draft value in the settings input
@@ -1643,6 +1644,19 @@ function App() {
   );
   const total = Object.keys(st.data).length;
   const genIdx = genIndexMap(st.data); // rawGen → 1..N for gapless "ชุด N" labels in the bank
+  // items shown in the bank. vocab → alphabetical + text search (you look words up);
+  // grammar/reading → newest set first (you review by set).
+  const bankItems = (() => {
+    let items = Object.values(st.data).filter(x => { const s = st.ratings[idOf(x)] || "new"; return st.bankFilter === "all" || s === st.bankFilter; });
+    if (mode === "vocab") {
+      const q = (vocabSearch || "").trim().toLowerCase();
+      if (q) items = items.filter(x => (x.w || "").toLowerCase().includes(q) || (x.th || "").toLowerCase().includes(q) || (x.def || "").toLowerCase().includes(q));
+      items = items.slice().sort((a, b) => (a.w || "").localeCompare(b.w || ""));
+    } else {
+      items = items.slice().sort((a, b) => (b.gen || 0) - (a.gen || 0));
+    }
+    return items;
+  })();
   const reviewable = counts.forgot + counts.sort;
   const card = st.deck[st.pos];
   const sessionDone = loaded && st.tab === "study" && st.deck.length > 0 && st.pos >= st.deck.length;
@@ -1689,16 +1703,17 @@ function App() {
               {ENG.icon} {ENG.name} Ver
             </span>
           </h1>
-          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: "6px 14px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
             <button onClick={openStats}
-              style={{ background: "none", border: "none", color: C.accent, fontSize: 12, fontWeight: 700, textDecoration: "underline" }}>📊 สถิติ</button>
+              style={{ background: "none", border: "none", color: C.accent, fontSize: 12, fontWeight: 700, textDecoration: "underline", padding: "3px 0", whiteSpace: "nowrap" }}>📊 สถิติ</button>
             <button onClick={() => setShowSettings(true)}
-              style={{ background: "none", border: "none", color: hasKey ? C.accent : C.red, fontSize: 12, fontWeight: 700, textDecoration: "underline" }}>
+              style={{ background: "none", border: "none", color: hasKey ? C.accent : C.red, fontSize: 12, fontWeight: 700, textDecoration: "underline", padding: "3px 0", whiteSpace: "nowrap" }}>
               ⚙️ {needsKey ? (hasKey ? "ตั้งค่า" : "ใส่ API key") : "ตั้งค่า"}
             </button>
             <button onClick={() => openBackup("export")}
-              style={{ background: "none", border: "none", color: C.accent, fontSize: 12, fontWeight: 600, textDecoration: "underline" }}>สำรอง/กู้คืน</button>
-            <button onClick={resetAll} style={{ background: "none", border: "none", color: C.sub, fontSize: 12, textDecoration: "underline" }}>รีเซ็ต</button>
+              style={{ background: "none", border: "none", color: C.accent, fontSize: 12, fontWeight: 600, textDecoration: "underline", padding: "3px 0", whiteSpace: "nowrap" }}>สำรอง/กู้คืน</button>
+            <span style={{ width: 1, height: 12, background: C.line }} aria-hidden="true" />
+            <button onClick={resetAll} style={{ background: "none", border: "none", color: C.sub, fontSize: 12, padding: "3px 0", whiteSpace: "nowrap" }}>รีเซ็ต</button>
           </div>
         </div>
 
@@ -3045,6 +3060,19 @@ function App() {
                     📋 ก๊อปคำที่ยังไม่แม่นไปถาม Coach ({reviewable} คำ)
                   </button>
                 )}
+                {mode === "vocab" && (
+                  <div style={{ position: "relative", marginBottom: 10 }}>
+                    <input value={vocabSearch} onChange={e => setVocabSearch(e.target.value)} placeholder="ค้นหาคำ (อังกฤษ หรือ คำแปลไทย)…"
+                      style={{ width: "100%", boxSizing: "border-box", padding: "11px 36px 11px 14px", fontSize: 14, borderRadius: 11,
+                        border: `1.5px solid ${C.line}`, background: "#fff", color: C.ink, outline: "none", fontFamily: "inherit" }} />
+                    {vocabSearch ? (
+                      <button onClick={() => setVocabSearch("")} aria-label="ล้างคำค้น"
+                        style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", border: "none", background: "none", color: C.sub, fontSize: 18, lineHeight: 1, padding: 4 }}>×</button>
+                    ) : (
+                      <span style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", color: C.sub, fontSize: 15, pointerEvents: "none" }}>🔍</span>
+                    )}
+                  </div>
+                )}
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
                   {[["all", "ทั้งหมด"], ["new", "ใหม่"], ["forgot", S.forgot.short], ["sort", S.sort.short], ["known", S.known.short]].map(([id, lbl]) => (
                     <button key={id} onClick={() => setBankFilter(id)}
@@ -3053,9 +3081,11 @@ function App() {
                   ))}
                 </div>
                 <div style={{ display: "grid", gap: 10 }}>
-                  {Object.values(st.data).filter(x => { const s = st.ratings[idOf(x)] || "new"; return st.bankFilter === "all" || s === st.bankFilter; })
-                    .sort((a, b) => (b.gen || 0) - (a.gen || 0))
-                    .map(x => mode === "vocab" ? (
+                  {bankItems.length === 0 ? (
+                    <div style={{ textAlign: "center", color: C.sub, fontSize: 13, padding: "26px 12px", border: `1px dashed ${C.line}`, borderRadius: 12, lineHeight: 1.6 }}>
+                      {mode === "vocab" && (vocabSearch || "").trim() ? <>ไม่พบคำที่ตรงกับ “{vocabSearch.trim()}”</> : "ยังไม่มีรายการในกลุ่มนี้"}
+                    </div>
+                  ) : bankItems.map(x => mode === "vocab" ? (
                       <div key={x.w} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "13px 14px" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
                           <div>
@@ -3064,7 +3094,6 @@ function App() {
                           </div>
                           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                             {x.model ? <span style={{ fontSize: 10, color: C.accent, background: C.accentSoft, padding: "1px 6px", borderRadius: 10 }}>{x.model}</span> : null}
-                            {x.gen ? <span style={{ fontSize: 11, color: C.sub }}>ชุด {genIdx[x.gen] || x.gen}</span> : null}
                             <StatusBadge mode={mode} status={st.ratings[x.w]} />
                           </div>
                         </div>
@@ -3162,13 +3191,19 @@ function MiniBars({ items }) {
   const H = 110;
   return (
     <div style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 10px 8px" }}>
-      <div style={{ display: "flex", alignItems: "flex-end", gap: 5, height: H }}>
-        {items.map((it, i) => (
-          <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" }} title={it.value + "%"}>
-            <span style={{ fontSize: 9, color: C.sub, marginBottom: 2 }}>{it.value}</span>
-            <div style={{ width: "100%", maxWidth: 26, height: `${Math.max(3, it.value)}%`, background: it.color, borderRadius: "4px 4px 0 0" }} />
-          </div>
-        ))}
+      <div style={{ position: "relative", height: H }}>
+        {/* 80% reference line — a common "good" threshold for TOEIC practice */}
+        <div style={{ position: "absolute", left: 0, right: 0, bottom: "80%", borderTop: `1px dashed ${C.green}`, opacity: 0.55 }}>
+          <span style={{ position: "absolute", right: 0, top: -14, fontSize: 9, color: C.green, fontWeight: 700 }}>80%</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 5, height: "100%" }}>
+          {items.map((it, i) => (
+            <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" }} title={it.value + "%"}>
+              <span style={{ fontSize: 9, color: C.sub, marginBottom: 2 }}>{it.value}</span>
+              <div style={{ width: "100%", maxWidth: 26, height: `${Math.max(3, it.value)}%`, background: it.color, borderRadius: "4px 4px 0 0" }} />
+            </div>
+          ))}
+        </div>
       </div>
       <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 2, paddingTop: 4, textAlign: "center", fontSize: 10, color: C.sub }}>เก่า → ใหม่</div>
     </div>
