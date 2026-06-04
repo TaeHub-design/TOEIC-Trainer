@@ -1,13 +1,17 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="th">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#f5efe4" />
 <title>TOEIC Trainer</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #f5efe4; -webkit-text-size-adjust: 100%; }
+  #root { min-height: 100vh; }
+</style>
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-<style>html,body{margin:0;padding:0;background:#f5efe4;}#root{min-height:100vh;}</style>
 </head>
 <body>
 <div id="root"></div>
@@ -853,6 +857,7 @@ function App() {
   const [now, setNow] = useState(Date.now());
   const [backup, setBackup] = useState(null); // null | {mode:'export'|'import', text, msg}
   const [confirmReset, setConfirmReset] = useState(false);
+  const [confirmOverwrite, setConfirmOverwrite] = useState(false); // gate the destructive "overwrite" restore behind a second confirm
   const [engine, setEngineState] = useState(DEFAULT_ENGINE); // overwritten from storage on mount
   // model choice is stored PER engine (each engine has its own list of model IDs)
   const [modelsByEngine, setModelsByEngine] = useState(() => {
@@ -1471,6 +1476,30 @@ function App() {
     rerender();
   }
 
+  // Progress-only reset (ALL modes): keeps every generated word/question/passage + set numbers,
+  // but clears learning progress — ratings (back to "new"), SRS schedule, missed-quiz banks —
+  // plus the global dashboard (stats history, sessions, streak, day counter). For handing the
+  // app to another learner without regenerating all the content.
+  async function doResetProgress() {
+    for (const m of ["vocab", "grammar", "listening"]) {
+      const st = M.current[m];
+      st.ratings = {}; st.srs = {}; st.missQ = {};
+      st.deck = []; st.pos = 0; st.flipped = false; st.pickedMap = {};
+      st.startTime = null; st.endTime = null; st.logged = false;
+      await persist(m);
+    }
+    setVquiz(null); setLquiz(null);
+    // fresh dashboard for the next learner (content is untouched)
+    STATS.current = { history: {}, sessions: [], daily: {} };
+    persistStats();
+    setStreak({ streak: 0, best: 0, last: null });
+    await STORAGE.set(STREAK_KEY, JSON.stringify({ streak: 0, best: 0, last: null }));
+    setDayCount(0);
+    await STORAGE.set(DAY_KEY, JSON.stringify(0));
+    setConfirmReset(false);
+    rerender();
+  }
+
   // ---- backup / restore (export/import the whole app state as a portable text blob) ----
   function buildBackupJson() {
     const payload = {
@@ -1718,21 +1747,16 @@ function App() {
           </div>
         </div>
 
-        {/* DAY COUNTER */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, margin: "12px 0 2px" }}>
-          <button onClick={() => changeDay(-1)} disabled={dayCount <= 0}
-            style={{ width: 34, height: 34, borderRadius: 9, border: `1.5px solid ${C.line}`, background: "#fff",
-              color: dayCount <= 0 ? C.line : C.sub, fontSize: 19, fontWeight: 700, lineHeight: 1, display: "grid", placeItems: "center" }}>−</button>
-          <div style={{ display: "inline-flex", alignItems: "baseline", gap: 7, background: C.accentSoft, color: C.accent,
-            borderRadius: 20, padding: "7px 18px", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
-            <span style={{ fontSize: 13 }}>📅 Day</span>
-            <span style={{ fontFamily: "'Fraunces', serif", fontSize: 22, lineHeight: 1 }}>{dayCount}</span>
+        {/* AUTO STREAK — consecutive study days (moved up; replaces the old manual Day stepper).
+            The manual dayCount logic is kept in state/storage/backup for possible future use. */}
+        {streak.streak > 0 && (
+          <div onClick={openStats} style={{ display: "flex", justifyContent: "center", margin: "4px 0 12px", cursor: "pointer" }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: C.amberBg, color: C.amber,
+              border: `1px solid ${C.amber}55`, borderRadius: 20, padding: "6px 15px", fontSize: 13, fontWeight: 700 }}>
+              🔥 เรียนต่อเนื่อง {streak.streak} วัน{streak.best > streak.streak ? ` · สถิติสูงสุด ${streak.best}` : ""}
+            </span>
           </div>
-          <button onClick={() => changeDay(1)}
-            style={{ width: 34, height: 34, borderRadius: 9, border: `1.5px solid ${C.accentSoft}`, background: C.accent,
-              color: "#fff", fontSize: 19, fontWeight: 700, lineHeight: 1, display: "grid", placeItems: "center", boxShadow: "0 4px 12px -6px rgba(191,77,40,.8)" }}>+</button>
-        </div>
-        <div style={{ textAlign: "center", fontSize: 11, color: C.sub, marginBottom: 8 }}>กด + เมื่อเริ่มเรียนวันใหม่ เพื่อมาร์คว่าเรียนมากี่วันแล้ว</div>
+        )}
 
         {/* DAILY GOAL — today's progress; tap to change the target */}
         {loaded && (() => {
@@ -1742,7 +1766,7 @@ function App() {
           return (
             <div onClick={cycleGoal} title="แตะเพื่อปรับเป้าหมาย"
               style={{ cursor: "pointer", background: hit ? C.greenBg : "#fff", border: `1px solid ${hit ? C.green : C.line}`,
-                borderRadius: 13, padding: "10px 14px", marginBottom: 10 }}>
+                borderRadius: 13, padding: "10px 14px", marginTop: streak.streak > 0 ? 0 : 14, marginBottom: 10 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 7 }}>
                 <span style={{ fontSize: 12.5, fontWeight: 700, color: hit ? C.green : C.ink }}>
                   {hit ? "🎉 ถึงเป้าวันนี้แล้ว!" : "🎯 เป้าหมายวันนี้"}
@@ -1758,16 +1782,6 @@ function App() {
             </div>
           );
         })()}
-
-        {/* AUTO STREAK — consecutive days with any study activity */}
-        {streak.streak > 0 && (
-          <div onClick={openStats} style={{ display: "flex", justifyContent: "center", marginBottom: 10, cursor: "pointer" }}>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: C.amberBg, color: C.amber,
-              border: `1px solid ${C.amber}55`, borderRadius: 20, padding: "5px 13px", fontSize: 12.5, fontWeight: 700 }}>
-              🔥 เรียนต่อเนื่อง {streak.streak} วัน{streak.best > streak.streak ? ` · สถิติสูงสุด ${streak.best}` : ""}
-            </span>
-          </div>
-        )}
 
         {/* SETTINGS MODAL — choose AI engine + its API key */}
         {showSettings && (
@@ -1859,7 +1873,7 @@ function App() {
           <div onClick={() => setBackup(null)}
             style={{ position: "fixed", inset: 0, background: "rgba(33,29,24,.45)", display: "grid", placeItems: "center", padding: 18, zIndex: 50 }}>
             <div onClick={e => e.stopPropagation()} className="rise"
-              style={{ background: C.panel, borderRadius: 16, padding: "20px 18px", maxWidth: 460, width: "100%", boxShadow: "0 20px 50px -20px rgba(0,0,0,.5)" }}>
+              style={{ background: C.panel, borderRadius: 16, padding: "20px 18px", maxWidth: 460, width: "100%", height: "min(86vh, 500px)", display: "flex", flexDirection: "column", overflowY: "auto", boxShadow: "0 20px 50px -20px rgba(0,0,0,.5)" }}>
               <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
                 {[["export", "📤 สำรอง"], ["import", "📥 กู้คืน"]].map(([k, lbl]) => (
                   <button key={k} onClick={() => openBackup(k)}
@@ -1885,7 +1899,7 @@ function App() {
                       หลังกดก๊อป <b>รอ 2-3 วิ</b>ก่อนวาง (โค้ดยาว มือถือใช้เวลาก๊อป ถ้ารีบวางจะหายบางส่วน) · ดาวน์โหลดไฟล์ใช้ได้เฉพาะเว็บ standalone
                     </div>
                     <textarea readOnly value={backup.text} onFocus={e => e.target.select()}
-                      style={{ width: "100%", height: 90, fontSize: 12, fontFamily: "monospace", padding: 10, borderRadius: 10, border: `1px solid ${C.line}`, background: "#fbf6ec", color: C.ink, resize: "none" }} />
+                      style={{ width: "100%", flex: 1, minHeight: 80, fontSize: 12, fontFamily: "monospace", padding: 10, borderRadius: 10, border: `1px solid ${C.line}`, background: "#fbf6ec", color: C.ink, resize: "none" }} />
                     <div style={{ fontSize: 12, color: C.sub, marginTop: 6, textAlign: "right" }}>
                       ความยาวโค้ด: <b style={{ color: C.accent }}>{fmtLen((backup.text || "").length)}</b> ตัวอักษร — จำไว้เทียบตอนวาง</div>
                   </>
@@ -1902,7 +1916,7 @@ function App() {
                       หรือก๊อปข้อความไปเก็บเอง (ระวังตัวอักษรหลุดตอนก๊อป — แตะในกล่องแล้วเลือกทั้งหมด):
                     </div>
                     <textarea readOnly value={backup.text} onFocus={e => e.target.select()}
-                      style={{ width: "100%", height: 90, fontSize: 12, fontFamily: "monospace", padding: 10, borderRadius: 10, border: `1px solid ${C.line}`, background: "#fbf6ec", color: C.ink, resize: "none" }} />
+                      style={{ width: "100%", flex: 1, minHeight: 80, fontSize: 12, fontFamily: "monospace", padding: 10, borderRadius: 10, border: `1px solid ${C.line}`, background: "#fbf6ec", color: C.ink, resize: "none" }} />
                     <div style={{ fontSize: 12, color: C.sub, marginTop: 6, textAlign: "right" }}>
                       ความยาวโค้ด: <b style={{ color: C.accent }}>{fmtLen((backup.text || "").length)}</b> ตัวอักษร</div>
                   </>
@@ -1919,21 +1933,24 @@ function App() {
                     </button>
                     <textarea value={backup.text} onChange={e => setBackup(b => ({ ...b, text: e.target.value, msg: null }))}
                       placeholder="…หรือแตะที่นี่แล้ววางเอง"
-                      style={{ width: "100%", height: 110, fontSize: 12, fontFamily: "monospace", padding: 10, borderRadius: 10, border: `1px solid ${C.line}`, background: "#fff", color: C.ink, resize: "none" }} />
+                      style={{ width: "100%", flex: 1, minHeight: 80, fontSize: 12, fontFamily: "monospace", padding: 10, borderRadius: 10, border: `1px solid ${C.line}`, background: "#fff", color: C.ink, resize: "none" }} />
                     <div style={{ fontSize: 12, color: C.sub, marginTop: 6, textAlign: "right" }}>
                       วางมาแล้ว: <b style={{ color: (backup.text || "").length ? C.accent : C.sub }}>{fmtLen((backup.text || "").length)}</b> ตัวอักษร — ต้องเท่ากับตอนสำรอง</div>
-                    <button onClick={() => runRestore(backup.text, "merge")}
-                      style={{ marginTop: 10, width: "100%", background: C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 700 }}>
-                      ＋ รวมข้อมูล (เก็บ progress เดิม + เพิ่มของใหม่)
-                    </button>
+                    <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "stretch" }}>
+                      <button onClick={() => runRestore(backup.text, "merge")}
+                        style={{ flex: 1, background: C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "13px", fontSize: 14.5, fontWeight: 700 }}>
+                        ＋ รวมข้อมูล (แนะนำ)
+                      </button>
+                      <button onClick={() => { if (!backup.text || !backup.text.trim()) { setBackup(b => ({ ...b, msg: "ยังไม่มีโค้ด/ไฟล์ให้กู้คืน" })); return; } setConfirmOverwrite(true); }}
+                        title="เขียนทับทั้งหมด"
+                        style={{ flexShrink: 0, width: 92, background: "#fff", color: C.red, border: `1.5px solid ${C.red}55`, borderRadius: 11, padding: "8px 6px", fontSize: 12.5, fontWeight: 600, lineHeight: 1.25 }}>
+                        ⚠️<br />เขียนทับ
+                      </button>
+                    </div>
                     <div style={{ fontSize: 12, color: C.sub, lineHeight: 1.55, margin: "10px 2px 0" }}>
                       <b>รวมข้อมูล</b> = เก็บคำ/ข้อสอบและ progress เดิมไว้ แล้วเพิ่มของใหม่จากโค้ดเข้าไป (แนะนำ)<br />
-                      <b>เขียนทับ</b> = ลบของเดิมทั้งหมด ใช้ข้อมูลจากโค้ดแทน (เฉพาะตอนอยากล้างเริ่มใหม่)
+                      <b style={{ color: C.red }}>เขียนทับ</b> = ลบของเดิมทั้งหมด ใช้ข้อมูลจากโค้ดแทน (เฉพาะตอนอยากล้างเริ่มใหม่)
                     </div>
-                    <button onClick={() => runRestore(backup.text, "overwrite")}
-                      style={{ marginTop: 8, width: "100%", background: "#fff", color: C.red, border: `1.5px solid ${C.red}55`, borderRadius: 11, padding: "10px", fontSize: 13.5, fontWeight: 600 }}>
-                      ⚠️ เขียนทับทั้งหมดแทน
-                    </button>
                   </>
                 ) : (
                 <>
@@ -1959,17 +1976,20 @@ function App() {
                   </button>
                   <textarea value={backup.text} onChange={e => setBackup(b => ({ ...b, text: e.target.value, msg: null }))}
                     placeholder="…หรือแตะที่นี่แล้ววางเอง"
-                    style={{ width: "100%", height: 90, fontSize: 12, fontFamily: "monospace", padding: 10, borderRadius: 10, border: `1px solid ${C.line}`, background: "#fff", color: C.ink, resize: "none" }} />
+                    style={{ width: "100%", flex: 1, minHeight: 80, fontSize: 12, fontFamily: "monospace", padding: 10, borderRadius: 10, border: `1px solid ${C.line}`, background: "#fff", color: C.ink, resize: "none" }} />
                   <div style={{ fontSize: 12, color: C.sub, marginTop: 6, textAlign: "right" }}>
                     วางมาแล้ว: <b style={{ color: (backup.text || "").length ? C.accent : C.sub }}>{fmtLen((backup.text || "").length)}</b> ตัวอักษร</div>
-                  <button onClick={() => runRestore(backup.text, "merge")}
-                    style={{ marginTop: 8, width: "100%", background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "11px", fontSize: 14, fontWeight: 700 }}>
-                    ＋ รวมข้อมูลจากข้อความ
-                  </button>
-                  <button onClick={() => runRestore(backup.text, "overwrite")}
-                    style={{ marginTop: 8, width: "100%", background: "#fff", color: C.red, border: `1.5px solid ${C.red}55`, borderRadius: 11, padding: "10px", fontSize: 13, fontWeight: 600 }}>
-                    ⚠️ เขียนทับทั้งหมดแทน
-                  </button>
+                  <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "stretch" }}>
+                    <button onClick={() => runRestore(backup.text, "merge")}
+                      style={{ flex: 1, background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "11px", fontSize: 14, fontWeight: 700 }}>
+                      ＋ รวมข้อมูลจากข้อความ
+                    </button>
+                    <button onClick={() => { if (!backup.text || !backup.text.trim()) { setBackup(b => ({ ...b, msg: "ยังไม่มีโค้ด/ไฟล์ให้กู้คืน" })); return; } setConfirmOverwrite(true); }}
+                      title="เขียนทับทั้งหมด"
+                      style={{ flexShrink: 0, width: 92, background: "#fff", color: C.red, border: `1.5px solid ${C.red}55`, borderRadius: 11, padding: "8px 6px", fontSize: 12.5, fontWeight: 600, lineHeight: 1.25 }}>
+                      ⚠️<br />เขียนทับ
+                    </button>
+                  </div>
                 </>
                 )
               )}
@@ -1977,6 +1997,30 @@ function App() {
               {backup.msg && <div style={{ marginTop: 10, fontSize: 13, fontWeight: 600, color: backup.msg.includes("✓") ? C.green : C.amber, textAlign: "center" }}>{backup.msg}</div>}
               <button onClick={() => setBackup(null)}
                 style={{ marginTop: 12, width: "100%", background: "none", border: "none", color: C.sub, fontSize: 13, textDecoration: "underline" }}>ปิด</button>
+            </div>
+          </div>
+        )}
+
+        {/* OVERWRITE CONFIRM MODAL — second gate so a single tap can't wipe everything */}
+        {confirmOverwrite && (
+          <div onClick={() => setConfirmOverwrite(false)}
+            style={{ position: "fixed", inset: 0, background: "rgba(33,29,24,.55)", display: "grid", placeItems: "center", padding: 18, zIndex: 60 }}>
+            <div onClick={e => e.stopPropagation()} className="rise"
+              style={{ background: C.panel, borderRadius: 16, padding: "22px 18px", maxWidth: 380, width: "100%", boxShadow: "0 20px 50px -20px rgba(0,0,0,.5)" }}>
+              <div style={{ textAlign: "center", fontSize: 34 }}>⚠️</div>
+              <div style={{ textAlign: "center", fontWeight: 700, fontSize: 17, margin: "8px 0 4px" }}>แน่ใจไหมว่าจะเขียนทับ?</div>
+              <div style={{ textAlign: "center", fontSize: 13, color: C.sub, lineHeight: 1.6, marginBottom: 18 }}>
+                คำ/ข้อสอบ/บทเรียน และความคืบหน้า<b style={{ color: C.red }}>ของเดิมทั้งหมดจะถูกลบ</b> แล้วแทนที่ด้วยข้อมูลจากไฟล์/โค้ดนี้ · <b style={{ color: C.red }}>กู้คืนไม่ได้</b><br />
+                ถ้าไม่แน่ใจ แนะนำกด "ยกเลิก" แล้วใช้ "รวมข้อมูล" แทน
+              </div>
+              <button onClick={() => setConfirmOverwrite(false)}
+                style={{ width: "100%", background: C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "13px", fontSize: 14.5, fontWeight: 700, marginBottom: 9 }}>
+                ยกเลิก (เก็บข้อมูลเดิมไว้)
+              </button>
+              <button onClick={async () => { setConfirmOverwrite(false); await runRestore(backup.text, "overwrite"); }}
+                style={{ width: "100%", background: "#fff", color: C.red, border: `1.5px solid ${C.red}55`, borderRadius: 11, padding: "11px", fontSize: 13.5, fontWeight: 700 }}>
+                ⚠️ ใช่ เขียนทับทั้งหมดเลย
+              </button>
             </div>
           </div>
         )}
@@ -2012,18 +2056,37 @@ function App() {
           <div onClick={() => setConfirmReset(false)}
             style={{ position: "fixed", inset: 0, background: "rgba(33,29,24,.45)", display: "grid", placeItems: "center", padding: 18, zIndex: 50 }}>
             <div onClick={e => e.stopPropagation()} className="rise"
-              style={{ background: C.panel, borderRadius: 16, padding: "22px 18px", maxWidth: 400, width: "100%", boxShadow: "0 20px 50px -20px rgba(0,0,0,.5)", textAlign: "center" }}>
-              <div style={{ fontSize: 34 }}>⚠️</div>
-              <div style={{ fontWeight: 700, fontSize: 17, margin: "8px 0 6px" }}>ล้างข้อมูล{MODE_LABEL[mode]}ทั้งหมด?</div>
-              <div style={{ fontSize: 13.5, color: C.sub, lineHeight: 1.65, marginBottom: 16 }}>
-                การล้างจะลบ{mode === "vocab" ? "คำศัพท์" : mode === "listening" ? "บทเรียน/ข้อฝึก" : "ข้อสอบ"} สถานะ และจำนวนชุดที่สร้างของโหมดนี้ทั้งหมด (โหมดอื่นยังอยู่ครบ) เมื่อล้างแล้ว<b style={{ color: C.red }}>จะกู้คืนไม่ได้</b> ถ้าไม่ได้กดสำรองไว้ก่อน
+              style={{ background: C.panel, borderRadius: 16, padding: "22px 18px", maxWidth: 420, width: "100%", boxShadow: "0 20px 50px -20px rgba(0,0,0,.5)" }}>
+              <div style={{ textAlign: "center", fontSize: 34 }}>♻️</div>
+              <div style={{ textAlign: "center", fontWeight: 700, fontSize: 17, margin: "8px 0 4px" }}>รีเซ็ต — เลือกแบบ</div>
+              <div style={{ textAlign: "center", fontSize: 12.5, color: C.sub, marginBottom: 16 }}>แนะนำให้กด "สำรอง/กู้คืน" เก็บไฟล์ไว้ก่อน เผื่ออยากได้ความคืบหน้าคืน</div>
+
+              {/* Option 1 — progress only (keep content) */}
+              <div style={{ border: `1.5px solid ${C.line}`, borderRadius: 13, padding: "13px 14px", marginBottom: 10 }}>
+                <div style={{ fontSize: 14.5, fontWeight: 700, color: C.ink, marginBottom: 4 }}>♻️ ล้างเฉพาะความคืบหน้า</div>
+                <div style={{ fontSize: 12.5, color: C.sub, lineHeight: 1.6, marginBottom: 11 }}>
+                  <b style={{ color: C.green }}>เก็บคำ/ข้อ/บทเรียนทั้งหมดไว้</b> (ไม่ต้องเจนใหม่) แต่ล้างสถานะการเรียนทุกโหมด: จำได้/จำไม่ได้ → กลับเป็น "ใหม่" หมด · คิว SRS · ข้อสอบที่เคยพลาด · สถิติ/สตรีค/วันที่นับ — เหมาะกับการส่งต่อให้คนอื่นเรียน
+                </div>
+                <button onClick={doResetProgress}
+                  style={{ width: "100%", background: C.amberBg, color: C.ink, border: `1.5px solid ${C.amber}`, borderRadius: 11, padding: "11px", fontSize: 14, fontWeight: 700 }}>
+                  ล้างความคืบหน้า (เก็บเนื้อหา)
+                </button>
               </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => setConfirmReset(false)}
-                  style={{ flex: 1, background: "#fff", color: C.ink, border: `1.5px solid ${C.line}`, borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ยกเลิก</button>
+
+              {/* Option 2 — full wipe of current mode (existing behavior) */}
+              <div style={{ border: `1.5px solid ${C.line}`, borderRadius: 13, padding: "13px 14px", marginBottom: 14 }}>
+                <div style={{ fontSize: 14.5, fontWeight: 700, color: C.ink, marginBottom: 4 }}>🗑️ ล้างทั้งหมดของโหมด{MODE_LABEL[mode]}</div>
+                <div style={{ fontSize: 12.5, color: C.sub, lineHeight: 1.6, marginBottom: 11 }}>
+                  ลบ{mode === "vocab" ? "คำศัพท์" : mode === "listening" ? "บทเรียน/ข้อฝึก" : "ข้อสอบ"} + สถานะ + จำนวนชุด ของโหมดนี้ <b style={{ color: C.red }}>ทั้งหมด</b> (โหมดอื่นยังอยู่ครบ) · <b style={{ color: C.red }}>กู้คืนไม่ได้</b>
+                </div>
                 <button onClick={doReset}
-                  style={{ flex: 1, background: C.red, color: "#fff", border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ล้างเลย</button>
+                  style={{ width: "100%", background: "#fff", color: C.red, border: `1.5px solid ${C.red}55`, borderRadius: 11, padding: "11px", fontSize: 14, fontWeight: 700 }}>
+                  ⚠️ ล้างทั้งหมดของโหมดนี้
+                </button>
               </div>
+
+              <button onClick={() => setConfirmReset(false)}
+                style={{ width: "100%", background: "#fff", color: C.ink, border: `1.5px solid ${C.line}`, borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ยกเลิก</button>
             </div>
           </div>
         )}
@@ -3125,7 +3188,7 @@ function App() {
                             )}
                           </div>
                           <div style={{ display: "flex", gap: 6, alignItems: "center", flex: "0 0 auto" }}>
-                            {x.model ? <span style={{ fontSize: 10, color: "#9a8f7f", background: "#f3ede1", padding: "2px 7px", borderRadius: 10 }}>{x.model}</span> : null}
+                            {x.model ? <span style={{ fontSize: 10, color: C.accent, background: C.accentSoft, padding: "2px 7px", borderRadius: 10 }}>{x.model}</span> : null}
                             <StatusBadge mode={mode} status={st.ratings[x.w]} />
                           </div>
                         </div>
@@ -3319,8 +3382,8 @@ function ConfirmBtn({ onConfirm, idleLabel, confirmLabel, style }) {
   );
 }
 
-const root = ReactDOM.createRoot(document.getElementById("root"));
-root.render(<App />);
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
 </script>
 </body>
 </html>
