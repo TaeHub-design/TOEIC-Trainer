@@ -2364,11 +2364,11 @@ function App() {
 
         {/* MODE SWITCHER */}
         <div style={{ display: "flex", background: "#efe7d7", borderRadius: 13, padding: 4, gap: 4, margin: "12px 0 14px" }}>
-          {[["vocab", "📕 Vocab"], ["grammar", "✏️ Grammar"], ["listening", "📖 Reading"], ["audio", "🎧 ฟัง"]].map(([id, lbl]) => {
+          {[["vocab", "📕 Vocab"], ["grammar", "✏️ Grammar"], ["listening", "📖 Reading"], ["audio", "🎧 Listening"]].map(([id, lbl]) => {
             const on = mode === id;
             return (
               <button key={id} onClick={() => { setMode(id); }}
-                style={{ flex: 1, border: "none", borderRadius: 10, padding: "10px 2px", fontSize: 11.5, fontWeight: on ? 700 : 600,
+                style={{ flex: 1, border: "none", borderRadius: 10, padding: "10px 2px", fontSize: 11.5, fontWeight: on ? 700 : 600, whiteSpace: "nowrap",
                   background: on ? "#fffdf8" : "transparent", color: on ? C.accent : "#7a7062",
                   boxShadow: on ? "0 2px 7px -3px rgba(40,30,20,.4)" : "none", transition: "all .15s" }}>
                 {lbl}
