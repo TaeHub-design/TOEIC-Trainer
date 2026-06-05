@@ -73,13 +73,18 @@ const STATUS = {
     sort: { label: "พอเข้าใจ", short: "พอเข้าใจ", color: C.amber, bg: C.amberBg },
     known: { label: "เข้าใจแล้ว", short: "เข้าใจ", color: C.green, bg: C.greenBg },
   },
+  audio: {
+    forgot: { label: "ยังไม่เข้าใจ", short: "ยังไม่เข้าใจ", color: C.red, bg: C.redBg },
+    sort: { label: "พอเข้าใจ", short: "พอเข้าใจ", color: C.amber, bg: C.amberBg },
+    known: { label: "เข้าใจแล้ว", short: "เข้าใจ", color: C.green, bg: C.greenBg },
+  },
 };
 // short label of each mode's content, used in shared UI text
-const MODE_LABEL = { vocab: "คำศัพท์", grammar: "ไวยากรณ์", listening: "การอ่าน" };
+const MODE_LABEL = { vocab: "คำศัพท์", grammar: "ไวยากรณ์", listening: "การอ่าน", audio: "การฟัง" };
 const NEW_META = { color: C.sub, bg: "#efe7d7" };
 
-const STORAGE_KEY = { vocab: "toeic_vocab_ai_v1", grammar: "toeic_grammar_ai_v1", listening: "toeic_listening_ai_v1" };
-const BATCH = { vocab: 10, grammar: 5, listening: 3 };
+const STORAGE_KEY = { vocab: "toeic_vocab_ai_v1", grammar: "toeic_grammar_ai_v1", listening: "toeic_listening_ai_v1", audio: "toeic_audio_ai_v1" };
+const BATCH = { vocab: 10, grammar: 5, listening: 3, audio: 2 };
 
 // ---- Spaced repetition (SRS) ----
 // Each rated item gets a "due" date. When due arrives, it surfaces for review.
@@ -135,7 +140,7 @@ const ENGINES = {
       { id: "pro25", label: "Pro 2.5", str: "gemini-2.5-pro", note: "ฉลาดสุด", supportsThinking: false },
       { id: "flashlite25", label: "Flash-Lite 2.5", str: "gemini-2.5-flash-lite", note: "เร็ว/เบา", supportsThinking: false },
     ],
-    recommended: { vocab: "flashlite25", grammar: "flash25", listening: "flash25" },
+    recommended: { vocab: "flashlite25", grammar: "flash25", listening: "flash25", audio: "flash25" },
     thinkingModes: [], // Gemini-side thinking control not implemented yet
     async call({ model, maxTokens, prompt, key }) {
       const url = "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent";
@@ -190,7 +195,7 @@ const ENGINES = {
       { id: "opus48", label: "Opus 4.8", str: "claude-opus-4-8", note: "ฉลาดสุด", supportsThinking: true },
       { id: "haiku45", label: "Haiku 4.5", str: "claude-haiku-4-5-20251001", note: "เร็ว/เบา", supportsThinking: false },
     ],
-    recommended: { vocab: "haiku45", grammar: "sonnet46", listening: "sonnet46" },
+    recommended: { vocab: "haiku45", grammar: "sonnet46", listening: "sonnet46", audio: "sonnet46" },
     // which app modes are eligible for the thinking toggle (vocab is excluded — gains too little)
     thinkingModes: ["grammar", "listening"],
     async call({ model, maxTokens, prompt, key, thinking }) {
@@ -254,7 +259,7 @@ const ENGINES = {
       { id: "opus48", label: "Opus 4.8", str: "claude-opus-4-8", note: "ฉลาดสุด", supportsThinking: true },
       { id: "haiku45", label: "Haiku 4.5", str: "claude-haiku-4-5-20251001", note: "เร็ว/เบา", supportsThinking: false },
     ],
-    recommended: { vocab: "haiku45", grammar: "sonnet46", listening: "sonnet46" },
+    recommended: { vocab: "haiku45", grammar: "sonnet46", listening: "sonnet46", audio: "sonnet46" },
     thinkingModes: ["grammar", "listening"],
     async call({ model, maxTokens, prompt, thinking }) {
       const body = { model, max_tokens: maxTokens, messages: [{ role: "user", content: prompt }] };
@@ -298,6 +303,7 @@ const DAY_KEY = "toeic_day_v1"; // persists the manual "Day X" study-day counter
 const STREAK_KEY = "toeic_streak_v1"; // auto streak: { streak, best, last }
 const STATS_KEY = "toeic_stats_v1"; // { history: {date:snapshot}, sessions: [...] }
 const READTYPE_KEY = "toeic_readtype_v1"; // Reading practice type: part7 | part6 | mix
+const AUDIOTYPE_KEY = "toeic_audiotype_v1"; // Listening practice type: part3 | part4 | mix
 const GOAL_KEY = "toeic_goal_v1"; // daily goal: how many cards/questions to do per day
 const GOAL_OPTIONS = [10, 20, 30, 50];
 const BACKUP_PREFIX = "TZv1:"; // marks a compressed backup string
@@ -800,6 +806,45 @@ Respond with ONLY a valid minified JSON object, no markdown, no backticks, no pr
 Shape: {"ptype":"Part 7","transcript":"...(the full passage; use \\n for line breaks)...","questions":[{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"A","explain":"..."}]}`;
 }
 
+// ---- LISTENING (audio) prompt builders — same JSON shape as Reading, but the "transcript"
+// is meant to be HEARD (read aloud by TTS) and stays hidden until the learner reveals it. ----
+function audioPart3Prompt(category, diffPrompt) {
+  const diff = diffPrompt ? `\n${diffPrompt}` : "";
+  return `You are a TOEIC Part 3 (Conversations) LISTENING item writer for a Thai learner (target 850+).
+Write a natural spoken conversation between 2 people (occasionally 3) of 6-10 short turns, set in this CONTEXT/THEME: "${category}". Use natural SPOKEN English (contractions, short turns, real workplace/daily talk).${diff}
+FORMAT: put each turn on its OWN line and start it with the speaker label "Man:" or "Woman:" (if 3 speakers, use "Man A:", "Man B:", "Woman:"). This label will be read aloud so the listener can follow who is speaking.
+Then write EXACTLY 3 multiple-choice comprehension questions (TOEIC Part 3 style: gist/purpose, a specific detail, and one inference / "what will happen next" / speaker intention). Correct answers should mostly PARAPHRASE the conversation, not copy its exact words.
+For EACH question provide:
+- "q": the question in English
+- "options": object with keys "A","B","C","D" (English, plausible distractors)
+- "answer": the correct key ("A"|"B"|"C"|"D")
+- "explain": a THAI explanation, 1-2 sentences: why it is right and which spoken clue proves it
+Respond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
+Shape: {"ptype":"Part 3","transcript":"Man: ...\\nWoman: ...\\nMan: ...","questions":[{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"A","explain":"..."}]}`;
+}
+
+function audioPart4Prompt(category, diffPrompt) {
+  const types = [
+    "a phone message / voicemail",
+    "a public announcement (airport, store, station, or office)",
+    "a short talk, briefing, or introduction at a meeting",
+    "a radio advertisement or promotion",
+    "a tour / museum guide's opening remarks",
+  ];
+  const kind = types[Math.floor(Math.random() * types.length)];
+  const diff = diffPrompt ? `\n${diffPrompt}` : "";
+  return `You are a TOEIC Part 4 (Talks) LISTENING item writer for a Thai learner (target 850+).
+Write ${kind} as a realistic single-speaker spoken talk of 70-110 words, set in this CONTEXT/THEME: "${category}". Write it as ONE person speaking, in natural spoken English.${diff}
+Then write EXACTLY 3 multiple-choice comprehension questions (TOEIC Part 4 style: purpose/topic, a specific detail, and the speaker's request / next step / an inference). Correct answers should mostly PARAPHRASE the talk, not copy its exact words.
+For EACH question provide:
+- "q": the question in English
+- "options": object with keys "A","B","C","D" (English, plausible distractors)
+- "answer": the correct key ("A"|"B"|"C"|"D")
+- "explain": a THAI explanation, 1-2 sentences: why it is right and which spoken clue proves it
+Respond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
+Shape: {"ptype":"Part 4","transcript":"...the talk as one speaker; use \\n for paragraph breaks...","questions":[{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"A","explain":"..."}]}`;
+}
+
 // blank state per mode
 const emptyMode = () => ({
   data: {}, ratings: {}, genCount: 0, missQ: {}, srs: {},
@@ -873,6 +918,7 @@ function App() {
   const [showStats, setShowStats] = useState(false); // statistics modal
   const [statsView, setStatsView] = useState(null); // snapshot of stats taken when modal opens
   const [readType, setReadType] = useState("part7"); // Reading practice: part7 | part6 | mix
+  const [audioType, setAudioType] = useState("part3"); // Listening practice: part3 | part4 | mix
   const [goal, setGoal] = useState(20); // daily goal (cards/questions per day)
   const [vocabSearch, setVocabSearch] = useState(""); // bank search box (vocab only)
   const [showSettings, setShowSettings] = useState(false); // settings modal (engine + API key)
@@ -883,7 +929,7 @@ function App() {
   const ENG = ENGINES[engine] || ENGINES[DEFAULT_ENGINE]; // current engine object
   const MODELS = ENG.models;                              // current engine's selectable models
   const RECOMMENDED = ENG.recommended;                    // current engine's recommended picks
-  const models = modelsByEngine[engine] || RECOMMENDED;   // current engine's chosen models { vocab, grammar, listening }
+  const models = { ...RECOMMENDED, ...(modelsByEngine[engine] || {}) };   // current engine's chosen models { vocab, grammar, listening }
   // eslint-disable-next-line no-unused-vars
   const _keyDep = keyTick;                                // referencing keyTick so hasKey recomputes when it changes
   const needsKey = !!ENG.keyStorage;                      // does this engine need an API key?
@@ -917,7 +963,7 @@ function App() {
   }, []);
 
   // both modes live in a ref; we re-render manually so switching is instant
-  const M = useRef({ vocab: emptyMode(), grammar: emptyMode(), listening: emptyMode() });
+  const M = useRef({ vocab: emptyMode(), grammar: emptyMode(), listening: emptyMode(), audio: emptyMode() });
   // stats live in a ref (history snapshots + completed-session log) — written directly to storage,
   // never via setState, so they can be updated safely even from inside a render pass.
   const STATS = useRef({ history: {}, sessions: [] });
@@ -933,6 +979,8 @@ function App() {
   const [showDiff, setShowDiff] = useState(false); // difficulty picker expanded?
   const [lSection, setLSection] = useState("strategy"); // listening: 'strategy' | 'practice'
   const [lquiz, setLquiz] = useState(null); // listening practice: { ptype, transcript, model, deck, pos, picked, start, end }
+  const [aquiz, setAquiz] = useState(null); // LISTENING (audio) quiz — same shape as lquiz
+  const [revealScript, setRevealScript] = useState(false); // audio: reveal transcript text (hidden by default so you LISTEN first)
   const [lFilter, setLFilter] = useState("all"); // listening strategy filter
   const [gLessonFilter, setGLessonFilter] = useState("all"); // grammar lesson status filter
   const [vquiz, setVquiz] = useState(null); // { deck, pos, picked, start, end, tooFew }
@@ -941,16 +989,16 @@ function App() {
   useEffect(() => {
     (async () => {
       try {
-        for (const m of ["vocab", "grammar", "listening"]) {
+        for (const m of ["vocab", "grammar", "listening", "audio"]) {
           try {
             const raw = await STORAGE.get(STORAGE_KEY[m]);
             const s = raw ? JSON.parse(raw) : {};
-            M.current[m].data = (m === "vocab" ? s.words : m === "listening" ? s.lessons : s.items) || {};
+            M.current[m].data = (m === "vocab" ? s.words : m === "listening" ? s.lessons : m === "audio" ? s.clips : s.items) || {};
             M.current[m].ratings = s.ratings || {};
             // trust the data over the stored counter (which can reset, e.g. in the artifact sandbox)
             M.current[m].genCount = Math.max(s.genCount || 0, topGen(M.current[m].data));
             M.current[m].srs = s.srs || {};
-            if (m === "vocab" || m === "listening") M.current[m].missQ = s.missQ || {};
+            if (m === "vocab" || m === "listening" || m === "audio") M.current[m].missQ = s.missQ || {};
           } catch (e) { /* no data for this mode */ }
         }
         // first-launch consistency: if the user has NO saved model prefs and NO saved difficulty,
@@ -1011,6 +1059,10 @@ function App() {
           const rt = await STORAGE.get(READTYPE_KEY);
           if (rt) { const t = JSON.parse(rt); if (t === "part6" || t === "part7" || t === "mix") setReadType(t); }
         } catch (e) { /* no saved reading type */ }
+        try {
+          const rat = await STORAGE.get(AUDIOTYPE_KEY);
+          if (rat) { const t = JSON.parse(rat); if (t === "part3" || t === "part4" || t === "mix") setAudioType(t); }
+        } catch (e) { /* no saved listening type */ }
         try {
           const rg = await STORAGE.get(GOAL_KEY);
           if (rg) { const n = parseInt(JSON.parse(rg), 10); if (GOAL_OPTIONS.includes(n)) setGoal(n); }
@@ -1122,7 +1174,7 @@ function App() {
   function dueCountFor(modeName) {
     const st = M.current[modeName];
     const now = Date.now();
-    if (modeName === "listening") {
+    if (modeName === "listening" || modeName === "audio") {
       let n = 0;
       for (const p of Object.values(st.data || {})) for (const q of (p.questions || [])) {
         const r = st.ratings[q.id]; if (r && isDue(st.srs[q.id], now)) n++;
@@ -1161,6 +1213,7 @@ function App() {
   }
 
   function chooseReadType(t) { setReadType(t); STORAGE.set(READTYPE_KEY, JSON.stringify(t)); }
+  function chooseAudioType(t) { setAudioType(t); STORAGE.set(AUDIOTYPE_KEY, JSON.stringify(t)); }
 
   // weakness-by-topic for grammar: group RATED drill questions by their (normalized) grammar point,
   // count weak (forgot+sort) vs known, sorted weakest-first. Uses data already stored — no new logging.
@@ -1205,6 +1258,8 @@ function App() {
       ? { words: st.data, ratings: st.ratings, genCount: st.genCount, missQ: st.missQ, srs: st.srs }
       : m === "listening"
       ? { lessons: st.data, ratings: st.ratings, genCount: st.genCount, missQ: st.missQ, srs: st.srs }
+      : m === "audio"
+      ? { clips: st.data, ratings: st.ratings, genCount: st.genCount, missQ: st.missQ, srs: st.srs }
       : { items: st.data, ratings: st.ratings, genCount: st.genCount, srs: st.srs };
     const ok = await STORAGE.set(STORAGE_KEY[m], JSON.stringify(payload));
     if (!ok) setStorageOk(false);
@@ -1443,6 +1498,93 @@ function App() {
     setLSection("practice");
   }
 
+  // ---- LISTENING (audio) practice: generate a Part 3/4 clip + questions, play via TTS ----
+  async function genAudio() {
+    const st = M.current.audio;
+    st.generating = true; st.genErr = null; rerender();
+    try {
+      const category = pickCategory();
+      const mdl = MODELS.find(x => x.id === models.audio) || MODELS[0];
+      const useP3 = audioType === "part3" || (audioType === "mix" && Math.random() < 0.5);
+      const prompt = useP3
+        ? audioPart3Prompt(category, diffById(difficulty).prompt)
+        : audioPart4Prompt(category, diffById(difficulty).prompt);
+      const clean = await aiComplete({ engineId: engine, model: mdl.str, maxTokens: 4000, prompt });
+      let obj;
+      try { obj = parseLooseJson(clean); }
+      catch (pe) { throw new Error("แปลงคำตอบเป็น JSON ไม่ได้ — AI ตอบมาว่า: " + clean.slice(0, 200)); }
+      if (!obj || !obj.transcript || !Array.isArray(obj.questions) || !obj.questions.length) throw new Error("bad shape");
+      const ptype = obj.ptype || (useP3 ? "Part 3" : "Part 4");
+      const clipId = "au" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+      const deck = obj.questions.filter(q => q && q.q && q.options && q.answer).map((q, i) => ({
+        id: clipId + "-q" + i, q: q.q, options: q.options, answer: q.answer, explain: q.explain || "",
+      }));
+      if (!deck.length) throw new Error("คำตอบจาก AI ถูกตัดกลางคัน เลยไม่มีคำถามที่สมบูรณ์ — ลองกดสร้างใหม่อีกครั้งครับ");
+      st.data = { ...st.data, [clipId]: { id: clipId, transcript: obj.transcript, ptype, model: mdl.label, questions: deck, gen: Date.now(), category } };
+      await persist("audio");
+      touchStreak(); updateHistory();
+      setRevealScript(false);
+      setAquiz({ passageId: clipId, ptype, transcript: obj.transcript, model: mdl.label, deck, pos: 0, picked: {}, start: Date.now(), end: null });
+    } catch (e) {
+      st.genErr = "สร้างชุดฝึกฟังไม่สำเร็จ — " + (e && e.message ? e.message : String(e));
+    } finally { st.generating = false; rerender(); }
+  }
+  function playSavedAudio(clipId) {
+    const st = M.current.audio;
+    const p = st.data[clipId];
+    if (!p) return;
+    const deck = (p.questions || []).map(q => ({ ...q }));
+    setRevealScript(false);
+    setAquiz({ passageId: clipId, ptype: p.ptype || "Part 3", transcript: p.transcript, model: p.model || "", deck, pos: 0, picked: {}, start: Date.now(), end: null });
+  }
+  function deleteSavedAudio(clipId) {
+    const st = M.current.audio;
+    const p = st.data[clipId];
+    const nextData = { ...st.data }; delete nextData[clipId];
+    const nextRatings = { ...st.ratings };
+    if (p && p.questions) for (const q of p.questions) delete nextRatings[q.id];
+    st.data = nextData; st.ratings = nextRatings;
+    persist("audio"); rerender();
+  }
+  function rateAudio(qid, status) {
+    const st = M.current.audio;
+    st.ratings = { ...st.ratings, [qid]: status };
+    bumpSrs(st, qid, status);
+    persist("audio");
+    touchStreak(); updateHistory();
+    rerender();
+  }
+  function chooseAQ(id, key) { if (aquiz && aquiz.picked[id]) return; bumpDaily(); setAquiz(v => (v.picked[id] ? v : { ...v, picked: { ...v.picked, [id]: key } })); }
+  function nextAQ() { setAquiz(v => ({ ...v, pos: Math.min(v.pos + 1, v.deck.length) })); }
+  // Listening: SRS-due review deck from the saved clip bank (urgency-ordered)
+  function buildAudioDue() {
+    const st = M.current.audio;
+    const now = Date.now();
+    const tiers = { forgot: [], sort: [], known: [] };
+    for (const p of Object.values(st.data || {})) for (const q of (p.questions || [])) {
+      if (st.ratings[q.id] && isDue(st.srs[q.id], now)) { const r = st.ratings[q.id]; (tiers[r] || tiers.known).push({ ...q, transcript: p.transcript, _ptype: p.ptype }); }
+    }
+    const deck = [...shuffle(tiers.forgot), ...shuffle(tiers.sort), ...shuffle(tiers.known)];
+    if (!deck.length) return;
+    setRevealScript(false);
+    setAquiz({ passageId: null, ptype: "ถึงกำหนดทบทวน", transcript: null, model: "", deck, pos: 0, picked: {}, start: Date.now(), end: null, isReview: true });
+  }
+  // Listening: review deck of all not-yet-mastered (forgot/sort) questions
+  function buildAudioReview() {
+    const st = M.current.audio;
+    const due = [];
+    for (const p of Object.values(st.data || {})) {
+      for (const q of (p.questions || [])) {
+        const r = st.ratings[q.id];
+        if (r === "forgot" || r === "sort") due.push({ ...q, _transcript: p.transcript, _ptype: p.ptype });
+      }
+    }
+    if (!due.length) return;
+    const deck = shuffle(due);
+    setRevealScript(false);
+    setAquiz({ passageId: null, ptype: "ทวนข้อที่ยังไม่แม่น", transcript: null, model: "", deck: deck.map(q => ({ ...q, transcript: q._transcript })), pos: 0, picked: {}, start: Date.now(), end: null, isReview: true });
+  }
+
   // ---- copy helpers (for asking Coach in chat) ----
   function openCopy(title, text) { setCopyBox({ title, text, msg: null }); }
   function copyUnmasteredVocab() {
@@ -1470,6 +1612,7 @@ function App() {
     M.current[mode] = emptyMode();
     if (mode === "vocab") setVquiz(null);
     if (mode === "listening") setLquiz(null);
+    if (mode === "audio") setAquiz(null);
     await persist(mode);
     updateHistory();
     setConfirmReset(false);
@@ -1481,14 +1624,14 @@ function App() {
   // plus the global dashboard (stats history, sessions, streak, day counter). For handing the
   // app to another learner without regenerating all the content.
   async function doResetProgress() {
-    for (const m of ["vocab", "grammar", "listening"]) {
+    for (const m of ["vocab", "grammar", "listening", "audio"]) {
       const st = M.current[m];
       st.ratings = {}; st.srs = {}; st.missQ = {};
       st.deck = []; st.pos = 0; st.flipped = false; st.pickedMap = {};
       st.startTime = null; st.endTime = null; st.logged = false;
       await persist(m);
     }
-    setVquiz(null); setLquiz(null);
+    setVquiz(null); setLquiz(null); setAquiz(null);
     // fresh dashboard for the next learner (content is untouched)
     STATS.current = { history: {}, sessions: [], daily: {} };
     persistStats();
@@ -1509,8 +1652,9 @@ function App() {
       vocab: { words: M.current.vocab.data, ratings: M.current.vocab.ratings, genCount: M.current.vocab.genCount, missQ: M.current.vocab.missQ },
       grammar: { items: M.current.grammar.data, ratings: M.current.grammar.ratings, genCount: M.current.grammar.genCount },
       listening: { lessons: M.current.listening.data, ratings: M.current.listening.ratings, genCount: M.current.listening.genCount, missQ: M.current.listening.missQ },
+      audio: { clips: M.current.audio.data, ratings: M.current.audio.ratings, genCount: M.current.audio.genCount, missQ: M.current.audio.missQ },
       // ---- v2 extras (purposely excluded from canonicalBackup so the checksum stays backward-compatible) ----
-      srs: { vocab: M.current.vocab.srs || {}, grammar: M.current.grammar.srs || {}, listening: M.current.listening.srs || {} },
+      srs: { vocab: M.current.vocab.srs || {}, grammar: M.current.grammar.srs || {}, listening: M.current.listening.srs || {}, audio: M.current.audio.srs || {} },
       streak: streak,
       stats: { history: STATS.current.history || {}, sessions: STATS.current.sessions || [], daily: STATS.current.daily || {} },
     };
@@ -1586,6 +1730,14 @@ function App() {
         M.current.listening.deck = []; M.current.listening.pos = 0; M.current.listening.pickedMap = {};
         await persist("listening");
       }
+      if (obj.audio) {
+        M.current.audio.data = isMerge ? mergeMap(M.current.audio.data, obj.audio.clips, true) : (obj.audio.clips || {});
+        M.current.audio.ratings = isMerge ? mergeMap(M.current.audio.ratings, obj.audio.ratings, true) : (obj.audio.ratings || {});
+        M.current.audio.genCount = isMerge ? Math.max(M.current.audio.genCount || 0, obj.audio.genCount || 0) : (obj.audio.genCount || 0);
+        M.current.audio.missQ = isMerge ? mergeMap(M.current.audio.missQ, obj.audio.missQ, true) : (obj.audio.missQ || {});
+        M.current.audio.deck = []; M.current.audio.pos = 0; M.current.audio.pickedMap = {};
+        await persist("audio");
+      }
       if (typeof obj.day === "number" && obj.day >= 0) {
         const nextDay = isMerge ? Math.max(dayCount || 0, obj.day) : obj.day; // merge keeps the higher day count
         setDayCount(nextDay);
@@ -1596,7 +1748,8 @@ function App() {
         M.current.vocab.srs = isMerge ? mergeMap(M.current.vocab.srs, obj.srs.vocab, true) : (obj.srs.vocab || {});
         M.current.grammar.srs = isMerge ? mergeMap(M.current.grammar.srs, obj.srs.grammar, true) : (obj.srs.grammar || {});
         M.current.listening.srs = isMerge ? mergeMap(M.current.listening.srs, obj.srs.listening, true) : (obj.srs.listening || {});
-        await persist("vocab"); await persist("grammar"); await persist("listening");
+        M.current.audio.srs = isMerge ? mergeMap(M.current.audio.srs, obj.srs.audio, true) : (obj.srs.audio || {});
+        await persist("vocab"); await persist("grammar"); await persist("listening"); await persist("audio");
       }
       if (obj.streak && typeof obj.streak.streak === "number") {
         const incoming = { streak: obj.streak.streak || 0, best: obj.streak.best || 0, last: obj.streak.last || null };
@@ -1633,7 +1786,7 @@ function App() {
     if (!text || !text.trim()) { setBackup(b => ({ ...b, msg: "ยังไม่มีโค้ด/ไฟล์ให้กู้คืน" })); return; }
     const err = await importData(text, mode);
     if (err) { setBackup(b => ({ ...b, msg: err })); return; }
-    setVquiz(null); setLquiz(null);
+    setVquiz(null); setLquiz(null); setAquiz(null);
     setVSection("cards"); setGSection("drill"); setLSection("strategy");
     cur().tab = "study";
     setBackup(b => ({ ...b, msg: (mode === "merge" ? "รวมข้อมูลสำเร็จ ✓" : "กู้คืนสำเร็จ ✓") + " กำลังกลับหน้าแรก…" }));
@@ -2211,11 +2364,11 @@ function App() {
 
         {/* MODE SWITCHER */}
         <div style={{ display: "flex", background: "#efe7d7", borderRadius: 13, padding: 4, gap: 4, margin: "12px 0 14px" }}>
-          {[["vocab", "📕 Vocab"], ["grammar", "✏️ Grammar"], ["listening", "📖 Reading"]].map(([id, lbl]) => {
+          {[["vocab", "📕 Vocab"], ["grammar", "✏️ Grammar"], ["listening", "📖 Reading"], ["audio", "🎧 ฟัง"]].map(([id, lbl]) => {
             const on = mode === id;
             return (
               <button key={id} onClick={() => { setMode(id); }}
-                style={{ flex: 1, border: "none", borderRadius: 10, padding: "11px 4px", fontSize: 13.5, fontWeight: on ? 700 : 600,
+                style={{ flex: 1, border: "none", borderRadius: 10, padding: "10px 2px", fontSize: 11.5, fontWeight: on ? 700 : 600,
                   background: on ? "#fffdf8" : "transparent", color: on ? C.accent : "#7a7062",
                   boxShadow: on ? "0 2px 7px -3px rgba(40,30,20,.4)" : "none", transition: "all .15s" }}>
                 {lbl}
@@ -2847,8 +3000,251 @@ function App() {
           );
         })()}
 
+        {/* ===== LISTENING (AUDIO) · PRACTICE VIEW ===== */}
+        {mode === "audio" && (() => {
+          const st = M.current.audio;
+          const v = aquiz;
+          if (!v) {
+            return (
+              <div className="rise">
+                <div style={{ fontSize: 13.5, color: C.sub, lineHeight: 1.6, marginBottom: 12 }}>
+                  ฟังแล้วตอบคำถามแนวข้อสอบจริง — <b>Part 3</b> (บทสนทนา 2-3 คน) และ <b>Part 4</b> (บทพูดเดี่ยว เช่น ประกาศ/ข้อความเสียง/บรรยาย) เน้นจับใจความแบบ paraphrase · กด 🔊 ฟังก่อน แล้วค่อยเลือกคำตอบ
+                </div>
+                {/* Part 3 / 4 / mix selector */}
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 12.5, color: C.sub, marginBottom: 6 }}>เลือกแนวข้อสอบ</div>
+                  <div style={{ display: "flex", background: "#efe7d7", borderRadius: 10, padding: 3, gap: 3 }}>
+                    {[["part3", "Part 3", "บทสนทนา"], ["part4", "Part 4", "บทพูด/ประกาศ"], ["mix", "สุ่ม", "สลับ 3/4"]].map(([id, lbl, sub]) => {
+                      const on = audioType === id;
+                      return (
+                        <button key={id} onClick={() => chooseAudioType(id)} disabled={st.generating}
+                          style={{ flex: 1, border: "none", borderRadius: 8, padding: "8px 4px", fontSize: 12.5, fontWeight: 600, lineHeight: 1.25,
+                            background: on ? "#fffdf8" : "transparent", color: on ? C.ink : "#8a7f70", boxShadow: on ? "0 2px 6px -3px rgba(40,30,20,.5)" : "none" }}>
+                          {lbl}<br /><span style={{ fontSize: 10, fontWeight: 400, opacity: .75 }}>{sub}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                  <span style={{ fontSize: 12.5, color: C.sub, flex: "0 0 auto" }}>รุ่น AI:</span>
+                  <div style={{ display: "flex", flex: 1, background: "#efe7d7", borderRadius: 10, padding: 3, gap: 3 }}>
+                    {MODELS.map(mm => {
+                      const on = models.audio === mm.id; const rec = RECOMMENDED.audio === mm.id;
+                      return (
+                        <button key={mm.id} onClick={() => chooseModel(mm.id)} disabled={st.generating}
+                          style={{ flex: 1, border: "none", borderRadius: 8, padding: "7px 4px", fontSize: 12, fontWeight: 600, lineHeight: 1.25,
+                            background: on ? "#fffdf8" : "transparent", color: on ? C.ink : "#8a7f70", boxShadow: on ? "0 2px 6px -3px rgba(40,30,20,.5)" : "none" }}>
+                          {mm.label}<br /><span style={{ fontSize: 10, fontWeight: 400, opacity: .75 }}>{rec ? "★ แนะนำ" : mm.note}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <button onClick={genAudio} disabled={st.generating}
+                  style={{ width: "100%", background: st.generating ? "#d9a892" : C.accent, color: "#fff", border: "none", borderRadius: 13,
+                    padding: "14px", fontSize: 15.5, fontWeight: 600, boxShadow: "0 8px 20px -10px rgba(191,77,40,.9)",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 9, marginBottom: 10 }}>
+                  {st.generating
+                    ? <><span className="spin" style={{ width: 16, height: 16, border: "2px solid #fff", borderTopColor: "transparent", borderRadius: "50%", display: "inline-block" }} /> กำลังสร้างชุดฝึก…</>
+                    : <>✨ สร้างชุดฝึกฟังใหม่ ({audioType === "part4" ? "Part 4" : audioType === "mix" ? "สุ่ม 3/4" : "Part 3"})</>}
+                </button>
+                {!TTS_OK && <div style={{ fontSize: 11.5, color: C.sub, background: "#fcf8f0", border: `1px solid ${C.line}`, borderRadius: 9, padding: "8px 10px", marginBottom: 10, lineHeight: 1.5 }}>ℹ️ โหมดนี้เล่นเสียงไม่ได้ (เปิดบนหน้าเว็บจริงถึงจะมีเสียง) — ระหว่างนี้กด "ดูสคริปต์" เพื่ออ่านบทแทนได้</div>}
+                {st.genErr && <div style={{ color: C.red, fontSize: 12.5, marginBottom: 10, lineHeight: 1.5, wordBreak: "break-word", background: C.redBg, border: `1px solid ${C.red}`, borderRadius: 9, padding: "8px 10px" }}>{st.genErr}</div>}
+                {/* unified review zone (Listening): SRS-due primary, all-weak fallback */}
+                {(() => {
+                  let weak = 0;
+                  for (const p of Object.values(st.data || {})) for (const q of (p.questions || [])) { const r = st.ratings[q.id]; if (r === "forgot" || r === "sort") weak++; }
+                  const due = dueCountFor("audio");
+                  if (!weak && !due) return null;
+                  return (
+                    <div style={{ border: `1px solid ${C.line}`, borderRadius: 13, padding: "12px 12px 13px", margin: "4px 0 14px", background: "#fcf8f0" }}>
+                      <div style={{ fontSize: 12, color: C.sub, fontWeight: 700, marginBottom: 9 }}>
+                        🔁 ทบทวน <span style={{ fontWeight: 400, fontSize: 11 }}>· ทวนข้อที่ใกล้ลืมมาก่อน</span>
+                      </div>
+                      {due > 0 ? (
+                        <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
+                          <button onClick={buildAudioDue}
+                            style={{ flex: weak > 0 ? 1.3 : 1, background: C.amberBg, color: C.ink, border: `1.5px solid ${C.amber}`, borderRadius: 11, padding: "12px 8px",
+                              fontSize: 13.5, fontWeight: 700, lineHeight: 1.3 }}>
+                            🔔 ถึงกำหนด ({due})
+                          </button>
+                          {weak > 0 && (
+                            <button onClick={buildAudioReview}
+                              style={{ flex: 1, background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "12px 8px",
+                                fontSize: 13, fontWeight: 600, lineHeight: 1.3 }}>
+                              ยังไม่แม่น ({weak})
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <>
+                          <div style={{ fontSize: 12.5, color: C.green, fontWeight: 600, textAlign: "center", padding: "4px 0 9px" }}>
+                            ✓ วันนี้ทบทวนครบแล้ว — ที่เหลือยังไม่ถึงกำหนด
+                          </div>
+                          {weak > 0 && (
+                            <button onClick={buildAudioReview}
+                              style={{ width: "100%", background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "11px",
+                                fontSize: 13.5, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 7 }}>
+                              ทวนข้อที่ยังไม่แม่นทั้งหมด ({weak} ข้อ)
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
+                {/* คลังบทฟัง: clips saved from previous generations (never lost) */}
+                {(() => {
+                  const clips = Object.values(st.data || {})
+                    .filter(p => p && p.transcript && (p.questions || []).length > 0)
+                    .sort((a, b) => (b.gen || 0) - (a.gen || 0));
+                  if (!clips.length) return null;
+                  return (
+                    <div style={{ marginTop: 4 }}>
+                      <div style={{ fontSize: 12.5, color: C.sub, fontWeight: 600, marginBottom: 8 }}>
+                        📚 คลังบทฟังที่เคยสร้าง ({clips.length} ชุด) — แตะเพื่อฟังซ้ำ
+                      </div>
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {clips.map(p => {
+                          const preview = (p.transcript || "").replace(/\n/g, " ").slice(0, 70);
+                          const nq = (p.questions || []).length;
+                          let ok = 0; for (const q of (p.questions || [])) if (st.ratings[q.id] === "known") ok++;
+                          return (
+                            <div key={p.id} style={{ display: "flex", alignItems: "stretch", gap: 8, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 11, overflow: "hidden" }}>
+                              <button onClick={() => playSavedAudio(p.id)}
+                                style={{ flex: 1, textAlign: "left", background: "none", border: "none", padding: "11px 13px", cursor: "pointer", minWidth: 0 }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                                  <span style={{ fontSize: 12, color: C.accent, fontWeight: 600 }}>{p.ptype || "Part 3"} · {nq} ข้อ{ok > 0 ? ` · เข้าใจ ${ok}/${nq}` : ""}</span>
+                                  {p.model ? <span style={{ fontSize: 10, color: C.accent, background: C.accentSoft, padding: "2px 8px", borderRadius: 10, fontWeight: 600 }}>{p.model}</span> : null}
+                                </div>
+                                <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.45 }}>{preview}…</div>
+                              </button>
+                              <ConfirmBtn onConfirm={() => deleteSavedAudio(p.id)} idleLabel="🗑" confirmLabel="ลบ?"
+                                style={{ flex: "0 0 auto", alignSelf: "center", marginRight: 8, padding: "8px 10px", fontSize: 13, borderRadius: 9 }} />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            );
+          }
+          const done = v.pos >= v.deck.length;
+          if (done && !v.end) {
+            v.end = Date.now();
+            if (!v.logged) { v.logged = true; let c = 0; v.deck.forEach(it => { if (v.picked[it.id] === it.answer) c++; }); logSession("audio", c, v.deck.length); }
+          }
+          if (!done) {
+            const item = v.deck[v.pos];
+            const tx = v.transcript || item.transcript;
+            const picked = v.picked[item.id];
+            const revealed = !!picked;
+            return (
+              <div className="rise" key={v.pos}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, color: C.sub, marginBottom: 8 }}>
+                  <span>{v.ptype} · ข้อ {v.pos + 1}/{v.deck.length}</span>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    {v.model ? <span style={{ fontSize: 10, color: C.accent, background: C.accentSoft, padding: "2px 8px", borderRadius: 10, fontWeight: 600 }}>จาก {v.model}</span> : null}
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: C.accentSoft, color: C.accent,
+                      fontWeight: 700, fontSize: 14, padding: "4px 11px", borderRadius: 20, fontVariantNumeric: "tabular-nums" }}>⏱ {fmtTime((v.end || now) - v.start)}</span>
+                  </span>
+                </div>
+                <Progress pos={v.pos} len={v.deck.length} />
+                {tx && (
+                  <div style={{ background: "#fbf6ec", border: `1px solid ${C.line}`, borderRadius: 12, padding: "13px 15px", marginBottom: 12 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                      <span style={{ fontSize: 10.5, letterSpacing: 1, textTransform: "uppercase", color: C.accent, fontWeight: 600 }}>🎧 ฟังแล้วตอบ</span>
+                      {TTS_OK
+                        ? <button onClick={(e) => speak(tx, e)}
+                            style={{ background: C.accent, color: "#fff", border: "none", borderRadius: 20, padding: "8px 16px", fontSize: 13.5, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            🔊 เล่นเสียง
+                          </button>
+                        : <span style={{ fontSize: 11, color: C.sub }}>ℹ️ ฟังได้บนหน้าเว็บจริง</span>}
+                    </div>
+                    <button onClick={() => setRevealScript(s => !s)}
+                      style={{ background: "none", border: "none", color: C.sub, fontSize: 12, marginTop: 10, textDecoration: "underline", padding: 0, cursor: "pointer" }}>
+                      {revealScript ? "ซ่อนสคริปต์ ▴" : "ดูสคริปต์ ▾"}
+                    </button>
+                    {revealScript && <div style={{ fontSize: 14.5, color: C.ink, lineHeight: 1.7, whiteSpace: "pre-line", marginTop: 8 }}>{tx}</div>}
+                  </div>
+                )}
+                <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 16, padding: "18px 16px", boxShadow: "0 10px 30px -18px rgba(40,30,20,.4)" }}>
+                  <div style={{ fontSize: 15.5, lineHeight: 1.5, fontWeight: 600, marginBottom: 14 }}>{item.q}</div>
+                  <div style={{ display: "grid", gap: 9 }}>
+                    {["A", "B", "C", "D"].map(k => {
+                      if (!item.options[k]) return null;
+                      const isAns = k === item.answer; const isPicked = k === picked;
+                      let bg = "#fff", bd = C.line, fg = C.ink;
+                      if (revealed) { if (isAns) { bg = C.greenBg; bd = C.green; } else if (isPicked) { bg = C.redBg; bd = C.red; } }
+                      return (
+                        <button key={k} className="opt" onClick={() => { chooseAQ(item.id, k); }} disabled={revealed}
+                          style={{ textAlign: "left", display: "flex", gap: 12, alignItems: "center", background: bg, border: `1.5px solid ${bd}`, color: fg, borderRadius: 11, padding: "12px 14px", fontSize: 15, lineHeight: 1.4 }}>
+                          <span style={{ flex: "0 0 auto", width: 26, height: 26, borderRadius: 7,
+                            background: revealed && isAns ? C.green : revealed && isPicked ? C.red : C.accentSoft,
+                            color: revealed && (isAns || isPicked) ? "#fff" : C.accent, fontWeight: 700, fontSize: 13, display: "grid", placeItems: "center" }}>{k}</span>
+                          <span>{item.options[k]}</span>
+                          {revealed && isAns && <span style={{ marginLeft: "auto", color: C.green }}>✓</span>}
+                          {revealed && isPicked && !isAns && <span style={{ marginLeft: "auto", color: C.red }}>✕</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {revealed && (
+                    <div className="rise" style={{ marginTop: 14 }}>
+                      <div style={{ fontWeight: 600, color: picked === item.answer ? C.green : C.red, marginBottom: 10 }}>
+                        {picked === item.answer ? "ถูกต้อง! 🎉" : `ยังไม่ใช่ — คำตอบคือ ${item.answer}`}
+                      </div>
+                      <div style={{ background: "#fbf6ec", border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", fontSize: 14, lineHeight: 1.65, marginBottom: 12 }}>
+                        <b style={{ color: C.accent }}>อธิบาย:</b> {item.explain}
+                      </div>
+                      <RatingRow mode="audio" current={st.ratings[item.id]} onRate={s => rateAudio(item.id, s)} small />
+                      <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", marginTop: 12 }}>
+                        <button onClick={nextAQ}
+                          style={{ background: C.accent, color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontSize: 15, fontWeight: 700, boxShadow: "0 6px 16px -8px rgba(191,77,40,.8)" }}>
+                          {v.pos + 1 >= v.deck.length ? "จบ" : "→"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          }
+          // summary
+          let correct = 0; v.deck.forEach(it => { if (v.picked[it.id] === it.answer) correct++; });
+          const n = v.deck.length; const totalMs = (v.end || now) - v.start; const pct = Math.round((correct / n) * 100);
+          return (
+            <div className="rise" style={{ textAlign: "center", background: C.panel, border: `1px solid ${C.line}`, borderRadius: 16, padding: "26px 18px" }}>
+              <div style={{ fontSize: 40 }}>🎉</div>
+              <div style={{ fontFamily: "'Fraunces', serif", fontSize: 24, fontWeight: 600, margin: "6px 0" }}>จบรอบนี้แล้ว!</div>
+              <div style={{ fontFamily: "'Fraunces', serif", fontSize: 46, fontWeight: 700, lineHeight: 1, color: C.accent }}>
+                {correct}<span style={{ fontSize: 24, color: C.sub }}>/{n}</span>
+              </div>
+              <div style={{ fontSize: 13, color: C.sub, marginTop: 2 }}>ถูก {pct}%</div>
+              <div style={{ display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap", margin: "16px 0 4px" }}>
+                <Stat label="ถูก" value={correct} color={C.green} bg={C.greenBg} />
+                <Stat label="ผิด" value={n - correct} color={C.red} bg={C.redBg} />
+                <Stat label="เวลารวม" value={fmtTime(totalMs)} color={C.ink} bg="#efe7d7" />
+              </div>
+              {correct < n
+                ? <div style={{ margin: "14px auto 0", maxWidth: 420, fontSize: 13, color: C.red, fontWeight: 600 }}>ข้อที่พลาดถูกเก็บเข้าคลังทวนแล้ว ✓</div>
+                : <div style={{ margin: "14px auto 0", fontSize: 13.5, color: C.green, fontWeight: 600 }}>ถูกหมดเลย! 🌟</div>}
+              <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
+                <button onClick={() => { setAquiz(null); genAudio(); }} disabled={st.generating}
+                  style={{ flex: 1, background: C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ชุดใหม่</button>
+                <button onClick={() => setAquiz(null)}
+                  style={{ flex: 1, background: "#fff", color: C.sub, border: `1.5px solid ${C.line}`, borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ออก</button>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* ===== DRILL / VOCAB AREA (gen, stats, tabs, cards) ===== */}
-        {!(mode === "grammar" && gSection === "lesson") && !(mode === "vocab" && vSection === "quiz") && mode !== "listening" && (
+        {!(mode === "grammar" && gSection === "lesson") && !(mode === "vocab" && vSection === "quiz") && mode !== "listening" && mode !== "audio" && (
           <>
         <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12, fontSize: 13, color: C.sub }}>
           <span>สร้างไปแล้ว <b style={{ color: C.accent, fontSize: 15 }}>{distinctGenCount(st.data)}</b> ชุด</span>
