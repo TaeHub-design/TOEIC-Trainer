@@ -3,15 +3,14 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="theme-color" content="#f5efe4" />
 <title>TOEIC Trainer</title>
-<style>
-  html, body { margin: 0; padding: 0; background: #f5efe4; -webkit-text-size-adjust: 100%; }
-  #root { min-height: 100vh; }
-</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Spline+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>html,body{margin:0;padding:0;}</style>
 </head>
 <body>
 <div id="root"></div>
@@ -753,6 +752,12 @@ const STRATEGY = [
   },
 ];
 
+// Which strategy cards belong to which tab. "ทั่วไป" (general) cards apply to
+// BOTH listening and reading, so they appear in both tabs intentionally.
+const STRAT_LISTENING_PARTS = ["ทั่วไป", "Part 1", "Part 2", "Part 3-4"];
+const STRAT_READING_PARTS = ["ทั่วไป", "Part 6", "Part 7"];
+const stratFor = (parts) => STRATEGY.map((s, i) => ({ ...s, id: "strat" + i })).filter(s => parts.includes(s.part));
+
 function shuffle(arr) {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -975,25 +980,24 @@ function App() {
   const needsKey = !!ENG.keyStorage;                      // does this engine need an API key?
   const hasKey = needsKey ? !!getKey(engine) : true;      // artifact engine: no key needed → treat as "has key"
 
-  // on mount: restore selected engine, then pop settings if that engine needs a key it doesn't have
+  // on mount: restore selected engine. We DON'T force the settings modal open
+  // anymore — the app opens straight into Review Mode so old decks can be
+  // studied without an API key. A key is only needed to generate new sets.
   useEffect(() => {
     (async () => {
       const e = await getStoredEngine();
       setEngineState(e);
-      const eng = ENGINES[e];
-      if (eng && eng.keyStorage && !getKey(e)) setShowSettings(true);
     })();
   }, []);
 
-  // switch engine (persists choice). If the new engine needs a key it doesn't have, open settings.
+  // switch engine (persists choice). No longer force-opens settings on a
+  // missing key — Review Mode handles the no-key case gracefully.
   function switchEngine(id) {
     if (!AVAILABLE_ENGINES[id] || id === engine) return;
     setStoredEngine(id);
     setEngineState(id);
     setKeyDraft("");
     setKeyTick(t => t + 1);
-    const eng = ENGINES[id];
-    if (eng && eng.keyStorage && !getKey(id)) setShowSettings(true);
   }
 
   // tick every second while a grammar session is actively running
@@ -1022,6 +1026,8 @@ function App() {
   const [aquiz, setAquiz] = useState(null); // LISTENING (audio) quiz — same shape as lquiz
   const [revealScript, setRevealScript] = useState(false); // audio: reveal transcript text (hidden by default so you LISTEN first)
   const [lFilter, setLFilter] = useState("all"); // listening strategy filter
+  const [aSection, setASection] = useState("strategy"); // listening(audio): 'strategy' | 'practice'
+  const [aFilter, setAFilter] = useState("all"); // listening(audio) strategy filter
   const [gLessonFilter, setGLessonFilter] = useState("all"); // grammar lesson status filter
   const [vquiz, setVquiz] = useState(null); // { deck, pos, picked, start, end, tooFew }
   const [revealTh, setRevealTh] = useState(false); // vocab card: show Thai meaning?
@@ -1306,6 +1312,7 @@ function App() {
   }
 
   async function generate() {
+    if (needsKey && !hasKey) { setShowSettings(true); return; }
     const m = mode, st = cur();
     st.generating = true; st.genErr = null; st.lastAdded = null; rerender();
     try {
@@ -1457,6 +1464,7 @@ function App() {
 
   // ---- Reading: Practice (Part 7 passage + questions, timed) ----
   async function genPractice() {
+    if (needsKey && !hasKey) { setShowSettings(true); return; }
     const st = M.current.listening;
     st.generating = true; st.genErr = null; rerender();
     try {
@@ -1540,6 +1548,7 @@ function App() {
 
   // ---- LISTENING (audio) practice: generate a Part 3/4 clip + questions, play via TTS ----
   async function genAudio() {
+    if (needsKey && !hasKey) { setShowSettings(true); return; }
     const st = M.current.audio;
     st.generating = true; st.genErr = null; rerender();
     try {
@@ -1827,7 +1836,7 @@ function App() {
     const err = await importData(text, mode);
     if (err) { setBackup(b => ({ ...b, msg: err })); return; }
     setVquiz(null); setLquiz(null); setAquiz(null);
-    setVSection("cards"); setGSection("drill"); setLSection("strategy");
+    setVSection("cards"); setGSection("drill"); setLSection("strategy"); setASection("strategy");
     cur().tab = "study";
     setBackup(b => ({ ...b, msg: (mode === "merge" ? "รวมข้อมูลสำเร็จ ✓" : "กู้คืนสำเร็จ ✓") + " กำลังกลับหน้าแรก…" }));
     setTimeout(() => setBackup(null), 900);
@@ -1951,6 +1960,22 @@ function App() {
           </div>
         )}
 
+        {/* REVIEW MODE banner — shown when the current engine needs an API key
+            but none is set. The app is fully usable for reviewing existing decks;
+            only NEW-set generation is locked. Tapping opens settings to unlock. */}
+        {needsKey && !hasKey && (
+          <div onClick={() => setShowSettings(true)} title="แตะเพื่อใส่ API key"
+            style={{ cursor: "pointer", display: "flex", alignItems: "flex-start", gap: 10,
+              background: C.amberBg, border: `1px solid ${C.amber}66`, borderRadius: 13,
+              padding: "11px 14px", margin: streak.streak > 0 ? "0 0 12px" : "14px 0 12px" }}>
+            <span style={{ fontSize: 18, lineHeight: 1.2 }}>📖</span>
+            <div style={{ fontSize: 12.5, lineHeight: 1.6, color: C.ink }}>
+              <b style={{ color: C.amber }}>โหมดทบทวน (Review)</b> — ทบทวนของเก่าที่สร้างไว้ได้เลย ไม่ต้องใส่ key<br />
+              <span style={{ color: C.sub }}>แตะที่นี่เพื่อใส่ API key 🔑 แล้วปลดล็อกการสร้างชุดใหม่ด้วย AI</span>
+            </div>
+          </div>
+        )}
+
         {/* DAILY GOAL — today's progress; tap to change the target */}
         {loaded && (() => {
           const done = todayDone();
@@ -1959,7 +1984,7 @@ function App() {
           return (
             <div onClick={cycleGoal} title="แตะเพื่อปรับเป้าหมาย"
               style={{ cursor: "pointer", background: hit ? C.greenBg : "#fff", border: `1px solid ${hit ? C.green : C.line}`,
-                borderRadius: 13, padding: "10px 14px", marginTop: streak.streak > 0 ? 0 : 14, marginBottom: 10 }}>
+                borderRadius: 13, padding: "10px 14px", marginTop: (streak.streak > 0 || (needsKey && !hasKey)) ? 0 : 14, marginBottom: 10 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 7 }}>
                 <span style={{ fontSize: 12.5, fontWeight: 700, color: hit ? C.green : C.ink }}>
                   {hit ? "🎉 ถึงเป้าวันนี้แล้ว!" : "🎯 เป้าหมายวันนี้"}
@@ -1978,7 +2003,7 @@ function App() {
 
         {/* SETTINGS MODAL — choose AI engine + its API key */}
         {showSettings && (
-          <div onClick={() => { if (hasKey) setShowSettings(false); }}
+          <div onClick={() => setShowSettings(false)}
             style={{ position: "fixed", inset: 0, background: "rgba(33,29,24,.55)", display: "grid", placeItems: "center", padding: 18, zIndex: 60 }}>
             <div onClick={e => e.stopPropagation()} className="rise"
               style={{ background: C.panel, borderRadius: 16, padding: "20px 18px", maxWidth: 480, width: "100%", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 20px 50px -20px rgba(0,0,0,.5)" }}>
@@ -2053,10 +2078,8 @@ function App() {
                   คุณกำลังเปิดแอปในโหมด <b style={{ color: ENG.color }}>{ENG.icon} {ENG.name}</b> — Claude artifact จัดการ AI ให้แล้ว ไม่ต้องใส่ API key ใดๆ
                 </div>
               )}
-              {hasKey && (
-                <button onClick={() => setShowSettings(false)}
-                  style={{ marginTop: 10, width: "100%", background: "none", border: "none", color: C.sub, fontSize: 13, textDecoration: "underline" }}>ปิด</button>
-              )}
+              <button onClick={() => setShowSettings(false)}
+                style={{ marginTop: 10, width: "100%", background: "none", border: "none", color: C.sub, fontSize: 13, textDecoration: "underline" }}>ปิด</button>
             </div>
           </div>
         )}
@@ -2751,13 +2774,13 @@ function App() {
         {/* ===== READING · STRATEGY VIEW (fixed lessons + status) ===== */}
         {mode === "listening" && lSection === "strategy" && (() => {
           const st = M.current.listening;
-          const items = STRATEGY.map((s, i) => ({ ...s, id: "strat" + i }));
+          const items = stratFor(STRAT_READING_PARTS);
           const shown = items.filter(x => { const s = st.ratings[x.id] || "new"; return lFilter === "all" || s === lFilter; });
           const cnt = items.reduce((a, x) => { const s = st.ratings[x.id]; if (!s) a.new++; else a[s]++; return a; }, { new: 0, forgot: 0, sort: 0, known: 0 });
           return (
             <div className="rise">
               <div style={{ fontSize: 13.5, color: C.sub, lineHeight: 1.6, marginBottom: 12 }}>
-                เทคนิคทำ <b>TOEIC</b> ทั้งฝั่ง <b>Listening</b> (Part 1-4) และ <b>Reading</b> (Part 6-7) + กับดักที่เจอบ่อย — แตะเปิดอ่านทีละหัวข้อ แล้วมาร์คว่าเข้าใจแค่ไหน เก็บไว้ทวนเฉพาะที่ยังไม่แม่นได้
+                เทคนิคทำ <b>Reading</b> (Part 6-7) + เทคนิครวมที่ใช้ได้ทั้งฟังและอ่าน + กับดักที่เจอบ่อย — แตะเปิดอ่านทีละหัวข้อ แล้วมาร์คว่าเข้าใจแค่ไหน เก็บไว้ทวนเฉพาะที่ยังไม่แม่นได้
               </div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "4px 0 12px" }}>
                 {[["all", `ทั้งหมด ${items.length}`], ["forgot", `ยังไม่เข้าใจ ${cnt.forgot}`], ["sort", `พอเข้าใจ ${cnt.sort}`], ["known", `เข้าใจ ${cnt.known}`]].map(([id, lbl]) => (
@@ -2851,11 +2874,13 @@ function App() {
                 </div>
 
                 <button onClick={genPractice} disabled={st.generating}
-                  style={{ width: "100%", background: st.generating ? "#d9a892" : C.accent, color: "#fff", border: "none", borderRadius: 13,
-                    padding: "14px", fontSize: 15.5, fontWeight: 600, boxShadow: "0 8px 20px -10px rgba(191,77,40,.9)",
+                  style={{ width: "100%", background: st.generating ? "#d9a892" : (needsKey && !hasKey) ? "#b9b1a3" : C.accent, color: "#fff", border: "none", borderRadius: 13,
+                    padding: "14px", fontSize: 15.5, fontWeight: 600, boxShadow: (needsKey && !hasKey) ? "none" : "0 8px 20px -10px rgba(191,77,40,.9)",
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 9, marginBottom: 10 }}>
                   {st.generating
                     ? <><span className="spin" style={{ width: 16, height: 16, border: "2px solid #fff", borderTopColor: "transparent", borderRadius: "50%", display: "inline-block" }} /> กำลังสร้างชุดฝึก…</>
+                    : (needsKey && !hasKey)
+                    ? <>🔒 สร้างชุดใหม่ต้องใส่ API key</>
                     : <>✨ สร้างชุดฝึกอ่านใหม่ ({readType === "part6" ? "Part 6" : readType === "mix" ? "สุ่ม 6/7" : "Part 7"})</>}
                 </button>
                 {st.genErr && <div style={{ color: C.red, fontSize: 12.5, marginBottom: 10, lineHeight: 1.5, wordBreak: "break-word", background: C.redBg, border: `1px solid ${C.red}`, borderRadius: 9, padding: "8px 10px" }}>{st.genErr}</div>}
@@ -3032,7 +3057,7 @@ function App() {
                 : <div style={{ margin: "14px auto 0", fontSize: 13.5, color: C.green, fontWeight: 600 }}>ถูกหมดเลย! 🌟</div>}
               <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
                 <button onClick={() => { setLquiz(null); genPractice(); }} disabled={st.generating}
-                  style={{ flex: 1, background: C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ชุดใหม่</button>
+                  style={{ flex: 1, background: (needsKey && !hasKey) ? "#b9b1a3" : C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>{(needsKey && !hasKey) ? "🔒 ชุดใหม่" : "ชุดใหม่"}</button>
                 <button onClick={() => setLquiz(null)}
                   style={{ flex: 1, background: "#fff", color: C.sub, border: `1.5px solid ${C.line}`, borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ออก</button>
               </div>
@@ -3040,8 +3065,84 @@ function App() {
           );
         })()}
 
+        {/* LISTENING(AUDIO) SUB-SWITCHER: strategy vs practice */}
+        {mode === "audio" && (
+          <div style={{ display: "flex", background: "#f0e7d5", borderRadius: 11, padding: 3, gap: 3, marginBottom: 14 }}>
+            {[["strategy", "🧭 Strategy (เทคนิค)"], ["practice", "🎧 ฝึกฟัง (Part 3-4)"]].map(([id, lbl]) => {
+              const on = aSection === id;
+              return (
+                <button key={id} onClick={() => setASection(id)}
+                  style={{ flex: 1, border: "none", borderRadius: 9, padding: "9px 6px", fontSize: 13, fontWeight: 600,
+                    background: on ? "#fffdf8" : "transparent", color: on ? C.ink : "#8a7f70",
+                    boxShadow: on ? "0 2px 6px -3px rgba(40,30,20,.5)" : "none" }}>{lbl}</button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* ===== LISTENING (AUDIO) · STRATEGY VIEW (fixed lessons + status) ===== */}
+        {mode === "audio" && aSection === "strategy" && (() => {
+          // ratings live on the listening(reading) mode so the shared "ทั่วไป"
+          // cards keep one status across both tabs (same strat IDs).
+          const st = M.current.listening;
+          const items = stratFor(STRAT_LISTENING_PARTS);
+          const shown = items.filter(x => { const s = st.ratings[x.id] || "new"; return aFilter === "all" || s === aFilter; });
+          const cnt = items.reduce((a, x) => { const s = st.ratings[x.id]; if (!s) a.new++; else a[s]++; return a; }, { new: 0, forgot: 0, sort: 0, known: 0 });
+          return (
+            <div className="rise">
+              <div style={{ fontSize: 13.5, color: C.sub, lineHeight: 1.6, marginBottom: 12 }}>
+                เทคนิคทำ <b>Listening</b> (Part 1-4) + เทคนิครวมที่ใช้ได้ทั้งฟังและอ่าน + กับดักที่เจอบ่อย — แตะเปิดอ่านทีละหัวข้อ แล้วมาร์คว่าเข้าใจแค่ไหน เก็บไว้ทวนเฉพาะที่ยังไม่แม่นได้
+              </div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "4px 0 12px" }}>
+                {[["all", `ทั้งหมด ${items.length}`], ["forgot", `ยังไม่เข้าใจ ${cnt.forgot}`], ["sort", `พอเข้าใจ ${cnt.sort}`], ["known", `เข้าใจ ${cnt.known}`]].map(([id, lbl]) => (
+                  <button key={id} onClick={() => setAFilter(id)}
+                    style={{ border: `1px solid ${aFilter === id ? C.accent : C.line}`, background: aFilter === id ? C.accentSoft : "#fff",
+                      color: aFilter === id ? C.accent : C.sub, borderRadius: 20, padding: "6px 12px", fontSize: 12, fontWeight: 600 }}>{lbl}</button>
+                ))}
+              </div>
+              <div style={{ display: "grid", gap: 9 }}>
+                {shown.map((ls) => {
+                  const open = openLesson === ls.id;
+                  return (
+                    <div key={ls.id} style={{ background: C.panel, border: `1px solid ${open ? C.accent : C.line}`, borderRadius: 12, overflow: "hidden" }}>
+                      <button onClick={() => setOpenLesson(open ? null : ls.id)}
+                        style={{ width: "100%", textAlign: "left", background: "none", border: "none", padding: "13px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ flex: "0 0 auto", fontSize: 10.5, color: C.accent, background: C.accentSoft, padding: "3px 8px", borderRadius: 9, fontWeight: 700 }}>{ls.part}</span>
+                        <span style={{ flex: 1, fontWeight: 600, fontSize: 14.5, color: C.ink, lineHeight: 1.35 }}>{ls.title}</span>
+                        <StatusBadge mode="listening" status={st.ratings[ls.id]} />
+                        <span style={{ color: C.sub, fontSize: 18, transform: open ? "rotate(180deg)" : "none", transition: "transform .2s" }}>⌄</span>
+                      </button>
+                      {open && (
+                        <div className="rise" style={{ padding: "0 14px 14px 14px" }}>
+                          <div style={{ fontSize: 13, color: C.accent, fontWeight: 600, marginBottom: 8 }}>{ls.point}</div>
+                          <div style={{ fontSize: 14, color: C.ink, lineHeight: 1.7, marginBottom: 10 }}>{ls.body}</div>
+                          {ls.examples && ls.examples.length > 0 && (
+                            <div style={{ background: "#fbf6ec", border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", marginBottom: 10 }}>
+                              {ls.examples.map((ex, j) => (
+                                <div key={j} style={{ fontSize: 13.5, color: C.ink, lineHeight: 1.6, marginBottom: j < ls.examples.length - 1 ? 4 : 0 }}>• {ex}</div>
+                              ))}
+                            </div>
+                          )}
+                          {ls.trap && (
+                            <div style={{ display: "flex", gap: 8, alignItems: "flex-start", background: C.redBg, borderRadius: 10, padding: "10px 12px", marginBottom: 10 }}>
+                              <span style={{ fontSize: 14 }}>⚠️</span>
+                              <span style={{ fontSize: 13.5, color: C.ink, lineHeight: 1.55 }}><b style={{ color: C.red }}>กับดัก:</b> {ls.trap}</span>
+                            </div>
+                          )}
+                          <RatingRow mode="listening" current={st.ratings[ls.id]} onRate={s => rate(ls.id, s, false)} small />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {shown.length === 0 && <Centered>ไม่มีบทเรียนในหมวดนี้</Centered>}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* ===== LISTENING (AUDIO) · PRACTICE VIEW ===== */}
-        {mode === "audio" && (() => {
+        {mode === "audio" && aSection === "practice" && (() => {
           const st = M.current.audio;
           const v = aquiz;
           if (!v) {
@@ -3083,11 +3184,13 @@ function App() {
                 </div>
 
                 <button onClick={genAudio} disabled={st.generating}
-                  style={{ width: "100%", background: st.generating ? "#d9a892" : C.accent, color: "#fff", border: "none", borderRadius: 13,
-                    padding: "14px", fontSize: 15.5, fontWeight: 600, boxShadow: "0 8px 20px -10px rgba(191,77,40,.9)",
+                  style={{ width: "100%", background: st.generating ? "#d9a892" : (needsKey && !hasKey) ? "#b9b1a3" : C.accent, color: "#fff", border: "none", borderRadius: 13,
+                    padding: "14px", fontSize: 15.5, fontWeight: 600, boxShadow: (needsKey && !hasKey) ? "none" : "0 8px 20px -10px rgba(191,77,40,.9)",
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 9, marginBottom: 10 }}>
                   {st.generating
                     ? <><span className="spin" style={{ width: 16, height: 16, border: "2px solid #fff", borderTopColor: "transparent", borderRadius: "50%", display: "inline-block" }} /> กำลังสร้างชุดฝึก…</>
+                    : (needsKey && !hasKey)
+                    ? <>🔒 สร้างชุดใหม่ต้องใส่ API key</>
                     : <>✨ สร้างชุดฝึกฟังใหม่ ({audioType === "part4" ? "Part 4" : audioType === "mix" ? "สุ่ม 3/4" : "Part 3"})</>}
                 </button>
                 {!TTS_OK && <div style={{ fontSize: 11.5, color: C.sub, background: "#fcf8f0", border: `1px solid ${C.line}`, borderRadius: 9, padding: "8px 10px", marginBottom: 10, lineHeight: 1.5 }}>ℹ️ โหมดนี้เล่นเสียงไม่ได้ (เปิดบนหน้าเว็บจริงถึงจะมีเสียง) — ระหว่างนี้กด "ดูสคริปต์" เพื่ออ่านบทแทนได้</div>}
@@ -3275,7 +3378,7 @@ function App() {
                 : <div style={{ margin: "14px auto 0", fontSize: 13.5, color: C.green, fontWeight: 600 }}>ถูกหมดเลย! 🌟</div>}
               <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
                 <button onClick={() => { setAquiz(null); genAudio(); }} disabled={st.generating}
-                  style={{ flex: 1, background: C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ชุดใหม่</button>
+                  style={{ flex: 1, background: (needsKey && !hasKey) ? "#b9b1a3" : C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>{(needsKey && !hasKey) ? "🔒 ชุดใหม่" : "ชุดใหม่"}</button>
                 <button onClick={() => setAquiz(null)}
                   style={{ flex: 1, background: "#fff", color: C.sub, border: `1.5px solid ${C.line}`, borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ออก</button>
               </div>
@@ -3313,11 +3416,13 @@ function App() {
 
         {/* generate */}
         <button onClick={generate} disabled={st.generating}
-          style={{ width: "100%", background: st.generating ? "#d9a892" : C.accent, color: "#fff", border: "none", borderRadius: 13,
-            padding: "14px 18px", fontSize: 15.5, fontWeight: 600, boxShadow: "0 8px 20px -10px rgba(191,77,40,.9)",
+          style={{ width: "100%", background: st.generating ? "#d9a892" : (needsKey && !hasKey) ? "#b9b1a3" : C.accent, color: "#fff", border: "none", borderRadius: 13,
+            padding: "14px 18px", fontSize: 15.5, fontWeight: 600, boxShadow: (needsKey && !hasKey) ? "none" : "0 8px 20px -10px rgba(191,77,40,.9)",
             display: "flex", alignItems: "center", justifyContent: "center", gap: 9, marginBottom: 10 }}>
           {st.generating ? (
             <><span className="spin" style={{ width: 16, height: 16, border: "2px solid #fff", borderTopColor: "transparent", borderRadius: "50%", display: "inline-block" }} /> กำลังสร้าง{mode === "vocab" ? "คำ" : "ข้อ"}ใหม่…</>
+          ) : (needsKey && !hasKey) ? (
+            <>🔒 สร้างชุดใหม่ต้องใส่ API key</>
           ) : (
             <>✨ สุ่ม{mode === "vocab" ? "คำ" : "ข้อ"}ชุดใหม่ ({BATCH[mode]} {mode === "vocab" ? "คำ" : "ข้อ"})</>
           )}
@@ -3665,7 +3770,7 @@ function App() {
           {mode === "vocab"
             ? `คำสร้างโดย AI (${(MODELS.find(x => x.id === models[mode]) || MODELS[0]).label}) · ฟังเสียงจริงที่ YouGlish หรือ dictionary`
             : mode === "listening"
-            ? `บทเรียน/ข้อฝึกสร้างโดย AI (${(MODELS.find(x => x.id === models[mode]) || MODELS[0]).label}) · Strategy ครอบคลุมทั้ง Listening + Reading · ฝึกฟังเสียงจริงเสริมที่ YouTube ("TOEIC Listening Practice Test full")`
+            ? `บทเรียน/ข้อฝึกสร้างโดย AI (${(MODELS.find(x => x.id === models[mode]) || MODELS[0]).label}) · Strategy ฝั่ง Reading (Part 6-7) — เทคนิคฟังย้ายไปอยู่แท็บ 🎧 Listening แล้ว`
             : `ข้อสอบสร้างโดย AI (${(MODELS.find(x => x.id === models[mode]) || MODELS[0]).label}) เพื่อฝึกซ้อม`}
           {" "}· สถานะบันทึกอัตโนมัติ แยกของแต่ละโหมด
         </p>
@@ -3817,7 +3922,6 @@ function ConfirmBtn({ onConfirm, idleLabel, confirmLabel, style }) {
     </button>
   );
 }
-
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App />);
 </script>
