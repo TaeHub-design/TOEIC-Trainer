@@ -474,12 +474,52 @@ async function aiComplete({ engineId, model, maxTokens, prompt }) {
 // text tracking string/escape state, drop any trailing partial token, and append the
 // closing " ] } needed to balance what we did receive. Returns the parsed value, or
 // throws the ORIGINAL error if even the repaired text won't parse.
+// LLMs sometimes emit RAW control characters (real newlines/tabs) INSIDE JSON string
+// values, which is invalid JSON and makes JSON.parse fail. Escape them so the string
+// parses. Only touches characters that appear inside a "..." string — structural
+// whitespace between tokens is left alone.
+function escapeRawCtrlInStrings(s) {
+  let out = "", inStr = false, esc = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (inStr) {
+      if (esc) { out += c; esc = false; continue; }
+      if (c === "\\") { out += c; esc = true; continue; }
+      if (c === '"') { out += c; inStr = false; continue; }
+      if (c === "\n") { out += "\\n"; continue; }
+      if (c === "\r") { out += "\\r"; continue; }
+      if (c === "\t") { out += "\\t"; continue; }
+      const code = c.charCodeAt(0);
+      if (code < 0x20) { out += "\\u" + code.toString(16).padStart(4, "0"); continue; }
+      out += c;
+    } else {
+      if (c === '"') inStr = true;
+      out += c;
+    }
+  }
+  return out;
+}
+
+// Generation token CEILING (not a charge — you only pay for tokens actually produced).
+// Opus can reason/write long, especially inside a Claude artifact, so it needs generous
+// room to finish the JSON or the answer gets truncated mid-output. Lighter models need
+// less; this also keeps Gemini within sane output limits.
+function genMaxTokens(mdl) {
+  const s = ((mdl && ((mdl.id || "") + " " + (mdl.str || ""))) || "").toLowerCase();
+  if (s.includes("opus")) return 16000;
+  if (s.includes("sonnet") || s.includes("pro")) return 8000;
+  return 4000; // haiku / flash / flash-lite
+}
+
 function parseLooseJson(text) {
   try { return JSON.parse(text); } catch (firstErr) {
     let s = text.trim();
     // strip anything before the first { or [ (stray preamble the model may add)
     const start = s.search(/[\[{]/);
     if (start > 0) s = s.slice(start);
+    // escape raw control chars inside strings (common LLM JSON mistake), then retry a clean parse
+    s = escapeRawCtrlInStrings(s);
+    try { return JSON.parse(s); } catch (e2) {}
     const stack = [];
     let inStr = false, esc = false, lastSafe = -1;
     for (let i = 0; i < s.length; i++) {
@@ -1277,10 +1317,10 @@ function App() {
       const diffP = diffById(difficulty).prompt;
       const prompt = m === "vocab" ? vocabPrompt(avoid, category, diffP) : grammarPrompt(avoid, category, diffP);
       // adaptive thinking applies only to grammar (never vocab), AND only when engine+model support it AND user toggled it on
-      const clean = await aiComplete({ engineId: engine, model: mdl.str, maxTokens: m === "vocab" ? 4000 : 3000, prompt });
+      const clean = await aiComplete({ engineId: engine, model: mdl.str, maxTokens: genMaxTokens(mdl), prompt });
       let arr;
       try { arr = parseLooseJson(clean); }
-      catch (pe) { throw new Error("แปลงคำตอบเป็น JSON ไม่ได้ — AI ตอบมาว่า: " + clean.slice(0, 200)); }
+      catch (pe) { throw new Error("แปลงคำตอบเป็น JSON ไม่ได้ — ลองกดสร้างใหม่อีกครั้ง (ถ้าเป็นบ่อยตอนใช้ Opus กับชุดยาว ลองสลับรุ่นเป็น Sonnet/Haiku ก็ช่วยได้) · AI ตอบ: " + clean.slice(0, 160)); }
       if (!Array.isArray(arr) || !arr.length) throw new Error("bad shape");
 
       const newGen = st.genCount + 1;
@@ -1427,10 +1467,10 @@ function App() {
       const prompt = usePart6
         ? listeningPart6Prompt(category, diffById(difficulty).prompt)
         : listeningPracticePrompt(category, diffById(difficulty).prompt);
-      const clean = await aiComplete({ engineId: engine, model: mdl.str, maxTokens: 4000, prompt });
+      const clean = await aiComplete({ engineId: engine, model: mdl.str, maxTokens: genMaxTokens(mdl), prompt });
       let obj;
       try { obj = parseLooseJson(clean); }
-      catch (pe) { throw new Error("แปลงคำตอบเป็น JSON ไม่ได้ — AI ตอบมาว่า: " + clean.slice(0, 200)); }
+      catch (pe) { throw new Error("แปลงคำตอบเป็น JSON ไม่ได้ — ลองกดสร้างใหม่อีกครั้ง (ถ้าเป็นบ่อยตอนใช้ Opus กับชุดยาว ลองสลับรุ่นเป็น Sonnet/Haiku ก็ช่วยได้) · AI ตอบ: " + clean.slice(0, 160)); }
       if (!obj || !obj.transcript || !Array.isArray(obj.questions) || !obj.questions.length) throw new Error("bad shape");
       const ptype = obj.ptype || (usePart6 ? "Part 6" : "Part 7");
       const passageId = "rp" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
@@ -1509,10 +1549,10 @@ function App() {
       const prompt = useP3
         ? audioPart3Prompt(category, diffById(difficulty).prompt)
         : audioPart4Prompt(category, diffById(difficulty).prompt);
-      const clean = await aiComplete({ engineId: engine, model: mdl.str, maxTokens: 4000, prompt });
+      const clean = await aiComplete({ engineId: engine, model: mdl.str, maxTokens: genMaxTokens(mdl), prompt });
       let obj;
       try { obj = parseLooseJson(clean); }
-      catch (pe) { throw new Error("แปลงคำตอบเป็น JSON ไม่ได้ — AI ตอบมาว่า: " + clean.slice(0, 200)); }
+      catch (pe) { throw new Error("แปลงคำตอบเป็น JSON ไม่ได้ — ลองกดสร้างใหม่อีกครั้ง (ถ้าเป็นบ่อยตอนใช้ Opus กับชุดยาว ลองสลับรุ่นเป็น Sonnet/Haiku ก็ช่วยได้) · AI ตอบ: " + clean.slice(0, 160)); }
       if (!obj || !obj.transcript || !Array.isArray(obj.questions) || !obj.questions.length) throw new Error("bad shape");
       const ptype = obj.ptype || (useP3 ? "Part 3" : "Part 4");
       const clipId = "au" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
