@@ -1,36 +1,22 @@
 <!DOCTYPE html>
 <html lang="th">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-<meta name="apple-mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>TOEIC Trainer</title>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-<style>
-  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { margin: 0; padding: 0; }
-  body { font-family: 'Noto Sans Thai', system-ui, sans-serif; background: #f3ead9; }
-  button { font-family: inherit; cursor: pointer; }
-  input, textarea, select { font-family: inherit; }
-  .opt:active { transform: scale(0.997); }
-  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-  .rise { animation: rise .28s ease both; }
-</style>
+<style>html,body{margin:0;padding:0;}</style>
 </head>
 <body>
 <div id="root"></div>
 <script type="text/babel" data-presets="react">
-const { useState, useEffect, useRef, useMemo, useCallback } = React;
+const { useState, useEffect, useRef } = React;
 
 // App version — bump on every release. Shown as a small badge (tap to confirm the
 // browser is running the latest build, not a stale cached one).
-const VERSION = "0.41.0";
+const VERSION = "0.45.0";
 
 // ============================================================
 //  ENVIRONMENT DETECTION
@@ -346,26 +332,26 @@ function speak(text, ev) {
 // ============================================================
 const DIFFICULTIES = [
   {
-    id: "beginner", icon: "🌱", label: "Beginner", band: "~400–550",
+    id: "beginner", icon: "🌱", label: "Beginner", band: "~400–550", cefr: "A1–B1",
     blurb: "คำพื้นฐาน ประโยคสั้น ตัวเลือกหลอกตรงไปตรงมา",
     // prompt fragment appended to generation instructions:
     prompt: "TARGET DIFFICULTY: Beginner (TOEIC ~400-550). Use high-frequency everyday vocabulary (top ~2000 words). Keep sentences short and simple. Make the correct answer reasonably clear; distractors should be plainly wrong, not subtle. Avoid idioms, phrasal verbs, and complex grammar.",
     rec: { gemini: "flashlite25", claude: "haiku45", artifact: "haiku45" },
   },
   {
-    id: "intermediate", icon: "📘", label: "Intermediate", band: "~550–700",
+    id: "intermediate", icon: "📘", label: "Intermediate", band: "~550–700", cefr: "B1–B2",
     blurb: "ศัพท์ธุรกิจทั่วไป ประโยคยาวขึ้น",
     prompt: "TARGET DIFFICULTY: Intermediate (TOEIC ~550-700). Use common business/workplace vocabulary and moderately complex sentences. Distractors should be plausible but distinguishable with careful reading. Include some collocations and basic phrasal verbs.",
     rec: { gemini: "flash25", claude: "sonnet46", artifact: "sonnet46" },
   },
   {
-    id: "advanced", icon: "🔥", label: "Advanced", band: "~700–850",
+    id: "advanced", icon: "🔥", label: "Advanced", band: "~700–850", cefr: "B2–C1",
     blurb: "ศัพท์เฉพาะทาง paraphrase เยอะ กับดักไวยากรณ์",
     prompt: "TARGET DIFFICULTY: Advanced (TOEIC ~700-850). Use specialized/professional vocabulary, longer multi-clause sentences, and heavy paraphrasing (answers should rarely reuse the passage's exact words). Distractors must be close and require real discrimination. Include grammar traps (tense, preposition, parallelism, subject-verb agreement).",
     rec: { gemini: "flash25", claude: "sonnet46", artifact: "sonnet46" },
   },
   {
-    id: "nearnative", icon: "🏆", label: "Near-native (900+)", band: "850–990",
+    id: "nearnative", icon: "🏆", label: "Near-native", band: "850–990", cefr: "C1–C2",
     blurb: "ศัพท์ขั้นสูง สำนวน ตัวเลือกหลอกใกล้เคียงมาก ต้องอ่านละเอียด",
     prompt: "TARGET DIFFICULTY: Near-native / TOEIC 900+. Use advanced and low-frequency vocabulary, idiomatic expressions, nuanced register, and dense professional content. Distractors must be VERY close — differing only by subtle shades of meaning, scope, or a single grammatical detail — so that only a careful, high-level reader can eliminate them. Heavy paraphrasing throughout. No giveaways. Mirror the trickiest real TOEIC items.",
     rec: { gemini: "pro25", claude: "opus48", artifact: "opus48" },
@@ -1325,7 +1311,7 @@ const VOCAB_BANK = [
   {"w": "certificate", "pos": "n.", "ipa": "/sərˈtɪfɪkət/", "th": "ใบรับรอง", "def": "an official document proving something", "ex": "She earned a training certificate.", "level": "intermediate", "cefr": "B1"},
   {"w": "commit", "pos": "v.", "ipa": "/kəˈmɪt/", "th": "ผูกมัด; ทุ่มเท", "def": "to promise to do something", "ex": "We commit to on-time delivery.", "level": "intermediate", "cefr": "B2"},
   {"w": "compete", "pos": "v.", "ipa": "/kəmˈpiːt/", "th": "แข่งขัน", "def": "to try to win against others", "ex": "Many firms compete for the deal.", "level": "intermediate", "cefr": "B1"},
-  {"w": "complete", "pos": "v.", "ipa": "/kəmˈpliːt/", "th": "ทำให้เสร็จสมบูรณ์", "def": "to finish something", "ex": "Please complete the survey.", "level": "intermediate", "cefr": "A2"},
+  {"w": "complete", "pos": "v.", "ipa": "/kəmˈpliːt/", "th": "ทำให้เสร็จสมบูรณ์", "def": "to finish something", "ex": "Please complete the survey.", "level": "beginner", "cefr": "A2"},
   {"w": "complex", "pos": "adj.", "ipa": "/ˈkɒmplɛks/", "th": "ซับซ้อน", "def": "having many connected parts", "ex": "It is a complex problem.", "level": "intermediate", "cefr": "B1"},
   {"w": "component", "pos": "n.", "ipa": "/kəmˈpəʊnənt/", "th": "ส่วนประกอบ", "def": "a part of a larger whole", "ex": "Each component was tested.", "level": "intermediate", "cefr": "B2"},
   {"w": "concern", "pos": "n.", "ipa": "/kənˈsɜːrn/", "th": "ความกังวล", "def": "a worry about something", "ex": "We share your concern about costs.", "level": "intermediate", "cefr": "B1"},
@@ -1341,11 +1327,11 @@ const VOCAB_BANK = [
   {"w": "demand", "pos": "n.", "ipa": "/dɪˈmɑːnd/", "th": "อุปสงค์; ความต้องการ", "def": "desire of buyers for goods", "ex": "Demand for the product is high.", "level": "intermediate", "cefr": "B1"},
   {"w": "depart", "pos": "v.", "ipa": "/dɪˈpɑːrt/", "th": "ออกเดินทาง", "def": "to leave a place", "ex": "The train departs at eight.", "level": "intermediate", "cefr": "B1"},
   {"w": "destination", "pos": "n.", "ipa": "/ˌdɛstɪˈneɪʃən/", "th": "จุดหมายปลายทาง", "def": "the place you are going to", "ex": "Our destination is Osaka.", "level": "intermediate", "cefr": "B1"},
-  {"w": "detail", "pos": "n.", "ipa": "/ˈdiːteɪl/", "th": "รายละเอียด", "def": "a small piece of information", "ex": "Check every detail carefully.", "level": "intermediate", "cefr": "A2"},
+  {"w": "detail", "pos": "n.", "ipa": "/ˈdiːteɪl/", "th": "รายละเอียด", "def": "a small piece of information", "ex": "Check every detail carefully.", "level": "beginner", "cefr": "A2"},
   {"w": "determine", "pos": "v.", "ipa": "/dɪˈtɜːrmɪn/", "th": "กำหนด; ตัดสิน", "def": "to find out or decide", "ex": "We must determine the cause.", "level": "intermediate", "cefr": "B2"},
   {"w": "device", "pos": "n.", "ipa": "/dɪˈvaɪs/", "th": "อุปกรณ์; เครื่องมือ", "def": "a machine made for a purpose", "ex": "The device measures temperature.", "level": "intermediate", "cefr": "B1"},
   {"w": "display", "pos": "v.", "ipa": "/dɪˈspleɪ/", "th": "จัดแสดง", "def": "to put something where it is seen", "ex": "Products are displayed in the window.", "level": "intermediate", "cefr": "B1"},
-  {"w": "document", "pos": "n.", "ipa": "/ˈdɒkjʊmənt/", "th": "เอกสาร", "def": "an official paper or file", "ex": "Sign the document please.", "level": "intermediate", "cefr": "A2"},
+  {"w": "document", "pos": "n.", "ipa": "/ˈdɒkjʊmənt/", "th": "เอกสาร", "def": "an official paper or file", "ex": "Sign the document please.", "level": "beginner", "cefr": "A2"},
   {"w": "duration", "pos": "n.", "ipa": "/djʊˈreɪʃən/", "th": "ระยะเวลา", "def": "the time something lasts", "ex": "The duration of the course is six weeks.", "level": "intermediate", "cefr": "B2"},
   {"w": "effective", "pos": "adj.", "ipa": "/ɪˈfɛktɪv/", "th": "ที่ได้ผล", "def": "producing the result wanted", "ex": "The ad was very effective.", "level": "intermediate", "cefr": "B1"},
   {"w": "encourage", "pos": "v.", "ipa": "/ɪnˈkʌrɪdʒ/", "th": "ส่งเสริม; ให้กำลังใจ", "def": "to give support or confidence", "ex": "We encourage staff to learn.", "level": "intermediate", "cefr": "B1"},
@@ -1364,12 +1350,12 @@ const VOCAB_BANK = [
   {"w": "identify", "pos": "v.", "ipa": "/aɪˈdɛntɪfaɪ/", "th": "ระบุ; บ่งชี้", "def": "to recognize who or what", "ex": "We must identify the risks.", "level": "intermediate", "cefr": "B1"},
   {"w": "immediate", "pos": "adj.", "ipa": "/ɪˈmiːdiət/", "th": "ทันที", "def": "happening at once", "ex": "We need an immediate response.", "level": "intermediate", "cefr": "B2"},
   {"w": "impact", "pos": "n.", "ipa": "/ˈɪmpækt/", "th": "ผลกระทบ", "def": "a strong effect on something", "ex": "The change had a big impact.", "level": "intermediate", "cefr": "B1"},
-  {"w": "improve", "pos": "v.", "ipa": "/ɪmˈpruːv/", "th": "ปรับปรุงให้ดีขึ้น", "def": "to make or become better", "ex": "We aim to improve service.", "level": "intermediate", "cefr": "A2"},
+  {"w": "improve", "pos": "v.", "ipa": "/ɪmˈpruːv/", "th": "ปรับปรุงให้ดีขึ้น", "def": "to make or become better", "ex": "We aim to improve service.", "level": "beginner", "cefr": "A2"},
   {"w": "indicate", "pos": "v.", "ipa": "/ˈɪndɪkeɪt/", "th": "บ่งชี้; แสดงว่า", "def": "to show or point out", "ex": "Results indicate strong growth.", "level": "intermediate", "cefr": "B2"},
   {"w": "industry", "pos": "n.", "ipa": "/ˈɪndəstri/", "th": "อุตสาหกรรม", "def": "a type of business activity", "ex": "She works in the travel industry.", "level": "intermediate", "cefr": "B1"},
   {"w": "influence", "pos": "v.", "ipa": "/ˈɪnflʊəns/", "th": "มีอิทธิพลต่อ", "def": "to affect how something develops", "ex": "Price influences buying choices.", "level": "intermediate", "cefr": "B1"},
   {"w": "instruction", "pos": "n.", "ipa": "/ɪnˈstrʌkʃən/", "th": "คำสั่ง; คำแนะนำ", "def": "information on how to do something", "ex": "Read the instructions first.", "level": "intermediate", "cefr": "B1"},
-  {"w": "introduce", "pos": "v.", "ipa": "/ˌɪntrəˈdjuːs/", "th": "แนะนำ; นำเสนอสิ่งใหม่", "def": "to bring in something new", "ex": "We will introduce a new model.", "level": "intermediate", "cefr": "A2"},
+  {"w": "introduce", "pos": "v.", "ipa": "/ˌɪntrəˈdjuːs/", "th": "แนะนำ; นำเสนอสิ่งใหม่", "def": "to bring in something new", "ex": "We will introduce a new model.", "level": "beginner", "cefr": "A2"},
   {"w": "involve", "pos": "v.", "ipa": "/ɪnˈvɒlv/", "th": "เกี่ยวข้อง; รวมถึง", "def": "to include as a necessary part", "ex": "The job involves travel.", "level": "intermediate", "cefr": "B1"},
   {"w": "majority", "pos": "n.", "ipa": "/məˈdʒɒrɪti/", "th": "เสียงข้างมาก", "def": "more than half of a group", "ex": "The majority agreed to the plan.", "level": "intermediate", "cefr": "B1"},
   {"w": "material", "pos": "n.", "ipa": "/məˈtɪəriəl/", "th": "วัสดุ", "def": "the substance things are made of", "ex": "We need more raw material.", "level": "intermediate", "cefr": "B1"},
@@ -1592,7 +1578,7 @@ const VOCAB_BANK = [
   {"w": "permit", "pos": "n.", "ipa": "/ˈpɜːrmɪt/", "th": "ใบอนุญาต", "def": "an official document allowing something", "ex": "You need a work permit.", "level": "intermediate", "cefr": "B2"},
   {"w": "policy", "pos": "n.", "ipa": "/ˈpɒlɪsi/", "th": "นโยบาย", "def": "a plan or rule of action", "ex": "Read the refund policy.", "level": "intermediate", "cefr": "B1"},
   {"w": "profit", "pos": "n.", "ipa": "/ˈprɒfɪt/", "th": "กำไร", "def": "money gained from business", "ex": "The company made a profit.", "level": "intermediate", "cefr": "B1"},
-  {"w": "quality", "pos": "n.", "ipa": "/ˈkwɒlɪti/", "th": "คุณภาพ", "def": "how good something is", "ex": "We focus on quality.", "level": "intermediate", "cefr": "A2"},
+  {"w": "quality", "pos": "n.", "ipa": "/ˈkwɒlɪti/", "th": "คุณภาพ", "def": "how good something is", "ex": "We focus on quality.", "level": "beginner", "cefr": "A2"},
   {"w": "range", "pos": "n.", "ipa": "/reɪndʒ/", "th": "ช่วง; ขอบเขต", "def": "a set between limits", "ex": "A wide range of products.", "level": "intermediate", "cefr": "B1"},
   {"w": "rate", "pos": "n.", "ipa": "/reɪt/", "th": "อัตรา", "def": "a measured amount or speed", "ex": "The interest rate went up.", "level": "intermediate", "cefr": "B1"},
   {"w": "reduce", "pos": "v.", "ipa": "/rɪˈdjuːs/", "th": "ลด", "def": "to make smaller", "ex": "We must reduce costs.", "level": "intermediate", "cefr": "B1"},
@@ -1965,6 +1951,554 @@ const VOCAB_BANK = [
   {"w": "severance", "pos": "n.", "ipa": "/ˈsɛvərəns/", "th": "เงินชดเชยการเลิกจ้าง", "def": "pay given when a job ends", "ex": "She received a severance package.", "level": "advanced", "cefr": "C1"},
   {"w": "trustee", "pos": "n.", "ipa": "/trʌˈstiː/", "th": "ผู้ดูแลทรัพย์สิน", "def": "a person managing assets for others", "ex": "The trustee oversees the fund.", "level": "advanced", "cefr": "C1"},
   {"w": "beneficiary", "pos": "n.", "ipa": "/ˌbɛnɪˈfɪʃəri/", "th": "ผู้รับผลประโยชน์", "def": "one who receives benefits", "ex": "Name a beneficiary on the policy.", "level": "advanced", "cefr": "C1"},
+  {"w": "accreditation", "pos": "n.", "ipa": "/əˌkrɛdɪˈteɪʃən/", "th": "การรับรองวิทยฐานะ, การให้การรับรอง", "def": "official recognition that a person or organization meets required standards", "ex": "Participants who completed the two-day compliance training were eligible to apply for professional accreditation through the industry board.", "level": "advanced", "cefr": "C1"},
+  {"w": "acknowledge", "pos": "v.", "ipa": "/əkˈnɒlɪdʒ/", "th": "รับทราบ, ยอมรับ", "def": "To confirm receiving or understanding something.", "ex": "The representative acknowledged the customer's concern immediately.", "level": "intermediate", "cefr": "B1"},
+  {"w": "adjacent", "pos": "adj.", "ipa": "/əˈdʒeɪsənt/", "th": "ที่อยู่ติดกัน", "def": "very near or next to something", "ex": "There is a parking garage adjacent to the office building.", "level": "intermediate", "cefr": "B2"},
+  {"w": "adjourn", "pos": "v.", "ipa": "/əˈdʒɜːrn/", "th": "พักการประชุม, เลิกประชุมชั่วคราว", "def": "to pause or end a meeting officially", "ex": "The chairperson adjourned the session until the following morning.", "level": "advanced", "cefr": "C1"},
+  {"w": "ambiance", "pos": "n.", "ipa": "/ˈæmbiəns/", "th": "บรรยากาศ, สภาพแวดล้อมโดยรวม", "def": "the character and atmosphere of a place", "ex": "Management invested heavily in lighting and décor to create an ambiance that would justify the restaurant's premium pricing.", "level": "advanced", "cefr": "B2"},
+  {"w": "amenity", "pos": "n.", "ipa": "/əˈmenɪti/", "th": "สิ่งอำนวยความสะดวก", "def": "a useful or pleasant feature of a building or place", "ex": "The apartment building offers amenities such as a gym and a rooftop garden.", "level": "intermediate", "cefr": "B2"},
+  {"w": "appetizer", "pos": "n.", "ipa": "/ˈæp.ɪ.taɪ.zər/", "th": "อาหารเรียกน้ำย่อย", "def": "a small dish served before the main meal", "ex": "The restaurant offers a complimentary appetizer with every dinner reservation.", "level": "beginner", "cefr": "A2"},
+  {"w": "arterial", "pos": "adj.", "ipa": "/ɑːˈtɪər.i.əl/", "th": "เกี่ยวกับถนนสายหลักที่รับรถจำนวนมาก", "def": "relating to a major road carrying heavy traffic volume", "ex": "The city plans to widen the arterial road to ease congestion during peak periods.", "level": "advanced", "cefr": "C1"},
+  {"w": "attendance", "pos": "n.", "ipa": "/əˈtɛndəns/", "th": "การเข้าร่วม", "def": "The act of being present at an event or meeting.", "ex": "Attendance at the quarterly conference is mandatory for all department heads.", "level": "intermediate", "cefr": "B1"},
+  {"w": "availability", "pos": "n.", "ipa": "/əˌveɪləˈbɪlɪti/", "th": "ความว่าง, เวลาที่พร้อม", "def": "the state of being free or ready to meet", "ex": "Please check everyone's availability before booking the conference room.", "level": "intermediate", "cefr": "B1"},
+  {"w": "avid", "pos": "adj.", "ipa": "/ˈæv.ɪd/", "th": "ที่กระตือรือร้นมาก", "def": "having a strong interest or enthusiasm for something", "ex": "She is an avid reader who finishes at least three novels per month.", "level": "advanced", "cefr": "C1"},
+  {"w": "awareness", "pos": "n.", "ipa": "/əˈwɛrnəs/", "th": "การรับรู้, ความตระหนัก", "def": "knowledge or understanding that something exists", "ex": "The social media campaign successfully raised brand awareness among younger consumers.", "level": "intermediate", "cefr": "B1"},
+  {"w": "back up", "pos": "v.", "ipa": "/ˈbæk ʌp/", "th": "สำรองข้อมูล", "def": "to make a copy of data for safe storage", "ex": "Employees are required to back up their files every day to avoid losing important work.", "level": "intermediate", "cefr": "B1"},
+  {"w": "bandwidth", "pos": "n.", "ipa": "/ˈbændwɪdθ/", "th": "แบนด์วิดท์, ความจุในการรับส่งข้อมูล", "def": "the amount of data a network can transmit at once", "ex": "We need more bandwidth to support the growing number of employees working from home.", "level": "intermediate", "cefr": "B2"},
+  {"w": "breakout", "pos": "adj.", "ipa": "/ˈbreɪkaʊt/", "th": "แยกกลุ่มย่อย", "def": "Describing a smaller session split from the main event.", "ex": "Participants joined breakout sessions to discuss specific topics in detail.", "level": "intermediate", "cefr": "B2"},
+  {"w": "browse", "pos": "v.", "ipa": "/braʊz/", "th": "เลือกดู, ท่องเว็บหรือดูสินค้าอย่างไม่เร่งรีบ", "def": "to look through items casually without a specific purpose", "ex": "On weekends, she loves to browse antique shops in search of unique decorative pieces.", "level": "intermediate", "cefr": "B1"},
+  {"w": "bulk", "pos": "adj.", "ipa": "/bʌlk/", "th": "จำนวนมาก, ขายส่ง", "def": "referring to large quantities bought or sold together", "ex": "Businesses that place bulk orders of fifty units or more will qualify for a special price.", "level": "intermediate", "cefr": "B2"},
+  {"w": "campaign", "pos": "n.", "ipa": "/kæmˈpeɪn/", "th": "แคมเปญ, การรณรงค์ทางการตลาด", "def": "a planned series of actions to promote something", "ex": "The marketing team launched a new campaign to promote their latest product.", "level": "intermediate", "cefr": "B1"},
+  {"w": "catering", "pos": "n.", "ipa": "/ˈkeɪ.tər.ɪŋ/", "th": "การจัดเลี้ยง", "def": "the business of providing food for events or groups", "ex": "The company hired a professional catering service for the annual awards banquet.", "level": "intermediate", "cefr": "B1"},
+  {"w": "cc", "pos": "v.", "ipa": "/ˌsiːˈsiː/", "th": "ส่งสำเนาถึง", "def": "to send a copy of an email to another person", "ex": "Please cc the manager on all correspondence with the supplier.", "level": "intermediate", "cefr": "B1"},
+  {"w": "chairperson", "pos": "n.", "ipa": "/ˈtʃɛrˌpɜːrsən/", "th": "ประธานในที่ประชุม", "def": "the person who leads and controls a meeting", "ex": "The chairperson opened the meeting by reviewing last month's action items.", "level": "intermediate", "cefr": "B1"},
+  {"w": "charter", "pos": "v.", "ipa": "/ˈtʃɑːrtər/", "th": "เช่าเหมาลำ", "def": "to hire a vehicle, aircraft, or vessel exclusively", "ex": "The company decided to charter a private bus for the team outing.", "level": "advanced", "cefr": "B2"},
+  {"w": "check in", "pos": "v.", "ipa": "/ˌtʃɛk ˈɪn/", "th": "เช็คอิน, ลงทะเบียนเมื่อถึงที่พัก", "def": "to register arrival at a hotel or airport", "ex": "Guests can check in online to save time at the front desk.", "level": "beginner", "cefr": "A2"},
+  {"w": "circulation", "pos": "n.", "ipa": "/ˌsɜːrkjʊˈleɪʃən/", "th": "การเผยแพร่, ยอดจำหน่าย", "def": "the number of copies a publication distributes regularly", "ex": "The magazine's circulation increased after it began offering a digital subscription option.", "level": "intermediate", "cefr": "B2"},
+  {"w": "circumnavigate", "pos": "v.", "ipa": "/ˌsɜː.kəmˈnæv.ɪ.ɡeɪt/", "th": "อ้อมหรือเลี่ยงผ่านสิ่งกีดขวาง", "def": "to travel around an obstacle or route entirely", "ex": "Commuters were advised to circumnavigate the blocked interchange by taking the elevated bypass.", "level": "nearnative", "cefr": "C2"},
+  {"w": "cloud", "pos": "n.", "ipa": "/klaʊd/", "th": "คลาวด์, ระบบจัดเก็บข้อมูลออนไลน์", "def": "internet-based storage and computing services accessed remotely", "ex": "Our team stores all project documents on the cloud so everyone can access them from anywhere.", "level": "intermediate", "cefr": "B1"},
+  {"w": "collectible", "pos": "n.", "ipa": "/kəˈlektɪbl/", "th": "ของสะสม, สิ่งที่นิยมสะสม", "def": "an item valued and sought by collectors as a hobby", "ex": "The weekend market attracted many buyers looking for vintage collectibles such as stamps and coins.", "level": "intermediate", "cefr": "B2"},
+  {"w": "compatible", "pos": "adj.", "ipa": "/kəmˈpætɪbəl/", "th": "เข้ากันได้, ใช้งานร่วมกันได้", "def": "able to work together without problems", "ex": "Please check that the new software is compatible with your current operating system before installing.", "level": "intermediate", "cefr": "B1"},
+  {"w": "complimentary", "pos": "adj.", "ipa": "/ˌkɒm.plɪˈmen.tər.i/", "th": "ที่ให้ฟรี, ไม่คิดเงิน", "def": "given free of charge as a courtesy", "ex": "Guests staying on the executive floor receive complimentary breakfast every morning.", "level": "intermediate", "cefr": "B2"},
+  {"w": "condiment", "pos": "n.", "ipa": "/ˈkɒndɪmənt/", "th": "เครื่องปรุงรส, เครื่องเคียง", "def": "a sauce or seasoning added to food at the table", "ex": "The restaurant manager requested that a wider variety of condiments be placed on each table before the lunch service began.", "level": "intermediate", "cefr": "B2"},
+  {"w": "congestion", "pos": "n.", "ipa": "/kənˈdʒɛstʃən/", "th": "การจราจรติดขัด, ความแออัด", "def": "heavy traffic causing slow or blocked movement", "ex": "Morning congestion on the highway made her arrive 30 minutes late.", "level": "intermediate", "cefr": "B2"},
+  {"w": "conserve", "pos": "v.", "ipa": "/kənˈsɜːrv/", "th": "อนุรักษ์", "def": "to protect and avoid wasting a natural resource", "ex": "The city launched a campaign to conserve water during the dry season.", "level": "intermediate", "cefr": "B1"},
+  {"w": "contaminate", "pos": "v.", "ipa": "/kənˈtæmɪneɪt/", "th": "ปนเปื้อน", "def": "to make something impure or polluted by contact", "ex": "The chemical spill threatened to contaminate the local water supply.", "level": "intermediate", "cefr": "B2"},
+  {"w": "contractor", "pos": "n.", "ipa": "/ˈkɒntræktər/", "th": "ผู้รับเหมา", "def": "a person or company hired to do construction or repair work", "ex": "The building manager hired a contractor to repaint the entire lobby.", "level": "intermediate", "cefr": "B1"},
+  {"w": "contraflow", "pos": "n.", "ipa": "/ˈkɒn.trə.fləʊ/", "th": "การจัดให้รถวิ่งสวนทางบนเส้นทางเดิม", "def": "a temporary reversal of traffic lanes to manage flow", "ex": "A contraflow was implemented on the expressway to accommodate outbound vehicles during the festival weekend.", "level": "nearnative", "cefr": "C2"},
+  {"w": "conversion", "pos": "n.", "ipa": "/kənˈvɜːrʒən/", "th": "การเปลี่ยนผู้สนใจให้เป็นลูกค้า", "def": "turning a potential customer into an actual buyer", "ex": "Improving the website design increased the conversion rate by 20 percent.", "level": "intermediate", "cefr": "B2"},
+  {"w": "coupon", "pos": "n.", "ipa": "/ˈkuːpɒn/", "th": "คูปองส่วนลด", "def": "a voucher giving a discount on a product or service", "ex": "Shoppers can use a coupon to get 20 percent off their next purchase.", "level": "beginner", "cefr": "A2"},
+  {"w": "courteous", "pos": "adj.", "ipa": "/ˈkɜːtiəs/", "th": "สุภาพ, มีมารยาท", "def": "Polite and respectful in behavior or speech.", "ex": "All staff are expected to be courteous to customers at all times.", "level": "intermediate", "cefr": "B2"},
+  {"w": "craft", "pos": "n.", "ipa": "/krɑːft/", "th": "งานฝีมือ", "def": "a skill or activity involving making things by hand", "ex": "The weekend market featured local artisans selling handmade craft items.", "level": "intermediate", "cefr": "B1"},
+  {"w": "craftsmanship", "pos": "n.", "ipa": "/ˈkræftsmənʃɪp/", "th": "ฝีมือช่าง, ความชำนาญในการสร้างสิ่งของ", "def": "skill and quality shown in making something by hand", "ex": "The woodworking club admired the craftsmanship of the handmade furniture displayed at the fair.", "level": "advanced", "cefr": "C1"},
+  {"w": "credential", "pos": "n.", "ipa": "/krɪˈdenʃəl/", "th": "คุณวุฒิหรือใบรับรอง", "def": "a qualification or certificate that proves someone's abilities", "ex": "Candidates must submit their academic credentials along with the application.", "level": "intermediate", "cefr": "B2"},
+  {"w": "cuisine", "pos": "n.", "ipa": "/kwɪˈziːn/", "th": "อาหาร, ศิลปะการปรุงอาหาร", "def": "a style of cooking from a country or region", "ex": "The hotel's restaurant specializes in Mediterranean cuisine, attracting food critics from across the region.", "level": "intermediate", "cefr": "B1"},
+  {"w": "curator", "pos": "n.", "ipa": "/kjʊˈreɪtər/", "th": "ภัณฑารักษ์, ผู้ดูแลพิพิธภัณฑ์หรือนิทรรศการ", "def": "a person who manages and organizes a collection or exhibition", "ex": "The curator arranged a weekend tour of the art gallery for local hobby painters.", "level": "advanced", "cefr": "C1"},
+  {"w": "debrief", "pos": "v.", "ipa": "/ˌdiːˈbriːf/", "th": "สรุปผลหลังปฏิบัติการ, รายงานสรุปภายหลัง", "def": "to question or discuss outcomes with someone after a completed activity", "ex": "The training coordinator scheduled a session to debrief all department heads on what had been learned and which skills still required development.", "level": "advanced", "cefr": "C1"},
+  {"w": "debris", "pos": "n.", "ipa": "/dəˈbriː/", "th": "เศษซาก", "def": "scattered pieces of waste or destroyed material", "ex": "Workers spent three days clearing debris after the tropical storm passed.", "level": "advanced", "cefr": "B2"},
+  {"w": "dedicate", "pos": "v.", "ipa": "/ˈdɛdɪkeɪt/", "th": "อุทิศ, ทุ่มเท", "def": "to give time or effort to a specific activity", "ex": "He dedicates his weekends to gardening and outdoor activities.", "level": "intermediate", "cefr": "B1"},
+  {"w": "deed", "pos": "n.", "ipa": "/diːd/", "th": "โฉนดที่ดิน/เอกสารกรรมสิทธิ์", "def": "a legal document proving ownership of property", "ex": "The buyer received the deed to the property after the sale was completed.", "level": "advanced", "cefr": "B2"},
+  {"w": "delectable", "pos": "adj.", "ipa": "/dɪˈlektəbl/", "th": "อร่อยมาก, น่าชิม", "def": "extremely pleasant to taste; highly delicious", "ex": "Guests who attended the annual banquet described the chef's dessert creations as utterly delectable.", "level": "advanced", "cefr": "C1"},
+  {"w": "demographic", "pos": "n.", "ipa": "/ˌdeməˈɡræfɪk/", "th": "กลุ่มประชากรเป้าหมาย", "def": "a group of people sharing similar age, income, or interests", "ex": "The advertisement was designed to appeal to the 18–35 demographic.", "level": "intermediate", "cefr": "B2"},
+  {"w": "deposit", "pos": "n.", "ipa": "/dɪˈpɒzɪt/", "th": "เงินมัดจำ, เงินฝาก", "def": "A sum of money paid as security or into an account.", "ex": "Tenants must pay a deposit equal to two months' rent before moving in.", "level": "beginner", "cefr": "A2"},
+  {"w": "detour", "pos": "n.", "ipa": "/ˈdiːtʊər/", "th": "เส้นทางอ้อม, การเบี่ยงเส้นทาง", "def": "an alternative route taken to avoid something", "ex": "We had to take a detour because the main road was blocked by construction.", "level": "intermediate", "cefr": "B1"},
+  {"w": "dietary", "pos": "adj.", "ipa": "/ˈdaɪ.ə.ter.i/", "th": "เกี่ยวกับอาหารการกิน", "def": "relating to the food a person regularly eats", "ex": "The hotel restaurant can accommodate guests with special dietary requirements upon request.", "level": "intermediate", "cefr": "B2"},
+  {"w": "download", "pos": "v.", "ipa": "/ˈdaʊnloʊd/", "th": "ดาวน์โหลด", "def": "to transfer data from the internet to a device", "ex": "You can download the user manual directly from the vendor's website.", "level": "beginner", "cefr": "A2"},
+  {"w": "drought", "pos": "n.", "ipa": "/draʊt/", "th": "ภาวะแห้งแล้ง", "def": "a long period of little or no rainfall", "ex": "The severe drought forced farmers to reduce their crop production significantly.", "level": "intermediate", "cefr": "B1"},
+  {"w": "egress", "pos": "n.", "ipa": "/ˈiː.ɡres/", "th": "ทางออกหรือการออกจากพื้นที่", "def": "a designated exit point or the act of leaving", "ex": "Emergency egress from the underground station must remain unobstructed at all times.", "level": "nearnative", "cefr": "C2"},
+  {"w": "emission", "pos": "n.", "ipa": "/ɪˈmɪʃən/", "th": "การปล่อยมลพิษ", "def": "gas or substance released into the environment", "ex": "The new factory was required to limit its carbon emissions by law.", "level": "intermediate", "cefr": "B2"},
+  {"w": "encryption", "pos": "n.", "ipa": "/ɪnˈkrɪpʃən/", "th": "การเข้ารหัสข้อมูล", "def": "the process of converting data into a secure, unreadable format", "ex": "The bank uses encryption to ensure that all online transactions remain private and secure.", "level": "intermediate", "cefr": "B2"},
+  {"w": "enroll", "pos": "v.", "ipa": "/ɪnˈroʊl/", "th": "ลงทะเบียน, สมัคร", "def": "to officially join a class or program", "ex": "She enrolled in a pottery class at the community center last month.", "level": "intermediate", "cefr": "B1"},
+  {"w": "enthusiasm", "pos": "n.", "ipa": "/ɪnˈθjuːziæzəm/", "th": "ความกระตือรือร้น", "def": "strong excitement or interest in an activity", "ex": "Her enthusiasm for photography inspired the whole team.", "level": "intermediate", "cefr": "B1"},
+  {"w": "enthusiast", "pos": "n.", "ipa": "/ɪnˈθjuːziæst/", "th": "ผู้ที่ชื่นชอบหรือหลงใหลในสิ่งใดสิ่งหนึ่งอย่างมาก", "def": "a person who is very interested in a particular activity", "ex": "She is a photography enthusiast who spends every weekend exploring the city with her camera.", "level": "intermediate", "cefr": "B2"},
+  {"w": "evaluation", "pos": "n.", "ipa": "/ɪˌvæljuˈeɪʃən/", "th": "การประเมินผล", "def": "The process of judging the quality or effectiveness of something.", "ex": "Please complete the evaluation form at the end of today's training program.", "level": "intermediate", "cefr": "B1"},
+  {"w": "excursion", "pos": "n.", "ipa": "/ɪkˈskɜːrʒən/", "th": "การท่องเที่ยวระยะสั้น", "def": "a short trip taken for pleasure or sightseeing", "ex": "The hotel arranged a day excursion to the nearby national park.", "level": "intermediate", "cefr": "B2"},
+  {"w": "exposure", "pos": "n.", "ipa": "/ɪkˈspoʊʒər/", "th": "การเปิดรับ, การได้รับการเผยแพร่", "def": "the amount of attention a product receives from the public", "ex": "Advertising on social media gave the small business significant exposure.", "level": "intermediate", "cefr": "B2"},
+  {"w": "facilitator", "pos": "n.", "ipa": "/fəˈsɪlɪteɪtər/", "th": "ผู้อำนวยความสะดวก, ผู้ดำเนินการอบรม", "def": "a person who guides a group discussion or training session", "ex": "The workshop facilitator encouraged participants to collaborate on solving real operational challenges rather than simply listening to lectures.", "level": "intermediate", "cefr": "B2"},
+  {"w": "fare", "pos": "n.", "ipa": "/fɛər/", "th": "ค่าโดยสาร", "def": "the price paid to use public transport", "ex": "The bus fare increased by ten percent at the start of the new year.", "level": "beginner", "cefr": "A2"},
+  {"w": "fill out", "pos": "phr.v.", "ipa": "/fɪl aʊt/", "th": "กรอก (แบบฟอร์ม)", "def": "To complete a form by writing required information.", "ex": "Please fill out this form with your contact details before seeing the doctor.", "level": "beginner", "cefr": "A2"},
+  {"w": "firewall", "pos": "n.", "ipa": "/ˈfaɪərwɔːl/", "th": "ไฟร์วอลล์, ระบบป้องกันเครือข่าย", "def": "a security system that blocks unauthorized access to a network", "ex": "The company installed a stronger firewall to protect sensitive customer data from hackers.", "level": "intermediate", "cefr": "B2"},
+  {"w": "follow up", "pos": "v.", "ipa": "/ˈfɒləʊ ʌp/", "th": "ติดตาม (เรื่องที่ค้างอยู่)", "def": "to check on progress after an earlier communication", "ex": "She sent an email to follow up on the proposal submitted last week.", "level": "intermediate", "cefr": "B1"},
+  {"w": "furnished", "pos": "adj.", "ipa": "/ˈfɜːrnɪʃt/", "th": "ที่มีเฟอร์นิเจอร์พร้อม", "def": "having furniture already provided inside", "ex": "The company rented a fully furnished apartment for the visiting executive.", "level": "intermediate", "cefr": "B1"},
+  {"w": "garnish", "pos": "v.", "ipa": "/ˈɡɑːrnɪʃ/", "th": "ตกแต่งจาน, ประดับอาหาร", "def": "to decorate a dish with a small amount of food", "ex": "The sous-chef was instructed to garnish every plate with fresh herbs before it was carried out to the dining room.", "level": "advanced", "cefr": "B2"},
+  {"w": "gastronomy", "pos": "n.", "ipa": "/ɡæˈstrɒnəmi/", "th": "ศาสตร์แห่งการกิน, วิทยาการอาหาร", "def": "the study and appreciation of fine food and drink", "ex": "Her academic background in gastronomy enabled her to curate an exceptional tasting menu for the launch event.", "level": "nearnative", "cefr": "C2"},
+  {"w": "getaway", "pos": "n.", "ipa": "/ˈɡɛt.ə.weɪ/", "th": "การพักผ่อนระยะสั้น", "def": "a short trip or vacation for rest and relaxation", "ex": "The team planned a weekend getaway to recharge before the next project phase.", "level": "intermediate", "cefr": "B2"},
+  {"w": "gridlock", "pos": "n.", "ipa": "/ˈɡrɪd.lɒk/", "th": "การจราจรติดขัดสมบูรณ์", "def": "complete standstill of traffic in all directions", "ex": "The downtown intersection descended into gridlock after the signal failure during rush hour.", "level": "advanced", "cefr": "C1"},
+  {"w": "handout", "pos": "n.", "ipa": "/ˈhændaʊt/", "th": "เอกสารแจก", "def": "Printed materials given to participants during a session.", "ex": "The trainer distributed a handout summarizing the key points of the workshop.", "level": "intermediate", "cefr": "B1"},
+  {"w": "hands-on", "pos": "adj.", "ipa": "/ˌhændz ˈɒn/", "th": "ที่ได้ลงมือปฏิบัติจริง, เรียนรู้ด้วยการลงมือทำ", "def": "involving direct practical experience rather than theory alone", "ex": "The pottery workshop offered a hands-on class where participants shaped their own clay bowls.", "level": "intermediate", "cefr": "B2"},
+  {"w": "hobbyist", "pos": "n.", "ipa": "/ˈhɒb.i.ɪst/", "th": "ผู้มีงานอดิเรก", "def": "a person who regularly pursues a particular hobby", "ex": "As an amateur photographer and dedicated hobbyist, he spent every Saturday at the park.", "level": "intermediate", "cefr": "B2"},
+  {"w": "household", "pos": "n.", "ipa": "/ˈhaʊshoʊld/", "th": "ครัวเรือน, คนในบ้าน", "def": "all people living together in one home", "ex": "The survey collected data from over 500 households in the city.", "level": "beginner", "cefr": "A2"},
+  {"w": "humidity", "pos": "n.", "ipa": "/hjuːˈmɪdɪti/", "th": "ความชื้น", "def": "the amount of water vapor present in the air", "ex": "High humidity during summer makes outdoor work very uncomfortable.", "level": "intermediate", "cefr": "B1"},
+  {"w": "inspector", "pos": "n.", "ipa": "/ɪnˈspektər/", "th": "ผู้ตรวจสอบ", "def": "an official who checks that buildings meet required standards", "ex": "The inspector visited the facility to verify that safety regulations were followed.", "level": "intermediate", "cefr": "B1"},
+  {"w": "installment", "pos": "n.", "ipa": "/ɪnˈstɔːlmənt/", "th": "การผ่อนชำระ", "def": "one of several regular payments made over time", "ex": "The customer chose to pay for the laptop in monthly installments.", "level": "intermediate", "cefr": "B2"},
+  {"w": "interface", "pos": "n.", "ipa": "/ˈɪntərfeɪs/", "th": "อินเทอร์เฟซ, หน้าจอปฏิสัมพันธ์", "def": "the visual layout through which a user interacts with software", "ex": "The new application has a clean interface that makes it easy for all staff to navigate.", "level": "intermediate", "cefr": "B2"},
+  {"w": "intermodal", "pos": "adj.", "ipa": "/ˌɪn.təˈməʊ.dəl/", "th": "เกี่ยวกับการเดินทางที่ใช้หลายวิธีขนส่งร่วมกัน", "def": "involving seamless connection between different transport modes", "ex": "The new intermodal hub integrates rail, bus, and ferry services under a single ticketing platform.", "level": "nearnative", "cefr": "C2"},
+  {"w": "intersection", "pos": "n.", "ipa": "/ˌɪntərˈsɛkʃən/", "th": "สี่แยก, จุดตัดถนน", "def": "a point where two or more roads cross each other", "ex": "Turn left at the intersection and the office building will be on your right.", "level": "intermediate", "cefr": "B1"},
+  {"w": "itinerant", "pos": "adj.", "ipa": "/aɪˈtɪnərənt/", "th": "ที่เดินทางไปเรื่อยๆ, ร่อนเร่", "def": "travelling from place to place regularly", "ex": "The company hired an itinerant consultant to visit regional offices.", "level": "nearnative", "cefr": "C2"},
+  {"w": "keynote", "pos": "n.", "ipa": "/ˈkiːnoʊt/", "th": "การกล่าวสุนทรพจน์หลัก", "def": "The main speech that sets the theme of an event.", "ex": "The CEO delivered the keynote at the annual company conference.", "level": "intermediate", "cefr": "B2"},
+  {"w": "landlord", "pos": "n.", "ipa": "/ˈlændlɔːrd/", "th": "เจ้าของที่ดิน/บ้านให้เช่า", "def": "a person who owns and rents out property", "ex": "The landlord agreed to fix the broken heater within two days.", "level": "intermediate", "cefr": "B1"},
+  {"w": "ledger", "pos": "n.", "ipa": "/ˈlɛdʒər/", "th": "สมุดบัญชี", "def": "a book or record of financial accounts", "ex": "The accountant updated the company ledger at the end of each month.", "level": "advanced", "cefr": "B2"},
+  {"w": "leisure", "pos": "n.", "ipa": "/ˈleʒər/", "th": "เวลาว่าง, เวลาพักผ่อน", "def": "free time available for enjoyable activities outside of work", "ex": "The resort offers a wide range of facilities designed for both business travelers and those seeking leisure.", "level": "intermediate", "cefr": "B1"},
+  {"w": "log in", "pos": "v.", "ipa": "/lɒɡ ɪn/", "th": "เข้าสู่ระบบ", "def": "to access a system using a username and password", "ex": "Employees must log in with their company ID to access internal documents.", "level": "beginner", "cefr": "A2"},
+  {"w": "luggage", "pos": "n.", "ipa": "/ˈlʌɡɪdʒ/", "th": "กระเป๋าเดินทาง", "def": "bags and suitcases carried while travelling", "ex": "The airline allows one piece of carry-on luggage per passenger.", "level": "beginner", "cefr": "A2"},
+  {"w": "malware", "pos": "n.", "ipa": "/ˈmælweər/", "th": "มัลแวร์, ซอฟต์แวร์อันตราย", "def": "harmful software designed to damage computer systems", "ex": "The security scan detected malware on two laptops in the accounting department.", "level": "intermediate", "cefr": "B2"},
+  {"w": "media", "pos": "n.", "ipa": "/ˈmiːdiə/", "th": "สื่อ, สื่อมวลชน", "def": "channels of communication used to reach a large audience", "ex": "The marketing team decided to focus on social media rather than print media this quarter.", "level": "intermediate", "cefr": "B1"},
+  {"w": "membership", "pos": "n.", "ipa": "/ˈmɛmbərʃɪp/", "th": "การเป็นสมาชิก", "def": "the state of belonging to a group or organization", "ex": "A gym membership gives you access to all fitness classes on weekdays.", "level": "intermediate", "cefr": "B1"},
+  {"w": "minutes", "pos": "n.", "ipa": "/ˈmɪnɪts/", "th": "รายงานการประชุม", "def": "the official written record of a meeting", "ex": "Sarah was asked to take the minutes during the quarterly review meeting.", "level": "intermediate", "cefr": "B2"},
+  {"w": "moderator", "pos": "n.", "ipa": "/ˈmɒdəreɪtər/", "th": "ผู้ดำเนินรายการ", "def": "A person who guides discussion during a meeting or panel.", "ex": "The moderator kept the seminar on schedule by limiting each speaker's time.", "level": "intermediate", "cefr": "B2"},
+  {"w": "network", "pos": "n.", "ipa": "/ˈnetwɜːrk/", "th": "เครือข่าย", "def": "a system of connected computers sharing resources", "ex": "The IT team set up a secure network across all three office floors.", "level": "intermediate", "cefr": "B1"},
+  {"w": "networking", "pos": "n.", "ipa": "/ˈnetwɜːrkɪŋ/", "th": "การสร้างเครือข่ายความสัมพันธ์", "def": "Building professional relationships with others.", "ex": "The lunch break was a great networking opportunity for conference attendees.", "level": "intermediate", "cefr": "B2"},
+  {"w": "niche", "pos": "n.", "ipa": "/niːʃ/", "th": "กลุ่มตลาดเฉพาะ", "def": "a small, specialized segment of a market", "ex": "They found a profitable niche by selling organic pet food online.", "level": "advanced", "cefr": "B2"},
+  {"w": "occupancy", "pos": "n.", "ipa": "/ˈɒkjʊpənsi/", "th": "การครอบครอง/อัตราการเข้าพัก", "def": "the state of using or living in a building", "ex": "The hotel reported high occupancy rates throughout the holiday season.", "level": "intermediate", "cefr": "B2"},
+  {"w": "onboard", "pos": "v.", "ipa": "/ˈɒnbɔːrd/", "th": "ฝึกอบรมพนักงานใหม่", "def": "to introduce and train a new employee at a company", "ex": "The company uses a two-week program to onboard all new hires.", "level": "intermediate", "cefr": "B2"},
+  {"w": "outing", "pos": "n.", "ipa": "/ˈaʊ.tɪŋ/", "th": "การออกนอกบ้าน, การไปเที่ยว", "def": "a short trip taken for pleasure or recreation", "ex": "The department organized a team outing to a nearby nature trail last Friday.", "level": "intermediate", "cefr": "B1"},
+  {"w": "outreach", "pos": "n.", "ipa": "/ˈaʊtriːtʃ/", "th": "การติดต่อและเข้าถึงกลุ่มเป้าหมาย", "def": "efforts to connect with and inform a target audience", "ex": "The brand's social media outreach helped attract thousands of new customers.", "level": "advanced", "cefr": "B2"},
+  {"w": "palatable", "pos": "adj.", "ipa": "/ˈpælətəbl/", "th": "มีรสชาติดี, เป็นที่ยอมรับได้", "def": "acceptable or pleasant enough to eat or endure", "ex": "The catering team worked to ensure that all dishes remained palatable even after being kept warm for extended periods.", "level": "advanced", "cefr": "C1"},
+  {"w": "panel", "pos": "n.", "ipa": "/ˈpænəl/", "th": "คณะผู้อภิปราย", "def": "A group of experts who discuss a topic publicly.", "ex": "A panel of industry leaders answered questions at the end of the conference.", "level": "intermediate", "cefr": "B2"},
+  {"w": "panelist", "pos": "n.", "ipa": "/ˈpænəlɪst/", "th": "ผู้ร่วมอภิปราย, สมาชิกในคณะอภิปราย", "def": "a person who participates in a structured group discussion at an event", "ex": "Each panelist was given five minutes to present their perspective before the moderator opened the floor to audience questions.", "level": "intermediate", "cefr": "B2"},
+  {"w": "passport", "pos": "n.", "ipa": "/ˈpæspɔːrt/", "th": "หนังสือเดินทาง", "def": "an official document allowing travel between countries", "ex": "Please ensure your passport is valid for at least six months before departure.", "level": "beginner", "cefr": "A2"},
+  {"w": "password", "pos": "n.", "ipa": "/ˈpæswɜːrd/", "th": "รหัสผ่าน", "def": "a secret code used to access a system or account", "ex": "Staff are required to change their password every 90 days for security.", "level": "beginner", "cefr": "A2"},
+  {"w": "pastime", "pos": "n.", "ipa": "/ˈpɑːstaɪm/", "th": "งานอดิเรก, กิจกรรมยามว่าง", "def": "an activity enjoyed during free time", "ex": "Reading novels is his favorite pastime during long holidays.", "level": "intermediate", "cefr": "B2"},
+  {"w": "pedestrian", "pos": "n.", "ipa": "/pəˈdɛstriən/", "th": "คนเดินเท้า", "def": "a person travelling on foot, especially in a town", "ex": "The city installed new crossings to improve safety for pedestrians near the station.", "level": "intermediate", "cefr": "B1"},
+  {"w": "penalty", "pos": "n.", "ipa": "/ˈpɛnəlti/", "th": "ค่าปรับ", "def": "a charge imposed for breaking a rule or late payment", "ex": "A penalty fee will be added if you cancel your subscription too early.", "level": "intermediate", "cefr": "B1"},
+  {"w": "pitch", "pos": "n.", "ipa": "/pɪtʃ/", "th": "การนำเสนอเพื่อขายหรือโน้มน้าว", "def": "a persuasive presentation to sell an idea or product", "ex": "The agency delivered a strong pitch that won them the advertising contract.", "level": "intermediate", "cefr": "B2"},
+  {"w": "placement", "pos": "n.", "ipa": "/ˈpleɪsmənt/", "th": "การวางโฆษณาในสื่อหรือช่องทางต่างๆ", "def": "the strategic location of an advertisement in media", "ex": "Product placement in popular TV shows boosted the drink's visibility significantly.", "level": "intermediate", "cefr": "B2"},
+  {"w": "platform", "pos": "n.", "ipa": "/ˈplætfɔːrm/", "th": "ชานชาลา", "def": "the raised area at a station where passengers board trains", "ex": "Please wait behind the yellow line on platform three for the next train.", "level": "intermediate", "cefr": "B1"},
+  {"w": "positioning", "pos": "n.", "ipa": "/pəˈzɪʃənɪŋ/", "th": "การวางตำแหน่งผลิตภัณฑ์ในตลาด", "def": "how a brand is perceived relative to competitors", "ex": "Good positioning made the product stand out as a premium choice.", "level": "advanced", "cefr": "B2"},
+  {"w": "presenter", "pos": "n.", "ipa": "/prɪˈzentər/", "th": "ผู้นำเสนอ", "def": "A person who delivers a talk or demonstration.", "ex": "The presenter used clear slides to explain the new safety procedures.", "level": "intermediate", "cefr": "B1"},
+  {"w": "probation", "pos": "n.", "ipa": "/proʊˈbeɪʃən/", "th": "ช่วงทดลองงาน", "def": "a trial period for a new employee to prove their suitability", "ex": "New hires are on probation for the first three months of employment.", "level": "intermediate", "cefr": "B2"},
+  {"w": "process", "pos": "v.", "ipa": "/ˈprɒsɛs/", "th": "ดำเนินการ, จัดการ", "def": "to handle or deal with something officially step by step", "ex": "It typically takes three business days to process a refund request.", "level": "intermediate", "cefr": "B1"},
+  {"w": "proxy", "pos": "n.", "ipa": "/ˈprɒksi/", "th": "ตัวแทน, ผู้รับมอบอำนาจ", "def": "a person authorized to act or vote for another", "ex": "Since Mr. Lee was traveling, his proxy attended the board meeting on his behalf.", "level": "advanced", "cefr": "B2"},
+  {"w": "pursue", "pos": "v.", "ipa": "/pəˈsjuː/", "th": "ดำเนินการ, มุ่งมั่นทำ", "def": "to continue doing an activity with effort and dedication", "ex": "After retiring, he plans to pursue painting as a full-time hobby.", "level": "intermediate", "cefr": "B2"},
+  {"w": "pursuit", "pos": "n.", "ipa": "/pərˈsuːt/", "th": "การติดตาม, งานอดิเรก", "def": "an activity done regularly for enjoyment or interest", "ex": "Painting is a creative pursuit that helps her relax after work.", "level": "intermediate", "cefr": "B2"},
+  {"w": "quorum", "pos": "n.", "ipa": "/ˈkwɔːrəm/", "th": "องค์ประชุม", "def": "the minimum number of people needed to hold a meeting", "ex": "The vote was delayed because the committee had not yet reached a quorum.", "level": "advanced", "cefr": "C1"},
+  {"w": "readership", "pos": "n.", "ipa": "/ˈriːdərʃɪp/", "th": "กลุ่มผู้อ่าน", "def": "the total number or type of people who read a publication", "ex": "The magazine increased its readership by adding more digital content.", "level": "advanced", "cefr": "B2"},
+  {"w": "reboot", "pos": "v.", "ipa": "/riːˈbuːt/", "th": "รีสตาร์ทเครื่อง, เริ่มระบบใหม่", "def": "to restart a computer or device", "ex": "Please reboot your computer after installing the software update.", "level": "intermediate", "cefr": "B1"},
+  {"w": "rebrand", "pos": "v.", "ipa": "/ˌriːˈbrænd/", "th": "เปลี่ยนภาพลักษณ์แบรนด์", "def": "to change the image or name of a company or product", "ex": "The firm decided to rebrand after merging with its largest competitor.", "level": "intermediate", "cefr": "B2"},
+  {"w": "recreation", "pos": "n.", "ipa": "/ˌrɛk.riˈeɪ.ʃən/", "th": "การพักผ่อนหย่อนใจ", "def": "activities done for enjoyment during free time", "ex": "The company provides a recreation room where employees can relax during breaks.", "level": "intermediate", "cefr": "B1"},
+  {"w": "recreational", "pos": "adj.", "ipa": "/ˌrɛkrɪˈeɪʃənl/", "th": "เกี่ยวกับนันทนาการ", "def": "relating to activities done for fun or relaxation", "ex": "The company offers recreational facilities including a gym and tennis courts.", "level": "intermediate", "cefr": "B2"},
+  {"w": "relocate", "pos": "v.", "ipa": "/ˌriːloʊˈkeɪt/", "th": "ย้ายที่อยู่, โยกย้าย", "def": "to move to a new place to live or work", "ex": "The company offered a bonus to employees willing to relocate to the new branch.", "level": "intermediate", "cefr": "B2"},
+  {"w": "remit", "pos": "v.", "ipa": "/rɪˈmɪt/", "th": "ส่งเงิน, ชำระเงิน", "def": "to send money as payment to someone", "ex": "Please remit the full balance within 30 days of receiving the bill.", "level": "advanced", "cefr": "B2"},
+  {"w": "renewable", "pos": "adj.", "ipa": "/rɪˈnjuːəbl/", "th": "ที่ทดแทนได้", "def": "describes energy from sources that naturally replenish", "ex": "Investing in renewable energy sources can lower long-term electricity costs.", "level": "intermediate", "cefr": "B1"},
+  {"w": "renovation", "pos": "n.", "ipa": "/ˌrenəˈveɪʃən/", "th": "การปรับปรุงซ่อมแซมบ้าน", "def": "the process of repairing and improving a building", "ex": "The office renovation was completed on schedule and within budget.", "level": "intermediate", "cefr": "B1"},
+  {"w": "reservation", "pos": "n.", "ipa": "/ˌrez.əˈveɪ.ʃən/", "th": "การจองโต๊ะ", "def": "an arrangement to hold a table at a restaurant", "ex": "Please call ahead to make a reservation, as the restaurant fills up quickly on weekends.", "level": "beginner", "cefr": "A2"},
+  {"w": "resolve", "pos": "v.", "ipa": "/rɪˈzɒlv/", "th": "แก้ไข, จัดการ", "def": "To find a solution to a problem.", "ex": "Our team was able to resolve the billing issue within 24 hours.", "level": "intermediate", "cefr": "B2"},
+  {"w": "retailer", "pos": "n.", "ipa": "/ˈriːteɪlər/", "th": "ผู้ค้าปลีก", "def": "a business that sells goods directly to consumers", "ex": "Several major retailers have agreed to stock the new product line starting next month.", "level": "intermediate", "cefr": "B1"},
+  {"w": "ridership", "pos": "n.", "ipa": "/ˈraɪ.də.ʃɪp/", "th": "จำนวนผู้โดยสารที่ใช้ระบบขนส่งสาธารณะ", "def": "the number of passengers using a transit system", "ex": "Ridership on the metro line surged by forty percent after fares were reduced citywide.", "level": "advanced", "cefr": "C1"},
+  {"w": "rollout", "pos": "n.", "ipa": "/ˈroʊlaʊt/", "th": "การเปิดตัวหรือเริ่มใช้งานอย่างเป็นทางการ", "def": "the gradual introduction of a product to the market", "ex": "The nationwide rollout of the new product will begin next quarter.", "level": "intermediate", "cefr": "B2"},
+  {"w": "route", "pos": "n.", "ipa": "/ruːt/", "th": "เส้นทาง", "def": "a fixed path regularly used for travel or transport", "ex": "The driver chose a different route to avoid the roadwork on Fifth Avenue.", "level": "intermediate", "cefr": "B1"},
+  {"w": "rush hour", "pos": "n.", "ipa": "/ˈrʌʃ ˌaʊər/", "th": "ชั่วโมงเร่งด่วน", "def": "the busiest period when most people travel to or from work", "ex": "Trains during rush hour are so crowded that some passengers cannot board.", "level": "beginner", "cefr": "A2"},
+  {"w": "satisfaction", "pos": "n.", "ipa": "/ˌsætɪsˈfækʃən/", "th": "ความพึงพอใจ", "def": "The feeling of being pleased with a result or service.", "ex": "Customer satisfaction is our top priority at this company.", "level": "intermediate", "cefr": "B1"},
+  {"w": "seasoning", "pos": "n.", "ipa": "/ˈsiː.zən.ɪŋ/", "th": "เครื่องปรุงรส", "def": "salt, spices, or herbs added to improve flavor", "ex": "The new recipe uses a blend of Asian seasonings that customers have been praising.", "level": "intermediate", "cefr": "B1"},
+  {"w": "segment", "pos": "v.", "ipa": "/ˈsɛɡmənt/", "th": "แบ่งกลุ่ม, จัดหมวดหมู่", "def": "divide a market into distinct customer groups", "ex": "The company segmented its audience by age and income to improve ad targeting.", "level": "intermediate", "cefr": "B2"},
+  {"w": "seminar", "pos": "n.", "ipa": "/ˈsemɪnɑːr/", "th": "การสัมมนา", "def": "A meeting for discussing a topic with a group.", "ex": "All managers are required to attend the seminar on leadership development.", "level": "intermediate", "cefr": "B1"},
+  {"w": "serve", "pos": "v.", "ipa": "/sɜːrv/", "th": "เสิร์ฟ, นำอาหารมาให้", "def": "to bring food or drinks to someone", "ex": "The waiter was instructed to serve all dishes simultaneously to each table of guests.", "level": "beginner", "cefr": "A2"},
+  {"w": "server", "pos": "n.", "ipa": "/ˈsɜːrvər/", "th": "เซิร์ฟเวอร์, เครื่องแม่ข่าย", "def": "a computer that provides services or data to other computers", "ex": "The website went down because the server could not handle the high volume of traffic.", "level": "intermediate", "cefr": "B1"},
+  {"w": "session", "pos": "n.", "ipa": "/ˈseʃən/", "th": "ช่วงเวลา, การประชุม", "def": "A period of time set aside for an activity.", "ex": "The morning training session will cover customer service techniques.", "level": "intermediate", "cefr": "B1"},
+  {"w": "shortfall", "pos": "n.", "ipa": "/ˈʃɔːrtfɔːl/", "th": "การขาดแคลนบุคลากร", "def": "a situation where there are fewer staff than needed", "ex": "A shortfall in qualified engineers forced the company to hire from overseas.", "level": "advanced", "cefr": "B2"},
+  {"w": "shortlist", "pos": "v.", "ipa": "/ˈʃɔːrtlɪst/", "th": "คัดเลือกรายชื่อ", "def": "to select a small group of candidates for final consideration", "ex": "The HR manager shortlisted five candidates for the second interview.", "level": "intermediate", "cefr": "B2"},
+  {"w": "shuttle", "pos": "n.", "ipa": "/ˈʃʌtəl/", "th": "รถรับส่ง, บริการรับส่ง", "def": "a vehicle making short regular trips between two places", "ex": "The company provides a free shuttle from the nearest subway station to the office.", "level": "intermediate", "cefr": "B1"},
+  {"w": "sightseeing", "pos": "n.", "ipa": "/ˈsaɪtˌsiːɪŋ/", "th": "การเที่ยวชมสถานที่", "def": "visiting famous or interesting places as a tourist", "ex": "The tour guide led the group on a sightseeing trip around the old city.", "level": "beginner", "cefr": "A2"},
+  {"w": "slogan", "pos": "n.", "ipa": "/ˈsloʊɡən/", "th": "สโลแกน, คำขวัญ", "def": "a short memorable phrase used in advertising", "ex": "The brand's slogan became widely recognized after the television campaign.", "level": "intermediate", "cefr": "B1"},
+  {"w": "slot", "pos": "n.", "ipa": "/slɒt/", "th": "ช่วงเวลา (ที่กำหนดไว้)", "def": "a specific period of time set aside for something", "ex": "There is an open slot on Friday at 2 p.m. if you would like to meet then.", "level": "intermediate", "cefr": "B1"},
+  {"w": "snarl-up", "pos": "n.", "ipa": "/ˈsnɑːl.ʌp/", "th": "การจราจรติดขัดอย่างวุ่นวาย", "def": "a chaotic traffic jam causing severe delays", "ex": "A jackknifed lorry on the ring road caused a snarl-up stretching back several kilometres.", "level": "nearnative", "cefr": "C2"},
+  {"w": "socialize", "pos": "v.", "ipa": "/ˈsoʊ.ʃəl.aɪz/", "th": "เข้าสังคม", "def": "to mix and interact with others in a friendly way", "ex": "The staff outing was a great opportunity to socialize with colleagues outside the office.", "level": "intermediate", "cefr": "B1"},
+  {"w": "sommelier", "pos": "n.", "ipa": "/ˌsɒməˈljeɪ/", "th": "ผู้เชี่ยวชาญด้านไวน์ในร้านอาหาร", "def": "a trained wine specialist who works in a restaurant", "ex": "The sommelier carefully paired each course with a wine that complemented the chef's use of seasonal ingredients.", "level": "nearnative", "cefr": "C2"},
+  {"w": "statement", "pos": "n.", "ipa": "/ˈsteɪtmənt/", "th": "ใบแจ้งยอด", "def": "a printed record of account transactions over a period", "ex": "Please review your monthly bank statement to check all charges.", "level": "intermediate", "cefr": "B1"},
+  {"w": "storage", "pos": "n.", "ipa": "/ˈstɔːrɪdʒ/", "th": "พื้นที่จัดเก็บข้อมูล", "def": "space where digital data or files are kept", "ex": "We need more storage to save all the project files on the company server.", "level": "intermediate", "cefr": "B1"},
+  {"w": "subject line", "pos": "n.", "ipa": "/ˈsʌbdʒɪkt laɪn/", "th": "หัวเรื่อง (ในอีเมล)", "def": "the title field in an email that states the topic", "ex": "A clear subject line helps the reader understand the email's purpose immediately.", "level": "intermediate", "cefr": "B1"},
+  {"w": "sustainable", "pos": "adj.", "ipa": "/səˈsteɪnəbl/", "th": "ยั่งยืน", "def": "able to continue without harming the environment", "ex": "The company adopted sustainable practices to reduce its carbon footprint.", "level": "intermediate", "cefr": "B2"},
+  {"w": "synopsis", "pos": "n.", "ipa": "/ˈsɪnɒpsɪs/", "th": "บทสรุป, โครงเรื่องย่อ", "def": "a brief summary of the main points of a presentation or document", "ex": "Presenters were required to submit a one-page synopsis of their workshop at least six weeks before the seminar's opening date.", "level": "advanced", "cefr": "B2"},
+  {"w": "tagline", "pos": "n.", "ipa": "/ˈtæɡlaɪn/", "th": "สโลแกนสั้นๆ ที่จดจำง่าย", "def": "a short memorable phrase used in advertising", "ex": "The brand's tagline, 'Feel the difference,' appeared on all its packaging.", "level": "intermediate", "cefr": "B2"},
+  {"w": "take up", "pos": "v.", "ipa": "/teɪk ʌp/", "th": "เริ่มทำ (งานอดิเรก)", "def": "to begin doing a new hobby or activity", "ex": "He decided to take up cycling after his doctor recommended more exercise.", "level": "intermediate", "cefr": "B1"},
+  {"w": "takeout", "pos": "n.", "ipa": "/ˈteɪk.aʊt/", "th": "อาหารสั่งกลับบ้าน", "def": "food bought at a restaurant to eat elsewhere", "ex": "Many office workers order takeout for lunch to save time during busy workdays.", "level": "beginner", "cefr": "A2"},
+  {"w": "target", "pos": "v.", "ipa": "/ˈtɑːrɡɪt/", "th": "มุ่งเป้าไปที่, กำหนดกลุ่มเป้าหมาย", "def": "to direct marketing efforts toward a specific group", "ex": "The new promotion targets young professionals living in urban areas.", "level": "intermediate", "cefr": "B1"},
+  {"w": "tenant", "pos": "n.", "ipa": "/ˈtenənt/", "th": "ผู้เช่า", "def": "a person who rents property from a landlord", "ex": "The tenant signed a one-year agreement before moving into the apartment.", "level": "intermediate", "cefr": "B1"},
+  {"w": "testimonial", "pos": "n.", "ipa": "/ˌtɛstɪˈmoʊniəl/", "th": "คำรับรอง, บทวิจารณ์จากลูกค้า", "def": "a statement praising a product from a satisfied customer", "ex": "The website featured testimonials from clients who had used the service for over five years.", "level": "intermediate", "cefr": "B2"},
+  {"w": "thoroughfare", "pos": "n.", "ipa": "/ˈθʌr.ə.feər/", "th": "ถนนสายหลักหรือเส้นทางสาธารณะ", "def": "a main road open to public traffic flow", "ex": "Vendors are prohibited from obstructing the thoroughfare during the morning commute.", "level": "nearnative", "cefr": "C2"},
+  {"w": "transfer", "pos": "v.", "ipa": "/trænsˈfɜːr/", "th": "เปลี่ยนขบวน, ต่อรถ", "def": "to change from one vehicle or route to another", "ex": "You need to transfer to the red line at Central Station to reach the airport.", "level": "intermediate", "cefr": "B1"},
+  {"w": "troubleshoot", "pos": "v.", "ipa": "/ˈtrʌbəlʃuːt/", "th": "แก้ไขปัญหา, หาสาเหตุของปัญหา", "def": "to identify and fix problems in a system or device", "ex": "The technician was called in to troubleshoot the network connection issues affecting the entire office.", "level": "intermediate", "cefr": "B2"},
+  {"w": "unwind", "pos": "v.", "ipa": "/ʌnˈwaɪnd/", "th": "ผ่อนคลาย", "def": "to relax after a period of stress or work", "ex": "Many employees unwind by listening to music or going for a walk after work.", "level": "intermediate", "cefr": "B2"},
+  {"w": "upgrade", "pos": "v.", "ipa": "/ˈʌpɡreɪd/", "th": "อัปเกรด, ยกระดับ", "def": "to improve something to a newer or better version", "ex": "The IT department will upgrade all computers to the latest operating system next week.", "level": "intermediate", "cefr": "B1"},
+  {"w": "utilities", "pos": "n.", "ipa": "/juːˈtɪlɪtiz/", "th": "สาธารณูปโภค (ไฟฟ้า น้ำ แก๊ส)", "def": "basic services such as electricity, water, and gas", "ex": "The monthly rent includes utilities, so tenants do not pay separate bills.", "level": "intermediate", "cefr": "B1"},
+  {"w": "utility", "pos": "n.", "ipa": "/juːˈtɪlɪti/", "th": "ค่าสาธารณูปโภค เช่น ไฟฟ้า น้ำประปา", "def": "a basic service such as electricity, water, or gas", "ex": "The monthly rent includes all utilities, so you will not receive separate bills.", "level": "intermediate", "cefr": "B1"},
+  {"w": "waiver", "pos": "n.", "ipa": "/ˈweɪvər/", "th": "การยกเว้น, ใบยกเว้นสิทธิ์", "def": "an official document giving up a right or requirement", "ex": "She signed a waiver to release the clinic from liability before the procedure.", "level": "advanced", "cefr": "B2"},
+  {"w": "wayfinding", "pos": "n.", "ipa": "/ˈweɪ.faɪn.dɪŋ/", "th": "ระบบหรือกระบวนการนำทางในพื้นที่สาธารณะ", "def": "the system helping people navigate complex public spaces", "ex": "The airport commissioned a consultancy to overhaul its wayfinding signage ahead of the terminal expansion.", "level": "nearnative", "cefr": "C2"},
+  {"w": "workshop", "pos": "n.", "ipa": "/ˈwɜːrkʃɒp/", "th": "การประชุมเชิงปฏิบัติการ", "def": "A session where people learn by doing activities.", "ex": "The company held a one-day workshop on effective presentation skills.", "level": "intermediate", "cefr": "B1"},
+  {"w": "wrap up", "pos": "phr.v.", "ipa": "/ræp ʌp/", "th": "สรุปและปิดการประชุม", "def": "To bring something to an end or conclusion.", "ex": "The trainer began to wrap up the session by reviewing the main objectives.", "level": "intermediate", "cefr": "B1"},
+  {"w": "zoning", "pos": "n.", "ipa": "/ˈzoʊnɪŋ/", "th": "การแบ่งเขต", "def": "rules that decide how land in an area may be used", "ex": "The developer checked local zoning laws before planning the new complex.", "level": "advanced", "cefr": "B2"},
+  {"w": "assembly line", "pos": "n.", "ipa": "/əˈsembli laɪn/", "th": "สายการประกอบ", "def": "a line of workers and machines that put parts together in stages", "ex": "Workers on the assembly line reported a fault in the third station.", "level": "intermediate", "cefr": "B1"},
+  {"w": "bottleneck", "pos": "n.", "ipa": "/ˈbɒtlnek/", "th": "จุดคอขวด, จุดติดขัด", "def": "a point where progress slows because capacity is limited", "ex": "Packaging has become the main bottleneck in our production process.", "level": "advanced", "cefr": "B2"},
+  {"w": "downtime", "pos": "n.", "ipa": "/ˈdaʊntaɪm/", "th": "เวลาเครื่องหยุดทำงาน", "def": "time when a machine or system is not working", "ex": "Regular maintenance reduces unexpected downtime on the factory floor.", "level": "intermediate", "cefr": "B2"},
+  {"w": "throughput", "pos": "n.", "ipa": "/ˈθruːpʊt/", "th": "ปริมาณผลผลิตต่อช่วงเวลา", "def": "the amount of material or items processed in a given time", "ex": "The new conveyor doubled our daily throughput.", "level": "advanced", "cefr": "C1"},
+  {"w": "defective", "pos": "adj.", "ipa": "/dɪˈfektɪv/", "th": "มีตำหนิ, ชำรุด", "def": "having a fault and not working correctly", "ex": "All defective units must be removed before shipping.", "level": "intermediate", "cefr": "B1"},
+  {"w": "malfunction", "pos": "v.", "ipa": "/ˌmælˈfʌŋkʃən/", "th": "ทำงานผิดปกติ", "def": "to fail to work in the normal way", "ex": "The sensor began to malfunction after the power surge.", "level": "intermediate", "cefr": "B2"},
+  {"w": "overhaul", "pos": "v.", "ipa": "/ˌəʊvəˈhɔːl/", "th": "ยกเครื่อง, ปรับปรุงใหญ่", "def": "to examine and repair a machine or system thoroughly", "ex": "The plant will overhaul its oldest machines next quarter.", "level": "advanced", "cefr": "C1"},
+  {"w": "calibrate", "pos": "v.", "ipa": "/ˈkælɪbreɪt/", "th": "ปรับเทียบมาตรฐาน", "def": "to adjust a device so its measurements are accurate", "ex": "Technicians calibrate the scales every morning.", "level": "advanced", "cefr": "C1"},
+  {"w": "conveyor", "pos": "n.", "ipa": "/kənˈveɪə/", "th": "สายพานลำเลียง", "def": "a moving belt that carries items through a process", "ex": "The boxes travel along the conveyor to the packing area.", "level": "intermediate", "cefr": "B2"},
+  {"w": "feedstock", "pos": "n.", "ipa": "/ˈfiːdstɒk/", "th": "วัตถุดิบป้อนเข้า", "def": "raw material supplied to a machine or processing plant", "ex": "A shortage of feedstock forced the refinery to slow down.", "level": "advanced", "cefr": "C1"},
+  {"w": "output", "pos": "n.", "ipa": "/ˈaʊtpʊt/", "th": "ผลผลิต, กำลังผลิต", "def": "the amount of something produced", "ex": "Factory output rose sharply after the upgrade.", "level": "intermediate", "cefr": "B1"},
+  {"w": "scrap", "pos": "n.", "ipa": "/skræp/", "th": "ของเสีย, เศษวัสดุ", "def": "material left over or rejected as waste", "ex": "Metal scrap from the line is collected and recycled.", "level": "intermediate", "cefr": "B2"},
+  {"w": "rework", "pos": "n.", "ipa": "/ˈriːwɜːk/", "th": "งานแก้ซ้ำ", "def": "work done again to fix items that failed a check", "ex": "High rework rates are hurting our profit margins.", "level": "advanced", "cefr": "B2"},
+  {"w": "tolerance", "pos": "n.", "ipa": "/ˈtɒlərəns/", "th": "ค่าความคลาดเคลื่อนที่ยอมรับได้", "def": "the allowed amount of variation in a measurement", "ex": "These parts must be machined to a tight tolerance.", "level": "advanced", "cefr": "C1"},
+  {"w": "retool", "pos": "v.", "ipa": "/ˌriːˈtuːl/", "th": "ปรับเครื่องมือการผลิตใหม่", "def": "to change the equipment in a factory for new production", "ex": "The plant was retooled to build electric models.", "level": "advanced", "cefr": "C1"},
+  {"w": "shutdown", "pos": "n.", "ipa": "/ˈʃʌtdaʊn/", "th": "การหยุดเดินเครื่อง", "def": "a period when operations are stopped", "ex": "An annual shutdown lets the team service all machines.", "level": "intermediate", "cefr": "B2"},
+  {"w": "shift", "pos": "n.", "ipa": "/ʃɪft/", "th": "กะ (เวลาทำงาน)", "def": "a set period of work in a workplace that runs day and night", "ex": "She prefers the early shift because it ends at noon.", "level": "intermediate", "cefr": "B1"},
+  {"w": "foreman", "pos": "n.", "ipa": "/ˈfɔːmən/", "th": "หัวหน้าคนงาน", "def": "a worker in charge of a group on a production site", "ex": "The foreman assigned each team to a different station.", "level": "intermediate", "cefr": "B2"},
+  {"w": "output capacity", "pos": "n.", "ipa": "/ˈaʊtpʊt kəˈpæsəti/", "th": "กำลังการผลิต", "def": "the maximum amount a plant can produce", "ex": "The merger increased our total output capacity.", "level": "advanced", "cefr": "B2"},
+  {"w": "precision", "pos": "n.", "ipa": "/prɪˈsɪʒən/", "th": "ความเที่ยงตรง, ความแม่นยำ", "def": "the quality of being exact and accurate", "ex": "These instruments are built with great precision.", "level": "advanced", "cefr": "B2"},
+  {"w": "durability", "pos": "n.", "ipa": "/ˌdjʊərəˈbɪləti/", "th": "ความทนทาน", "def": "the ability to last a long time without damage", "ex": "Customers value the durability of our tools.", "level": "intermediate", "cefr": "B2"},
+  {"w": "wear and tear", "pos": "phr.", "ipa": "/ˌweər ən ˈteə/", "th": "การสึกหรอจากการใช้งาน", "def": "damage that happens to something through normal use", "ex": "The warranty does not cover ordinary wear and tear.", "level": "advanced", "cefr": "B2"},
+  {"w": "hazard", "pos": "n.", "ipa": "/ˈhæzəd/", "th": "อันตราย, ความเสี่ยง", "def": "something that could cause harm or danger", "ex": "Spilled oil is a serious hazard on the floor.", "level": "intermediate", "cefr": "B2"},
+  {"w": "protective gear", "pos": "n.", "ipa": "/prəˈtektɪv ɡɪə/", "th": "อุปกรณ์ป้องกัน", "def": "clothing and equipment worn to stay safe at work", "ex": "All visitors must wear protective gear on site.", "level": "intermediate", "cefr": "B1"},
+  {"w": "ventilation", "pos": "n.", "ipa": "/ˌventɪˈleɪʃən/", "th": "การระบายอากาศ", "def": "the movement of fresh air through a space", "ex": "Poor ventilation made the paint shop unsafe.", "level": "intermediate", "cefr": "B2"},
+  {"w": "adhere to", "pos": "phr.v.", "ipa": "/ədˈhɪə tə/", "th": "ปฏิบัติตาม (มาตรฐาน)", "def": "to follow a rule, standard, or agreement", "ex": "Every supplier must adhere to our safety standards.", "level": "advanced", "cefr": "B2"},
+  {"w": "deviation", "pos": "n.", "ipa": "/ˌdiːviˈeɪʃən/", "th": "ความเบี่ยงเบนจากมาตรฐาน", "def": "a difference from an expected or standard value", "ex": "Any deviation from the spec is logged for review.", "level": "advanced", "cefr": "C1"},
+  {"w": "sampling", "pos": "n.", "ipa": "/ˈsɑːmplɪŋ/", "th": "การสุ่มตรวจ", "def": "the act of checking a small part to judge the whole", "ex": "Random sampling caught the faulty batch early.", "level": "advanced", "cefr": "B2"},
+  {"w": "batch", "pos": "n.", "ipa": "/bætʃ/", "th": "ล็อต, ชุดการผลิต", "def": "a quantity of goods produced at one time", "ex": "This batch passed every quality test.", "level": "intermediate", "cefr": "B1"},
+  {"w": "yield rate", "pos": "n.", "ipa": "/jiːld reɪt/", "th": "อัตราผลผลิตที่ใช้ได้", "def": "the percentage of good units out of total produced", "ex": "A higher yield rate means less wasted material.", "level": "advanced", "cefr": "C1"},
+  {"w": "retrofit", "pos": "v.", "ipa": "/ˈretrəʊfɪt/", "th": "ติดตั้งเพิ่ม, ปรับปรุงของเก่า", "def": "to add new parts to something already built", "ex": "We retrofitted the older line with safety guards.", "level": "advanced", "cefr": "C1"},
+  {"w": "phase out", "pos": "phr.v.", "ipa": "/feɪz aʊt/", "th": "ทยอยเลิกใช้", "def": "to stop using something gradually", "ex": "The company is phasing out its diesel forklifts.", "level": "advanced", "cefr": "B2"},
+  {"w": "ramp up", "pos": "phr.v.", "ipa": "/ræmp ʌp/", "th": "เร่งกำลังผลิต", "def": "to increase production or activity", "ex": "We need to ramp up output before the holidays.", "level": "advanced", "cefr": "B2"},
+  {"w": "scale up", "pos": "phr.v.", "ipa": "/skeɪl ʌp/", "th": "ขยายขนาดการผลิต", "def": "to make something larger in size or amount", "ex": "The startup struggled to scale up manufacturing.", "level": "intermediate", "cefr": "B2"},
+  {"w": "utilization", "pos": "n.", "ipa": "/ˌjuːtɪlaɪˈzeɪʃən/", "th": "อัตราการใช้ประโยชน์", "def": "the degree to which equipment or capacity is used", "ex": "Machine utilization improved after rescheduling shifts.", "level": "advanced", "cefr": "C1"},
+  {"w": "idle", "pos": "adj.", "ipa": "/ˈaɪdl/", "th": "ว่าง, ไม่ทำงาน (เครื่อง)", "def": "not being used or active", "ex": "Two machines sat idle during the parts shortage.", "level": "intermediate", "cefr": "B2"},
+  {"w": "lubricate", "pos": "v.", "ipa": "/ˈluːbrɪkeɪt/", "th": "หล่อลื่น", "def": "to apply oil or grease so parts move smoothly", "ex": "Lubricate the bearings every fifty hours of use.", "level": "advanced", "cefr": "C1"},
+  {"w": "warehouse floor", "pos": "n.", "ipa": "/ˈweəhaʊs flɔː/", "th": "พื้นที่ปฏิบัติงานในคลัง", "def": "the main working area of a warehouse", "ex": "Forklifts move pallets across the warehouse floor.", "level": "intermediate", "cefr": "B1"},
+  {"w": "inspection report", "pos": "n.", "ipa": "/ɪnˈspekʃən rɪˈpɔːt/", "th": "รายงานการตรวจสอบ", "def": "a document recording the results of a check", "ex": "The inspection report listed three minor faults.", "level": "intermediate", "cefr": "B1"},
+  {"w": "nonconforming", "pos": "adj.", "ipa": "/ˌnɒnkənˈfɔːmɪŋ/", "th": "ไม่เป็นไปตามข้อกำหนด", "def": "not meeting the required standard or rule", "ex": "Nonconforming parts are tagged and set aside.", "level": "advanced", "cefr": "C1"},
+  {"w": "traceability", "pos": "n.", "ipa": "/ˌtreɪsəˈbɪləti/", "th": "การตรวจสอบย้อนกลับได้", "def": "the ability to track where a product came from", "ex": "Barcodes give full traceability for each item.", "level": "advanced", "cefr": "C1"},
+  {"w": "shelf life", "pos": "n.", "ipa": "/ʃelf laɪf/", "th": "อายุการเก็บรักษา", "def": "the length of time a product stays usable", "ex": "These chemicals have a six-month shelf life.", "level": "intermediate", "cefr": "B2"},
+  {"w": "residue", "pos": "n.", "ipa": "/ˈrezɪdjuː/", "th": "สิ่งตกค้าง, กาก", "def": "a small amount left after a process", "ex": "Clean any residue before reassembling the part.", "level": "advanced", "cefr": "C1"},
+  {"w": "by-product", "pos": "n.", "ipa": "/ˈbaɪprɒdʌkt/", "th": "ผลพลอยได้", "def": "something produced in addition to the main product", "ex": "Heat is a by-product of the welding process.", "level": "advanced", "cefr": "B2"},
+  {"w": "refine", "pos": "v.", "ipa": "/rɪˈfaɪn/", "th": "กลั่น, ปรับให้ดีขึ้น", "def": "to improve something or make it pure", "ex": "We refined the process to cut waste in half.", "level": "intermediate", "cefr": "B2"},
+  {"w": "weld", "pos": "v.", "ipa": "/weld/", "th": "เชื่อม (โลหะ)", "def": "to join pieces of metal by heating them", "ex": "The frame is welded by a robotic arm.", "level": "advanced", "cefr": "B2"},
+  {"w": "mold", "pos": "n.", "ipa": "/məʊld/", "th": "แม่พิมพ์", "def": "a hollow form used to shape liquid material", "ex": "Molten plastic is poured into the mold.", "level": "intermediate", "cefr": "B2"},
+  {"w": "warranty period", "pos": "n.", "ipa": "/ˈwɒrənti ˈpɪəriəd/", "th": "ระยะเวลารับประกัน", "def": "the time during which repairs are covered for free", "ex": "Repairs are free within the warranty period.", "level": "intermediate", "cefr": "B1"},
+  {"w": "mass-produce", "pos": "v.", "ipa": "/ˌmæs prəˈdjuːs/", "th": "ผลิตจำนวนมาก", "def": "to make goods in large quantities by machine", "ex": "The design was simplified so it could be mass-produced.", "level": "intermediate", "cefr": "B2"},
+  {"w": "turnaround", "pos": "n.", "ipa": "/ˈtɜːnəraʊnd/", "th": "เวลาดำเนินการจนเสร็จ", "def": "the time needed to complete a process or order", "ex": "A faster turnaround keeps our clients happy.", "level": "advanced", "cefr": "B2"},
+  {"w": "upkeep", "pos": "n.", "ipa": "/ˈʌpkiːp/", "th": "การบำรุงรักษา", "def": "the cost or work of keeping something in good condition", "ex": "Older machines require constant upkeep.", "level": "advanced", "cefr": "B2"},
+  {"w": "substandard", "pos": "adj.", "ipa": "/ˌsʌbˈstændəd/", "th": "ต่ำกว่ามาตรฐาน", "def": "below the level that is acceptable", "ex": "The supplier was dropped for substandard materials.", "level": "advanced", "cefr": "B2"},
+  {"w": "quality control", "pos": "n.", "ipa": "/ˈkwɒləti kənˈtrəʊl/", "th": "การควบคุมคุณภาพ", "def": "the process of checking that goods meet a standard", "ex": "Every product passes through quality control.", "level": "intermediate", "cefr": "B1"},
+  {"w": "streamlining", "pos": "n.", "ipa": "/ˈstriːmlaɪnɪŋ/", "th": "การทำให้กระบวนการกระชับ", "def": "making a process simpler and more efficient", "ex": "Streamlining the workflow cut delays in half.", "level": "advanced", "cefr": "B2"},
+  {"w": "recalibrate", "pos": "v.", "ipa": "/ˌriːˈkælɪbreɪt/", "th": "ปรับเทียบใหม่", "def": "to adjust a device to be accurate again", "ex": "The machine was recalibrated after the repair.", "level": "advanced", "cefr": "C1"},
+  {"w": "spoilage", "pos": "n.", "ipa": "/ˈspɔɪlɪdʒ/", "th": "การเสื่อมเสีย, ของเสีย", "def": "the loss of goods that have gone bad", "ex": "Better storage reduced spoilage in the warehouse.", "level": "advanced", "cefr": "C1"},
+  {"w": "downscale", "pos": "v.", "ipa": "/ˌdaʊnˈskeɪl/", "th": "ลดขนาด, ลดกำลังผลิต", "def": "to reduce the size or scale of something", "ex": "They downscaled production after demand fell.", "level": "advanced", "cefr": "B2"},
+  {"w": "stockpile", "pos": "n.", "ipa": "/ˈstɒkpaɪl/", "th": "สินค้าสำรองสะสม", "def": "a large supply kept for future use", "ex": "The plant keeps a stockpile of spare parts.", "level": "advanced", "cefr": "B2"},
+  {"w": "expedited", "pos": "adj.", "ipa": "/ˈekspədaɪtɪd/", "th": "เร่งด่วน, เร่งรัด", "def": "made to happen faster than usual", "ex": "We paid for expedited shipping on the urgent order.", "level": "advanced", "cefr": "B2"},
+  {"w": "freight", "pos": "n.", "ipa": "/freɪt/", "th": "สินค้าขนส่ง, ค่าขนส่ง", "def": "goods carried by ship, plane, train, or truck", "ex": "The freight will arrive at the port on Friday.", "level": "intermediate", "cefr": "B2"},
+  {"w": "cargo", "pos": "n.", "ipa": "/ˈkɑːɡəʊ/", "th": "สินค้าที่ขนส่ง", "def": "goods carried on a ship or aircraft", "ex": "The ship's cargo included machinery and textiles.", "level": "intermediate", "cefr": "B1"},
+  {"w": "consignment", "pos": "n.", "ipa": "/kənˈsaɪnmənt/", "th": "สินค้าที่ส่งมอบ, การฝากขาย", "def": "a batch of goods sent to a customer or seller", "ex": "A large consignment of parts cleared customs today.", "level": "advanced", "cefr": "C1"},
+  {"w": "dispatch note", "pos": "n.", "ipa": "/dɪˈspætʃ nəʊt/", "th": "ใบส่งของ", "def": "a document sent with goods that are being delivered", "ex": "Check the dispatch note against the items received.", "level": "advanced", "cefr": "B2"},
+  {"w": "courier", "pos": "n.", "ipa": "/ˈkʊriə/", "th": "พนักงานส่งของ, บริษัทขนส่งด่วน", "def": "a person or company that delivers packages quickly", "ex": "A courier will collect the documents this afternoon.", "level": "intermediate", "cefr": "B1"},
+  {"w": "expediting", "pos": "n.", "ipa": "/ˈekspədaɪtɪŋ/", "th": "การเร่งดำเนินการ", "def": "the act of making a process happen faster", "ex": "Expediting the order added a small fee.", "level": "advanced", "cefr": "C1"},
+  {"w": "warehousing", "pos": "n.", "ipa": "/ˈweəhaʊzɪŋ/", "th": "การจัดเก็บในคลังสินค้า", "def": "the storing of goods in a warehouse", "ex": "Warehousing costs rose after we expanded our range.", "level": "advanced", "cefr": "B2"},
+  {"w": "palletize", "pos": "v.", "ipa": "/ˈpælɪtaɪz/", "th": "จัดวางบนพาเลท", "def": "to stack goods on a pallet for easy moving", "ex": "The boxes are palletized before they leave the dock.", "level": "advanced", "cefr": "C1"},
+  {"w": "forklift", "pos": "n.", "ipa": "/ˈfɔːklɪft/", "th": "รถยกของ", "def": "a vehicle with metal arms for lifting heavy loads", "ex": "Only trained staff may operate the forklift.", "level": "intermediate", "cefr": "B1"},
+  {"w": "loading dock", "pos": "n.", "ipa": "/ˈləʊdɪŋ dɒk/", "th": "ท่าขนถ่ายสินค้า", "def": "an area where goods are loaded onto trucks", "ex": "Trucks line up at the loading dock each morning.", "level": "intermediate", "cefr": "B1"},
+  {"w": "bill of lading", "pos": "n.", "ipa": "/bɪl əv ˈleɪdɪŋ/", "th": "ใบตราส่งสินค้า", "def": "a document listing goods shipped and their terms", "ex": "The bill of lading must match the actual cargo.", "level": "advanced", "cefr": "C1"},
+  {"w": "customs clearance", "pos": "n.", "ipa": "/ˈkʌstəmz ˈklɪərəns/", "th": "การผ่านพิธีการศุลกากร", "def": "official approval for goods to cross a border", "ex": "Customs clearance delayed the shipment by two days.", "level": "advanced", "cefr": "B2"},
+  {"w": "duty", "pos": "n.", "ipa": "/ˈdjuːti/", "th": "ภาษีศุลกากร, อากร", "def": "a tax paid on goods entering a country", "ex": "Import duty raised the cost of the equipment.", "level": "intermediate", "cefr": "B2"},
+  {"w": "carrier", "pos": "n.", "ipa": "/ˈkæriə/", "th": "ผู้ขนส่ง, บริษัทขนส่ง", "def": "a company that transports goods or people", "ex": "We switched to a cheaper carrier last month.", "level": "intermediate", "cefr": "B2"},
+  {"w": "fulfillment", "pos": "n.", "ipa": "/fʊlˈfɪlmənt/", "th": "การจัดการคำสั่งซื้อจนส่งมอบ", "def": "the process of handling and delivering orders", "ex": "Faster fulfillment improved our customer reviews.", "level": "advanced", "cefr": "B2"},
+  {"w": "backlog", "pos": "n.", "ipa": "/ˈbæklɒɡ/", "th": "งานค้าง, คำสั่งซื้อค้าง", "def": "a build-up of work or orders not yet done", "ex": "A backlog of orders formed during the strike.", "level": "advanced", "cefr": "B2"},
+  {"w": "restock", "pos": "v.", "ipa": "/ˌriːˈstɒk/", "th": "เติมสินค้า", "def": "to fill shelves or storage with new supply", "ex": "We restock the shelves every evening.", "level": "intermediate", "cefr": "B1"},
+  {"w": "lead time", "pos": "n.", "ipa": "/liːd taɪm/", "th": "ระยะเวลาตั้งแต่สั่งจนได้รับ", "def": "the time between ordering and receiving goods", "ex": "Long lead times can frustrate our customers.", "level": "advanced", "cefr": "B2"},
+  {"w": "in transit", "pos": "phr.", "ipa": "/ɪn ˈtrænzɪt/", "th": "ระหว่างการขนส่ง", "def": "being moved from one place to another", "ex": "Your parcel is currently in transit.", "level": "intermediate", "cefr": "B2"},
+  {"w": "tracking number", "pos": "n.", "ipa": "/ˈtrækɪŋ ˈnʌmbə/", "th": "หมายเลขติดตามพัสดุ", "def": "a code used to follow a package's progress", "ex": "Use the tracking number to check delivery status.", "level": "intermediate", "cefr": "B1"},
+  {"w": "last mile", "pos": "n.", "ipa": "/lɑːst maɪl/", "th": "ช่วงส่งสุดท้ายถึงลูกค้า", "def": "the final stage of delivery to the customer", "ex": "Last mile delivery is the most expensive part.", "level": "advanced", "cefr": "C1"},
+  {"w": "distribution center", "pos": "n.", "ipa": "/ˌdɪstrɪˈbjuːʃən ˈsentə/", "th": "ศูนย์กระจายสินค้า", "def": "a warehouse that ships goods to stores or buyers", "ex": "The new distribution center serves the whole region.", "level": "intermediate", "cefr": "B2"},
+  {"w": "hub", "pos": "n.", "ipa": "/hʌb/", "th": "ศูนย์กลาง (ขนส่ง)", "def": "a central point where activity is concentrated", "ex": "The airport is a major hub for air freight.", "level": "intermediate", "cefr": "B2"},
+  {"w": "supply chain", "pos": "n.", "ipa": "/səˈplaɪ tʃeɪn/", "th": "ห่วงโซ่อุปทาน", "def": "the whole process of making and delivering a product", "ex": "The pandemic disrupted the global supply chain.", "level": "advanced", "cefr": "B2"},
+  {"w": "freight forwarder", "pos": "n.", "ipa": "/freɪt ˈfɔːwədə/", "th": "ตัวแทนรับจัดการขนส่ง", "def": "a company that arranges shipping for others", "ex": "Our freight forwarder handles all the paperwork.", "level": "advanced", "cefr": "C1"},
+  {"w": "container", "pos": "n.", "ipa": "/kənˈteɪnə/", "th": "ตู้คอนเทนเนอร์", "def": "a large metal box for shipping goods", "ex": "Each container holds about a thousand boxes.", "level": "intermediate", "cefr": "B1"},
+  {"w": "perishable", "pos": "adj.", "ipa": "/ˈperɪʃəbl/", "th": "เน่าเสียง่าย", "def": "likely to go bad quickly", "ex": "Perishable goods are shipped in cold containers.", "level": "advanced", "cefr": "B2"},
+  {"w": "fragile", "pos": "adj.", "ipa": "/ˈfrædʒaɪl/", "th": "แตกหักง่าย", "def": "easily broken or damaged", "ex": "Mark the box 'fragile' before you ship it.", "level": "intermediate", "cefr": "B1"},
+  {"w": "handling", "pos": "n.", "ipa": "/ˈhændlɪŋ/", "th": "การจัดการ/ขนย้ายสินค้า", "def": "the moving and care of goods", "ex": "Rough handling damaged several items.", "level": "intermediate", "cefr": "B1"},
+  {"w": "warehouse management", "pos": "n.", "ipa": "/ˈweəhaʊs ˈmænɪdʒmənt/", "th": "การบริหารคลังสินค้า", "def": "the control of storage, stock, and movement of goods", "ex": "New software improved our warehouse management.", "level": "advanced", "cefr": "B2"},
+  {"w": "stock level", "pos": "n.", "ipa": "/stɒk ˈlevl/", "th": "ระดับสินค้าคงคลัง", "def": "the amount of a product currently in storage", "ex": "Low stock levels triggered an automatic reorder.", "level": "intermediate", "cefr": "B1"},
+  {"w": "reorder", "pos": "v.", "ipa": "/ˌriːˈɔːdə/", "th": "สั่งซื้อซ้ำ", "def": "to order more of something already bought", "ex": "We reorder supplies when stock runs low.", "level": "intermediate", "cefr": "B1"},
+  {"w": "out of stock", "pos": "phr.", "ipa": "/aʊt əv stɒk/", "th": "สินค้าหมด", "def": "not available because the supply has run out", "ex": "The item is out of stock until next week.", "level": "intermediate", "cefr": "B1"},
+  {"w": "overstock", "pos": "n.", "ipa": "/ˈəʊvəstɒk/", "th": "สินค้าเกินความต้องการ", "def": "more goods in storage than are needed", "ex": "Overstock ties up cash and warehouse space.", "level": "advanced", "cefr": "B2"},
+  {"w": "damaged goods", "pos": "n.", "ipa": "/ˈdæmɪdʒd ɡʊdz/", "th": "สินค้าเสียหาย", "def": "items that have been harmed before delivery", "ex": "The customer returned the damaged goods.", "level": "intermediate", "cefr": "B1"},
+  {"w": "shipping label", "pos": "n.", "ipa": "/ˈʃɪpɪŋ ˈleɪbl/", "th": "ป้ายติดพัสดุ", "def": "a tag showing the address and details of a package", "ex": "Print the shipping label before sealing the box.", "level": "intermediate", "cefr": "B1"},
+  {"w": "proof of delivery", "pos": "n.", "ipa": "/pruːf əv dɪˈlɪvəri/", "th": "หลักฐานการส่งมอบ", "def": "a record that goods were received", "ex": "The driver collects a signature as proof of delivery.", "level": "advanced", "cefr": "B2"},
+  {"w": "drop-off", "pos": "n.", "ipa": "/ˈdrɒpɒf/", "th": "จุดส่งของ", "def": "a place where something is left or delivered", "ex": "There is a parcel drop-off near the entrance.", "level": "intermediate", "cefr": "B2"},
+  {"w": "pickup point", "pos": "n.", "ipa": "/ˈpɪkʌp pɔɪnt/", "th": "จุดรับสินค้า", "def": "a place where customers collect their orders", "ex": "Choose a pickup point close to your home.", "level": "intermediate", "cefr": "B1"},
+  {"w": "route optimization", "pos": "n.", "ipa": "/ruːt ˌɒptɪmaɪˈzeɪʃən/", "th": "การจัดเส้นทางให้เหมาะสม", "def": "planning the best routes to save time and fuel", "ex": "Route optimization cut our delivery costs.", "level": "advanced", "cefr": "C1"},
+  {"w": "fleet", "pos": "n.", "ipa": "/fliːt/", "th": "กองยานพาหนะ", "def": "a group of vehicles owned by one company", "ex": "The company runs a fleet of fifty trucks.", "level": "intermediate", "cefr": "B2"},
+  {"w": "haulage", "pos": "n.", "ipa": "/ˈhɔːlɪdʒ/", "th": "การขนส่งสินค้า (ทางบก)", "def": "the business of moving goods by road", "ex": "Rising fuel prices increased haulage costs.", "level": "advanced", "cefr": "C1"},
+  {"w": "load capacity", "pos": "n.", "ipa": "/ləʊd kəˈpæsəti/", "th": "ความสามารถในการบรรทุก", "def": "the maximum weight a vehicle can carry", "ex": "Do not exceed the truck's load capacity.", "level": "advanced", "cefr": "B2"},
+  {"w": "unload", "pos": "v.", "ipa": "/ˌʌnˈləʊd/", "th": "ขนของลง", "def": "to remove goods from a vehicle", "ex": "It took an hour to unload the container.", "level": "intermediate", "cefr": "B1"},
+  {"w": "crate", "pos": "n.", "ipa": "/kreɪt/", "th": "ลังไม้/พลาสติก", "def": "a strong box used for transporting goods", "ex": "The glassware was packed in wooden crates.", "level": "intermediate", "cefr": "B1"},
+  {"w": "pallet", "pos": "n.", "ipa": "/ˈpælɪt/", "th": "พาเลทรองสินค้า", "def": "a flat wooden frame for stacking and moving goods", "ex": "Stack the boxes neatly on the pallet.", "level": "intermediate", "cefr": "B1"},
+  {"w": "wholesale", "pos": "n.", "ipa": "/ˈhəʊlseɪl/", "th": "การขายส่ง", "def": "the selling of goods in large amounts at low prices", "ex": "They buy at wholesale and sell at retail.", "level": "intermediate", "cefr": "B2"},
+  {"w": "distributor", "pos": "n.", "ipa": "/dɪˈstrɪbjʊtə/", "th": "ผู้จัดจำหน่าย", "def": "a company that supplies goods to shops", "ex": "Our distributor covers the entire north region.", "level": "intermediate", "cefr": "B2"},
+  {"w": "demurrage", "pos": "n.", "ipa": "/dɪˈmʌrɪdʒ/", "th": "ค่าปรับเก็บตู้เกินกำหนด", "def": "a charge for keeping a container too long", "ex": "Late pickup led to heavy demurrage fees.", "level": "advanced", "cefr": "C1"},
+  {"w": "freight cost", "pos": "n.", "ipa": "/freɪt kɒst/", "th": "ค่าขนส่งสินค้า", "def": "the amount charged to transport goods", "ex": "Freight cost depends on weight and distance.", "level": "intermediate", "cefr": "B2"},
+  {"w": "transit time", "pos": "n.", "ipa": "/ˈtrænzɪt taɪm/", "th": "ระยะเวลาขนส่ง", "def": "the time goods spend being transported", "ex": "Sea freight has a longer transit time than air.", "level": "advanced", "cefr": "B2"},
+  {"w": "end-to-end", "pos": "adj.", "ipa": "/ˌend tə ˈend/", "th": "ครบวงจร (ต้นจนจบ)", "def": "covering every stage of a process", "ex": "They offer an end-to-end logistics service.", "level": "advanced", "cefr": "C1"},
+  {"w": "stockroom", "pos": "n.", "ipa": "/ˈstɒkruːm/", "th": "ห้องเก็บสินค้า", "def": "a room where goods and supplies are stored", "ex": "Extra inventory is kept in the back stockroom.", "level": "intermediate", "cefr": "B1"},
+  {"w": "inbound", "pos": "adj.", "ipa": "/ˈɪnbaʊnd/", "th": "ขาเข้า", "def": "coming into a place or warehouse", "ex": "Inbound shipments are checked at the gate.", "level": "advanced", "cefr": "B2"},
+  {"w": "outbound", "pos": "adj.", "ipa": "/ˈaʊtbaʊnd/", "th": "ขาออก", "def": "going out from a place or warehouse", "ex": "Outbound trucks leave the depot at dawn.", "level": "advanced", "cefr": "B2"},
+  {"w": "warehouse slot", "pos": "n.", "ipa": "/ˈweəhaʊs slɒt/", "th": "ช่องเก็บของในคลัง", "def": "a fixed storage space for a specific item", "ex": "Each product has its own warehouse slot.", "level": "advanced", "cefr": "B2"},
+  {"w": "shipping manifest", "pos": "n.", "ipa": "/ˈʃɪpɪŋ ˈmænɪfest/", "th": "บัญชีรายการสินค้าที่ขนส่ง", "def": "a list of all goods carried in a shipment", "ex": "The shipping manifest showed twelve pallets.", "level": "advanced", "cefr": "C1"},
+  {"w": "freight charge", "pos": "n.", "ipa": "/freɪt tʃɑːdʒ/", "th": "ค่าธรรมเนียมขนส่ง", "def": "the fee paid for transporting goods", "ex": "The freight charge is added at checkout.", "level": "intermediate", "cefr": "B2"},
+  {"w": "backorder", "pos": "n.", "ipa": "/ˈbækɔːdə/", "th": "คำสั่งซื้อค้างส่ง", "def": "an order for goods that are temporarily out of stock", "ex": "The popular model is on backorder for a month.", "level": "advanced", "cefr": "B2"},
+  {"w": "turnaround time", "pos": "n.", "ipa": "/ˈtɜːnəraʊnd taɪm/", "th": "ระยะเวลาดำเนินการจนเสร็จ", "def": "the time needed to complete and return an order", "ex": "Our turnaround time is two business days.", "level": "advanced", "cefr": "B2"},
+  {"w": "load balancing", "pos": "n.", "ipa": "/ləʊd ˈbælənsɪŋ/", "th": "การกระจายภาระงาน", "def": "spreading work evenly across resources", "ex": "Load balancing keeps every warehouse busy.", "level": "advanced", "cefr": "C1"},
+  {"w": "grievance", "pos": "n.", "ipa": "/ˈɡriːvəns/", "th": "ข้อร้องทุกข์, ความคับข้องใจ", "def": "a complaint about unfair treatment", "ex": "The customer filed a formal grievance with the company.", "level": "advanced", "cefr": "C1"},
+  {"w": "goodwill", "pos": "n.", "ipa": "/ˌɡʊdˈwɪl/", "th": "ความปรารถนาดี, ไมตรีจิต", "def": "a friendly feeling that builds good relations", "ex": "A free replacement was offered as a goodwill gesture.", "level": "advanced", "cefr": "B2"},
+  {"w": "redress", "pos": "n.", "ipa": "/rɪˈdres/", "th": "การแก้ไขเยียวยา", "def": "a way of correcting something unfair", "ex": "Customers can seek redress through our support team.", "level": "advanced", "cefr": "C1"},
+  {"w": "responsive", "pos": "adj.", "ipa": "/rɪˈspɒnsɪv/", "th": "ตอบสนองรวดเร็ว", "def": "reacting quickly and positively", "ex": "Our staff are responsive to every customer request.", "level": "advanced", "cefr": "B2"},
+  {"w": "dissatisfied", "pos": "adj.", "ipa": "/dɪsˈsætɪsfaɪd/", "th": "ไม่พอใจ", "def": "not happy with something", "ex": "Dissatisfied buyers may return the product within a week.", "level": "intermediate", "cefr": "B2"},
+  {"w": "loyal", "pos": "adj.", "ipa": "/ˈlɔɪəl/", "th": "ภักดี, ซื่อสัตย์", "def": "continuing to support a company over time", "ex": "Loyal customers receive a yearly discount.", "level": "intermediate", "cefr": "B1"},
+  {"w": "retention", "pos": "n.", "ipa": "/rɪˈtenʃən/", "th": "การรักษาลูกค้าไว้", "def": "the ability to keep customers or staff", "ex": "Better service improved our customer retention.", "level": "advanced", "cefr": "C1"},
+  {"w": "churn", "pos": "n.", "ipa": "/tʃɜːn/", "th": "อัตราการเลิกใช้บริการ", "def": "the rate at which customers stop using a service", "ex": "High churn worried the subscription business.", "level": "advanced", "cefr": "C1"},
+  {"w": "helpline", "pos": "n.", "ipa": "/ˈhelplaɪn/", "th": "สายด่วนให้ความช่วยเหลือ", "def": "a phone service for advice or support", "ex": "Call the helpline if the device stops working.", "level": "intermediate", "cefr": "B1"},
+  {"w": "hotline", "pos": "n.", "ipa": "/ˈhɒtlaɪn/", "th": "สายด่วน", "def": "a direct phone line for urgent help", "ex": "A 24-hour hotline handles billing problems.", "level": "intermediate", "cefr": "B1"},
+  {"w": "representative", "pos": "n.", "ipa": "/ˌreprɪˈzentətɪv/", "th": "ตัวแทน, เจ้าหน้าที่", "def": "a person who acts or speaks for a company", "ex": "A service representative will call you back shortly.", "level": "intermediate", "cefr": "B1"},
+  {"w": "agent", "pos": "n.", "ipa": "/ˈeɪdʒənt/", "th": "เจ้าหน้าที่, ตัวแทน", "def": "a person who provides a service for customers", "ex": "The agent resolved my complaint in minutes.", "level": "intermediate", "cefr": "B1"},
+  {"w": "ticket", "pos": "n.", "ipa": "/ˈtɪkɪt/", "th": "รายการแจ้งปัญหา (ระบบบริการ)", "def": "a logged record of a customer request or issue", "ex": "Your support ticket has been assigned to an agent.", "level": "intermediate", "cefr": "B2"},
+  {"w": "case number", "pos": "n.", "ipa": "/keɪs ˈnʌmbə/", "th": "หมายเลขเรื่องร้องเรียน", "def": "a code used to track a specific complaint", "ex": "Please quote your case number when you call.", "level": "intermediate", "cefr": "B1"},
+  {"w": "attentive", "pos": "adj.", "ipa": "/əˈtentɪv/", "th": "เอาใจใส่, ใส่ใจ", "def": "paying close attention to someone's needs", "ex": "The attentive staff noticed the problem at once.", "level": "advanced", "cefr": "B2"},
+  {"w": "empathy", "pos": "n.", "ipa": "/ˈempəθi/", "th": "ความเห็นอกเห็นใจ", "def": "the ability to understand another's feelings", "ex": "Good agents handle complaints with empathy.", "level": "advanced", "cefr": "B2"},
+  {"w": "rapport", "pos": "n.", "ipa": "/ræˈpɔː/", "th": "ความสัมพันธ์อันดี", "def": "a friendly connection that helps communication", "ex": "She built rapport with the angry caller quickly.", "level": "advanced", "cefr": "C1"},
+  {"w": "defuse", "pos": "v.", "ipa": "/ˌdiːˈfjuːz/", "th": "คลี่คลายสถานการณ์ตึงเครียด", "def": "to make a tense situation calmer", "ex": "A sincere apology defused the customer's anger.", "level": "advanced", "cefr": "C1"},
+  {"w": "placate", "pos": "v.", "ipa": "/pləˈkeɪt/", "th": "ทำให้สงบ, ปลอบใจ", "def": "to make an angry person calm", "ex": "A free voucher placated the unhappy guest.", "level": "advanced", "cefr": "C1"},
+  {"w": "appease", "pos": "v.", "ipa": "/əˈpiːz/", "th": "ทำให้พอใจ, ระงับความโกรธ", "def": "to satisfy someone to stop them being angry", "ex": "The manager appeased the client with a discount.", "level": "advanced", "cefr": "C1"},
+  {"w": "disgruntled", "pos": "adj.", "ipa": "/dɪsˈɡrʌntld/", "th": "ขุ่นเคือง, ไม่พอใจ", "def": "annoyed and unhappy about something", "ex": "A disgruntled customer left a harsh review.", "level": "advanced", "cefr": "C1"},
+  {"w": "irate", "pos": "adj.", "ipa": "/aɪˈreɪt/", "th": "โกรธจัด", "def": "very angry", "ex": "An irate caller demanded a full refund.", "level": "advanced", "cefr": "C1"},
+  {"w": "replacement", "pos": "n.", "ipa": "/rɪˈpleɪsmənt/", "th": "สินค้าทดแทน, การเปลี่ยนใหม่", "def": "a new item given in place of a faulty one", "ex": "We sent a free replacement the next day.", "level": "intermediate", "cefr": "B1"},
+  {"w": "faulty", "pos": "adj.", "ipa": "/ˈfɔːlti/", "th": "ชำรุด, บกพร่อง", "def": "not working correctly", "ex": "Return any faulty item for a full refund.", "level": "intermediate", "cefr": "B1"},
+  {"w": "defect", "pos": "n.", "ipa": "/ˈdiːfekt/", "th": "ข้อบกพร่อง, ตำหนิ", "def": "a fault that stops something working well", "ex": "A small defect was found in the casing.", "level": "intermediate", "cefr": "B2"},
+  {"w": "malfunctioning", "pos": "adj.", "ipa": "/ˌmælˈfʌŋkʃənɪŋ/", "th": "ทำงานผิดปกติ", "def": "not working in the normal way", "ex": "The malfunctioning unit was sent back to the factory.", "level": "advanced", "cefr": "B2"},
+  {"w": "warranty claim", "pos": "n.", "ipa": "/ˈwɒrənti kleɪm/", "th": "การเคลมประกัน", "def": "a request for free repair under a warranty", "ex": "Submit a warranty claim with your receipt.", "level": "intermediate", "cefr": "B2"},
+  {"w": "coverage", "pos": "n.", "ipa": "/ˈkʌvərɪdʒ/", "th": "ความคุ้มครอง (ประกัน)", "def": "the protection that a warranty or policy gives", "ex": "The coverage includes parts and labor.", "level": "advanced", "cefr": "B2"},
+  {"w": "proof of purchase", "pos": "n.", "ipa": "/pruːf əv ˈpɜːtʃəs/", "th": "หลักฐานการซื้อ", "def": "a document showing you bought something", "ex": "Keep your proof of purchase for warranty service.", "level": "intermediate", "cefr": "B2"},
+  {"w": "no-quibble", "pos": "adj.", "ipa": "/nəʊ ˈkwɪbl/", "th": "ไม่มีเงื่อนไขยุ่งยาก", "def": "with no objections or difficult conditions", "ex": "We offer a no-quibble returns policy.", "level": "advanced", "cefr": "C1"},
+  {"w": "money-back", "pos": "adj.", "ipa": "/ˈmʌni bæk/", "th": "คืนเงิน", "def": "promising a refund if not satisfied", "ex": "The product comes with a money-back guarantee.", "level": "intermediate", "cefr": "B2"},
+  {"w": "store credit", "pos": "n.", "ipa": "/stɔː ˈkredɪt/", "th": "เครดิตใช้ซื้อในร้าน", "def": "money to spend in a shop instead of a refund", "ex": "Returns without a receipt receive store credit.", "level": "intermediate", "cefr": "B2"},
+  {"w": "exchange policy", "pos": "n.", "ipa": "/ɪksˈtʃeɪndʒ ˈpɒləsi/", "th": "นโยบายการเปลี่ยนสินค้า", "def": "the rules for swapping a product for another", "ex": "Our exchange policy allows swaps within 30 days.", "level": "intermediate", "cefr": "B2"},
+  {"w": "return policy", "pos": "n.", "ipa": "/rɪˈtɜːn ˈpɒləsi/", "th": "นโยบายการคืนสินค้า", "def": "the rules for sending goods back", "ex": "Read the return policy before you buy.", "level": "intermediate", "cefr": "B1"},
+  {"w": "restocking fee", "pos": "n.", "ipa": "/ˌriːˈstɒkɪŋ fiː/", "th": "ค่าธรรมเนียมรับคืนสินค้า", "def": "a charge for returning an opened product", "ex": "A 10% restocking fee applies to opened items.", "level": "advanced", "cefr": "B2"},
+  {"w": "expire", "pos": "v.", "ipa": "/ɪkˈspaɪə/", "th": "หมดอายุ", "def": "to come to an end after a set time", "ex": "The warranty will expire in twelve months.", "level": "intermediate", "cefr": "B1"},
+  {"w": "void", "pos": "adj.", "ipa": "/vɔɪd/", "th": "เป็นโมฆะ, ใช้ไม่ได้", "def": "no longer valid or in effect", "ex": "Removing the seal makes the warranty void.", "level": "advanced", "cefr": "B2"},
+  {"w": "honor", "pos": "v.", "ipa": "/ˈɒnə/", "th": "ปฏิบัติตาม (ข้อตกลง/รับประกัน)", "def": "to keep a promise or agreement", "ex": "We always honor our warranty commitments.", "level": "advanced", "cefr": "B2"},
+  {"w": "out of warranty", "pos": "phr.", "ipa": "/aʊt əv ˈwɒrənti/", "th": "พ้นระยะรับประกัน", "def": "no longer covered by a warranty", "ex": "Repairs are charged once the item is out of warranty.", "level": "intermediate", "cefr": "B2"},
+  {"w": "wear-and-tear", "pos": "n.", "ipa": "/ˌweər ən ˈteə/", "th": "การสึกหรอตามปกติ", "def": "normal damage from regular use", "ex": "Wear-and-tear is not covered by the policy.", "level": "advanced", "cefr": "B2"},
+  {"w": "disclaimer", "pos": "n.", "ipa": "/dɪsˈkleɪmə/", "th": "ข้อปฏิเสธความรับผิด", "def": "a statement that limits legal responsibility", "ex": "The disclaimer lists what the warranty excludes.", "level": "advanced", "cefr": "C1"},
+  {"w": "recompense", "pos": "n.", "ipa": "/ˈrekəmpens/", "th": "การชดเชย, ค่าตอบแทน", "def": "payment given to make up for trouble or loss", "ex": "The airline offered recompense for the delay.", "level": "advanced", "cefr": "C1"},
+  {"w": "remedy", "pos": "n.", "ipa": "/ˈremədi/", "th": "วิธีแก้ไข, การเยียวยา", "def": "a way to solve or correct a problem", "ex": "A refund is the simplest remedy for this fault.", "level": "advanced", "cefr": "B2"},
+  {"w": "amicable", "pos": "adj.", "ipa": "/ˈæmɪkəbl/", "th": "เป็นมิตร, ราบรื่น", "def": "friendly and without argument", "ex": "The dispute reached an amicable solution.", "level": "advanced", "cefr": "C1"},
+  {"w": "conciliatory", "pos": "adj.", "ipa": "/kənˈsɪliətəri/", "th": "ที่มุ่งปรองดอง", "def": "intended to make someone less angry", "ex": "She sent a conciliatory email to the client.", "level": "advanced", "cefr": "C1"},
+  {"w": "forbearance", "pos": "n.", "ipa": "/fɔːˈbeərəns/", "th": "ความอดกลั้น, การผ่อนผัน", "def": "patience and self-control when dealing with others", "ex": "The agent showed great forbearance with the rude caller.", "level": "nearnative", "cefr": "C2"},
+  {"w": "patronage", "pos": "n.", "ipa": "/ˈpætrənɪdʒ/", "th": "การอุดหนุน (ของลูกค้า)", "def": "the support given by customers to a business", "ex": "We thank you for your continued patronage.", "level": "advanced", "cefr": "C1"},
+  {"w": "clientele", "pos": "n.", "ipa": "/ˌkliːɒnˈtel/", "th": "กลุ่มลูกค้าประจำ", "def": "the regular customers of a business", "ex": "The hotel has a loyal international clientele.", "level": "advanced", "cefr": "C1"},
+  {"w": "amends", "pos": "n.", "ipa": "/əˈmendz/", "th": "การชดใช้, การแก้ไขข้อผิด", "def": "something done to make up for harm caused", "ex": "The store made amends with a generous refund.", "level": "advanced", "cefr": "C1"},
+  {"w": "mollify", "pos": "v.", "ipa": "/ˈmɒlɪfaɪ/", "th": "ทำให้ใจอ่อนลง, ปลอบโยน", "def": "to make someone feel less angry or upset", "ex": "He tried to mollify the customer with an apology.", "level": "nearnative", "cefr": "C2"},
+  {"w": "aggrieved", "pos": "adj.", "ipa": "/əˈɡriːvd/", "th": "ที่รู้สึกถูกกระทำไม่เป็นธรรม", "def": "feeling wronged or treated unfairly", "ex": "Aggrieved customers may request a review of their case.", "level": "nearnative", "cefr": "C2"},
+  {"w": "recourse", "pos": "n.", "ipa": "/rɪˈkɔːs/", "th": "ทางออก, ช่องทางเรียกร้อง", "def": "a source of help in a difficult situation", "ex": "Buyers have legal recourse if the goods are faulty.", "level": "advanced", "cefr": "C1"},
+  {"w": "adjudicate", "pos": "v.", "ipa": "/əˈdʒuːdɪkeɪt/", "th": "ตัดสินชี้ขาด", "def": "to make an official decision about a dispute", "ex": "A panel will adjudicate the disputed claim.", "level": "nearnative", "cefr": "C2"},
+  {"w": "arbitration", "pos": "n.", "ipa": "/ˌɑːbɪˈtreɪʃən/", "th": "การอนุญาโตตุลาการ", "def": "the settling of a dispute by a neutral third party", "ex": "The contract requires arbitration before any lawsuit.", "level": "advanced", "cefr": "C1"},
+  {"w": "ombudsman", "pos": "n.", "ipa": "/ˈɒmbʊdzmən/", "th": "ผู้ตรวจการเรื่องร้องเรียน", "def": "an official who investigates complaints against firms", "ex": "Unresolved cases can be sent to the ombudsman.", "level": "nearnative", "cefr": "C2"},
+  {"w": "service-level agreement", "pos": "n.", "ipa": "/ˈsɜːvɪs ˈlevl əˈɡriːmənt/", "th": "ข้อตกลงระดับการให้บริการ", "def": "a contract setting the standard of service expected", "ex": "The service-level agreement promises a four-hour response.", "level": "advanced", "cefr": "C1"},
+  {"w": "turnaround pledge", "pos": "n.", "ipa": "/ˈtɜːnəraʊnd pledʒ/", "th": "คำมั่นเรื่องเวลาดำเนินการ", "def": "a promise to complete a service within a set time", "ex": "Our turnaround pledge is a reply within one day.", "level": "advanced", "cefr": "C1"},
+  {"w": "satisfaction guarantee", "pos": "n.", "ipa": "/ˌsætɪsˈfækʃən ˌɡærənˈtiː/", "th": "การรับประกันความพอใจ", "def": "a promise to refund if the customer is unhappy", "ex": "Every order carries a full satisfaction guarantee.", "level": "intermediate", "cefr": "B2"},
+  {"w": "prorated refund", "pos": "n.", "ipa": "/prəʊˈreɪtɪd ˈriːfʌnd/", "th": "การคืนเงินตามสัดส่วน", "def": "money returned in proportion to time or use", "ex": "Cancel early and get a prorated refund.", "level": "nearnative", "cefr": "C2"},
+  {"w": "endorsement", "pos": "n.", "ipa": "/ɪnˈdɔːsmənt/", "th": "การรับรอง, การสนับสนุน", "def": "a public statement of support for a product", "ex": "A celebrity endorsement boosted the brand's image.", "level": "advanced", "cefr": "C1"},
+  {"w": "clause", "pos": "n.", "ipa": "/klɔːz/", "th": "ข้อกำหนด, มาตรา (ในสัญญา)", "def": "a separate part of a legal document", "ex": "A clause in the contract limits late fees.", "level": "advanced", "cefr": "B2"},
+  {"w": "binding", "pos": "adj.", "ipa": "/ˈbaɪndɪŋ/", "th": "มีผลผูกพันทางกฎหมาย", "def": "that must be obeyed by law", "ex": "Once signed, the agreement is legally binding.", "level": "advanced", "cefr": "B2"},
+  {"w": "enforceable", "pos": "adj.", "ipa": "/ɪnˈfɔːsəbl/", "th": "ที่บังคับใช้ได้ตามกฎหมาย", "def": "able to be made to happen by law", "ex": "The clause is not enforceable in this country.", "level": "advanced", "cefr": "C1"},
+  {"w": "termination", "pos": "n.", "ipa": "/ˌtɜːmɪˈneɪʃən/", "th": "การยกเลิก/สิ้นสุดสัญญา", "def": "the ending of a contract or agreement", "ex": "Either side may give notice of termination.", "level": "advanced", "cefr": "B2"},
+  {"w": "amendment", "pos": "n.", "ipa": "/əˈmendmənt/", "th": "การแก้ไขเพิ่มเติม", "def": "a change made to a document or law", "ex": "Both parties signed the amendment to the contract.", "level": "advanced", "cefr": "B2"},
+  {"w": "addendum", "pos": "n.", "ipa": "/əˈdendəm/", "th": "เอกสารแนบเพิ่มเติม", "def": "an extra section added to a document", "ex": "Payment terms are listed in the addendum.", "level": "advanced", "cefr": "C1"},
+  {"w": "party", "pos": "n.", "ipa": "/ˈpɑːti/", "th": "คู่สัญญา, ฝ่าย", "def": "a person or group in a legal agreement", "ex": "Each party must keep a signed copy.", "level": "intermediate", "cefr": "B2"},
+  {"w": "counterparty", "pos": "n.", "ipa": "/ˈkaʊntəpɑːti/", "th": "คู่สัญญาอีกฝ่าย", "def": "the other side in a contract or deal", "ex": "We checked the counterparty's credit history.", "level": "advanced", "cefr": "C1"},
+  {"w": "indemnify", "pos": "v.", "ipa": "/ɪnˈdemnɪfaɪ/", "th": "ชดใช้ค่าเสียหาย", "def": "to protect someone from loss or pay for damage", "ex": "The contract indemnifies us against third-party claims.", "level": "nearnative", "cefr": "C2"},
+  {"w": "indemnity", "pos": "n.", "ipa": "/ɪnˈdemnəti/", "th": "การชดใช้ค่าเสียหาย", "def": "protection or payment against loss", "ex": "The clause provides indemnity for legal costs.", "level": "nearnative", "cefr": "C2"},
+  {"w": "negligence", "pos": "n.", "ipa": "/ˈneɡlɪdʒəns/", "th": "ความประมาทเลินเล่อ", "def": "failure to take proper care", "ex": "The accident was caused by negligence.", "level": "advanced", "cefr": "C1"},
+  {"w": "breach of contract", "pos": "n.", "ipa": "/briːtʃ əv ˈkɒntrækt/", "th": "การผิดสัญญา", "def": "the failure to keep a contract's terms", "ex": "Late delivery may count as a breach of contract.", "level": "advanced", "cefr": "B2"},
+  {"w": "non-disclosure", "pos": "n.", "ipa": "/ˌnɒn dɪsˈkləʊʒə/", "th": "การไม่เปิดเผยข้อมูล", "def": "the keeping of information secret", "ex": "Staff signed a non-disclosure agreement.", "level": "advanced", "cefr": "C1"},
+  {"w": "confidentiality", "pos": "n.", "ipa": "/ˌkɒnfɪˌdenʃiˈæləti/", "th": "การรักษาความลับ", "def": "the duty to keep information private", "ex": "Confidentiality is essential in this deal.", "level": "advanced", "cefr": "C1"},
+  {"w": "proprietary", "pos": "adj.", "ipa": "/prəˈpraɪətri/", "th": "ที่เป็นกรรมสิทธิ์เฉพาะ", "def": "owned by a company and legally protected", "ex": "The software uses proprietary technology.", "level": "advanced", "cefr": "C1"},
+  {"w": "intellectual property", "pos": "n.", "ipa": "/ˌɪntəˈlektʃuəl ˈprɒpəti/", "th": "ทรัพย์สินทางปัญญา", "def": "creations of the mind protected by law", "ex": "The deal transfers all intellectual property rights.", "level": "advanced", "cefr": "B2"},
+  {"w": "infringement", "pos": "n.", "ipa": "/ɪnˈfrɪndʒmənt/", "th": "การละเมิด (สิทธิ)", "def": "the breaking of a law or someone's rights", "ex": "Copying the logo is a trademark infringement.", "level": "advanced", "cefr": "C1"},
+  {"w": "patent", "pos": "n.", "ipa": "/ˈpætənt/", "th": "สิทธิบัตร", "def": "a legal right to be the only maker of an invention", "ex": "The company filed a patent for its new design.", "level": "advanced", "cefr": "B2"},
+  {"w": "trademark", "pos": "n.", "ipa": "/ˈtreɪdmɑːk/", "th": "เครื่องหมายการค้า", "def": "a protected name or symbol of a brand", "ex": "The name is a registered trademark.", "level": "intermediate", "cefr": "B2"},
+  {"w": "copyright", "pos": "n.", "ipa": "/ˈkɒpiraɪt/", "th": "ลิขสิทธิ์", "def": "the legal right to control use of a work", "ex": "The manual is protected by copyright.", "level": "intermediate", "cefr": "B2"},
+  {"w": "licensing", "pos": "n.", "ipa": "/ˈlaɪsənsɪŋ/", "th": "การอนุญาตให้ใช้สิทธิ", "def": "the granting of permission to use something", "ex": "Licensing the brand brings in extra income.", "level": "advanced", "cefr": "C1"},
+  {"w": "royalty", "pos": "n.", "ipa": "/ˈrɔɪəlti/", "th": "ค่าลิขสิทธิ์", "def": "a payment for using someone's work or property", "ex": "The author receives a royalty on each copy sold.", "level": "advanced", "cefr": "C1"},
+  {"w": "jurisdiction", "pos": "n.", "ipa": "/ˌdʒʊərɪsˈdɪkʃən/", "th": "เขตอำนาจศาล", "def": "the area where a law or court has power", "ex": "Disputes fall under the courts of this jurisdiction.", "level": "advanced", "cefr": "C1"},
+  {"w": "governing law", "pos": "n.", "ipa": "/ˈɡʌvənɪŋ lɔː/", "th": "กฎหมายที่ใช้บังคับ", "def": "the law that controls a contract", "ex": "The governing law is that of Singapore.", "level": "advanced", "cefr": "C1"},
+  {"w": "dispute resolution", "pos": "n.", "ipa": "/dɪˈspjuːt ˌrezəˈluːʃən/", "th": "การระงับข้อพิพาท", "def": "the process of settling a disagreement", "ex": "The contract sets out a dispute resolution process.", "level": "advanced", "cefr": "B2"},
+  {"w": "mediation", "pos": "n.", "ipa": "/ˌmiːdiˈeɪʃən/", "th": "การไกล่เกลี่ย", "def": "the use of a neutral person to settle a dispute", "ex": "They chose mediation instead of a lawsuit.", "level": "advanced", "cefr": "C1"},
+  {"w": "litigation", "pos": "n.", "ipa": "/ˌlɪtɪˈɡeɪʃən/", "th": "การฟ้องร้องดำเนินคดี", "def": "the process of taking a dispute to court", "ex": "Both sides hoped to avoid costly litigation.", "level": "advanced", "cefr": "C1"},
+  {"w": "settlement", "pos": "n.", "ipa": "/ˈsetlmənt/", "th": "การตกลงยอมความ", "def": "an agreement that ends a dispute", "ex": "They reached a settlement out of court.", "level": "advanced", "cefr": "B2"},
+  {"w": "damages", "pos": "n.", "ipa": "/ˈdæmɪdʒɪz/", "th": "ค่าเสียหาย", "def": "money paid to make up for harm or loss", "ex": "The court awarded damages to the supplier.", "level": "advanced", "cefr": "B2"},
+  {"w": "forfeit", "pos": "v.", "ipa": "/ˈfɔːfɪt/", "th": "ริบ, สูญเสียสิทธิ", "def": "to lose a right or item as a penalty", "ex": "Cancel late and you forfeit the deposit.", "level": "advanced", "cefr": "C1"},
+  {"w": "default", "pos": "n.", "ipa": "/dɪˈfɔːlt/", "th": "การผิดนัดชำระ", "def": "failure to do something required, like paying", "ex": "Default on the loan triggers extra charges.", "level": "advanced", "cefr": "B2"},
+  {"w": "renewal", "pos": "n.", "ipa": "/rɪˈnjuːəl/", "th": "การต่ออายุ", "def": "the act of extending an agreement", "ex": "The contract is up for renewal in June.", "level": "intermediate", "cefr": "B2"},
+  {"w": "expiry", "pos": "n.", "ipa": "/ɪkˈspaɪəri/", "th": "การหมดอายุ", "def": "the end of a period when something is valid", "ex": "Check the expiry date of the agreement.", "level": "intermediate", "cefr": "B2"},
+  {"w": "renegotiate", "pos": "v.", "ipa": "/ˌriːnɪˈɡəʊʃieɪt/", "th": "เจรจาต่อรองใหม่", "def": "to discuss terms again to change them", "ex": "We may renegotiate the price next year.", "level": "advanced", "cefr": "B2"},
+  {"w": "ratify", "pos": "v.", "ipa": "/ˈrætɪfaɪ/", "th": "ให้สัตยาบัน, รับรอง", "def": "to make an agreement official by approval", "ex": "The board must ratify the merger.", "level": "advanced", "cefr": "C1"},
+  {"w": "execute", "pos": "v.", "ipa": "/ˈeksɪkjuːt/", "th": "ลงนามให้มีผล (สัญญา)", "def": "to sign a document to make it legally valid", "ex": "The contract was executed by both directors.", "level": "advanced", "cefr": "C1"},
+  {"w": "notarize", "pos": "v.", "ipa": "/ˈnəʊtəraɪz/", "th": "รับรองโดยโนตารี", "def": "to have a document officially certified", "ex": "Please notarize the agreement before sending it.", "level": "nearnative", "cefr": "C2"},
+  {"w": "witness", "pos": "n.", "ipa": "/ˈwɪtnəs/", "th": "พยาน (ลงนาม)", "def": "a person who signs to confirm a signature", "ex": "A witness must sign next to your name.", "level": "intermediate", "cefr": "B1"},
+  {"w": "signatory", "pos": "n.", "ipa": "/ˈsɪɡnətəri/", "th": "ผู้ลงนาม", "def": "a person who signs an official document", "ex": "All signatories received a copy of the deal.", "level": "advanced", "cefr": "C1"},
+  {"w": "in good faith", "pos": "phr.", "ipa": "/ɪn ɡʊd feɪθ/", "th": "ด้วยความสุจริต", "def": "with honest intentions", "ex": "Both sides negotiated in good faith.", "level": "advanced", "cefr": "C1"},
+  {"w": "force majeure", "pos": "n.", "ipa": "/ˌfɔːs mæˈʒɜː/", "th": "เหตุสุดวิสัย", "def": "an unexpected event that prevents fulfilling a contract", "ex": "The delay was excused under the force majeure clause.", "level": "nearnative", "cefr": "C2"},
+  {"w": "null and void", "pos": "phr.", "ipa": "/nʌl ən vɔɪd/", "th": "เป็นโมฆะ", "def": "having no legal force", "ex": "The deal became null and void after the breach.", "level": "advanced", "cefr": "C1"},
+  {"w": "hereinafter", "pos": "adv.", "ipa": "/ˌhɪərɪnˈɑːftə/", "th": "ต่อจากนี้ไป (ในเอกสาร)", "def": "from this point on in a document", "ex": "The buyer, hereinafter 'the Client', agrees to pay.", "level": "nearnative", "cefr": "C2"},
+  {"w": "whereas", "pos": "conj.", "ipa": "/weərˈæz/", "th": "โดยที่ (ขึ้นต้นข้อสัญญา)", "def": "used to introduce a fact in a legal document", "ex": "Whereas the Seller owns the goods, the Buyer agrees to purchase them.", "level": "advanced", "cefr": "C1"},
+  {"w": "contractual", "pos": "adj.", "ipa": "/kənˈtræktʃuəl/", "th": "ตามสัญญา", "def": "agreed in or required by a contract", "ex": "Both sides met their contractual duties.", "level": "advanced", "cefr": "B2"},
+  {"w": "covenant", "pos": "n.", "ipa": "/ˈkʌvənənt/", "th": "ข้อตกลง, พันธสัญญา", "def": "a formal promise in a contract", "ex": "The lease includes a covenant not to sublet.", "level": "nearnative", "cefr": "C2"},
+  {"w": "escrow", "pos": "n.", "ipa": "/ˈeskrəʊ/", "th": "บัญชีพักทรัพย์ (เอสโครว์)", "def": "money held by a third party until terms are met", "ex": "The payment is held in escrow until delivery.", "level": "nearnative", "cefr": "C2"},
+  {"w": "due diligence", "pos": "n.", "ipa": "/djuː ˈdɪlɪdʒəns/", "th": "การตรวจสอบสถานะอย่างรอบคอบ", "def": "careful checking before a deal is made", "ex": "We carried out due diligence before the purchase.", "level": "advanced", "cefr": "C1"},
+  {"w": "rescind", "pos": "v.", "ipa": "/rɪˈsɪnd/", "th": "เพิกถอน, ยกเลิก", "def": "to officially cancel an agreement", "ex": "The buyer may rescind the offer within a week.", "level": "nearnative", "cefr": "C2"},
+  {"w": "recital", "pos": "n.", "ipa": "/rɪˈsaɪtl/", "th": "บทนำสัญญา (ที่ระบุข้อเท็จจริง)", "def": "an opening part of a contract stating background facts", "ex": "The recital explains why the parties entered the deal.", "level": "nearnative", "cefr": "C2"},
+  {"w": "consideration", "pos": "n.", "ipa": "/kənˌsɪdəˈreɪʃən/", "th": "สิ่งตอบแทน (ในสัญญา)", "def": "something of value exchanged in a contract", "ex": "The consideration for the goods was paid in full.", "level": "advanced", "cefr": "C1"},
+  {"w": "assignee", "pos": "n.", "ipa": "/ˌæsaɪˈniː/", "th": "ผู้รับโอนสิทธิ", "def": "a person to whom a right is transferred", "ex": "The assignee takes over all the original duties.", "level": "nearnative", "cefr": "C2"},
+  {"w": "assignor", "pos": "n.", "ipa": "/ˌæsaɪˈnɔː/", "th": "ผู้โอนสิทธิ", "def": "a person who transfers a right to another", "ex": "The assignor must inform the other party.", "level": "nearnative", "cefr": "C2"},
+  {"w": "boilerplate", "pos": "n.", "ipa": "/ˈbɔɪləpleɪt/", "th": "ข้อความสัญญามาตรฐาน", "def": "standard text used in many contracts", "ex": "The lawyer reused boilerplate for the basic terms.", "level": "advanced", "cefr": "C1"},
+  {"w": "indemnification", "pos": "n.", "ipa": "/ɪnˌdemnɪfɪˈkeɪʃən/", "th": "การชดใช้ความเสียหาย", "def": "protection against loss written into a contract", "ex": "The indemnification clause covers legal fees.", "level": "nearnative", "cefr": "C2"},
+  {"w": "severability", "pos": "n.", "ipa": "/sɪˌverəˈbɪləti/", "th": "การแยกส่วนข้อสัญญาที่เป็นโมฆะ", "def": "the rule that one bad clause does not void the whole contract", "ex": "A severability clause protects the rest of the deal.", "level": "nearnative", "cefr": "C2"},
+  {"w": "arbitrator", "pos": "n.", "ipa": "/ˈɑːbɪtreɪtə/", "th": "อนุญาโตตุลาการ", "def": "a neutral person who settles a dispute", "ex": "An arbitrator will decide the final amount.", "level": "advanced", "cefr": "C1"},
+  {"w": "precedent", "pos": "n.", "ipa": "/ˈpresɪdənt/", "th": "บรรทัดฐาน, คำตัดสินที่เป็นแบบอย่าง", "def": "an earlier case used as a guide for later ones", "ex": "The ruling set a precedent for similar disputes.", "level": "advanced", "cefr": "C1"},
+  {"w": "abrogate", "pos": "v.", "ipa": "/ˈæbrəɡeɪt/", "th": "ยกเลิก, เพิกถอน (กฎ/สัญญา)", "def": "to officially end a law or agreement", "ex": "The new treaty abrogated the earlier one.", "level": "nearnative", "cefr": "C2"},
+  {"w": "undertaking", "pos": "n.", "ipa": "/ˌʌndəˈteɪkɪŋ/", "th": "คำมั่น, การให้สัญญา", "def": "a formal promise to do something", "ex": "He gave a written undertaking to repay the loan.", "level": "advanced", "cefr": "C1"},
+  {"w": "checkup", "pos": "n.", "ipa": "/ˈtʃekʌp/", "th": "การตรวจสุขภาพ", "def": "a general medical examination", "ex": "She goes for a checkup once a year.", "level": "intermediate", "cefr": "B1"},
+  {"w": "symptom", "pos": "n.", "ipa": "/ˈsɪmptəm/", "th": "อาการ", "def": "a sign that you have an illness", "ex": "A fever is a common symptom of the flu.", "level": "intermediate", "cefr": "B1"},
+  {"w": "diagnosis", "pos": "n.", "ipa": "/ˌdaɪəɡˈnəʊsɪs/", "th": "การวินิจฉัยโรค", "def": "the identification of an illness", "ex": "The doctor confirmed the diagnosis after tests.", "level": "intermediate", "cefr": "B2"},
+  {"w": "diagnose", "pos": "v.", "ipa": "/ˈdaɪəɡnəʊz/", "th": "วินิจฉัยโรค", "def": "to find out what illness someone has", "ex": "She was diagnosed with a mild allergy.", "level": "intermediate", "cefr": "B2"},
+  {"w": "prescription", "pos": "n.", "ipa": "/prɪˈskrɪpʃən/", "th": "ใบสั่งยา", "def": "a doctor's written order for medicine", "ex": "Take this prescription to the pharmacy.", "level": "intermediate", "cefr": "B1"},
+  {"w": "prescribe", "pos": "v.", "ipa": "/prɪˈskraɪb/", "th": "สั่งจ่ายยา", "def": "to tell someone to take a medicine or treatment", "ex": "The doctor prescribed antibiotics for the infection.", "level": "intermediate", "cefr": "B2"},
+  {"w": "dosage", "pos": "n.", "ipa": "/ˈdəʊsɪdʒ/", "th": "ขนาดยา, ปริมาณยา", "def": "the amount of medicine to take at one time", "ex": "Do not exceed the recommended dosage.", "level": "intermediate", "cefr": "B2"},
+  {"w": "medication", "pos": "n.", "ipa": "/ˌmedɪˈkeɪʃən/", "th": "ยา, การใช้ยา", "def": "medicine used to treat an illness", "ex": "He takes daily medication for his blood pressure.", "level": "intermediate", "cefr": "B1"},
+  {"w": "pharmacy", "pos": "n.", "ipa": "/ˈfɑːməsi/", "th": "ร้านขายยา", "def": "a shop where medicines are sold", "ex": "The pharmacy is open until ten at night.", "level": "intermediate", "cefr": "B1"},
+  {"w": "pharmacist", "pos": "n.", "ipa": "/ˈfɑːməsɪst/", "th": "เภสัชกร", "def": "a person trained to prepare and give out medicines", "ex": "Ask the pharmacist about side effects.", "level": "intermediate", "cefr": "B1"},
+  {"w": "treatment", "pos": "n.", "ipa": "/ˈtriːtmənt/", "th": "การรักษา", "def": "care given to someone who is ill or hurt", "ex": "The treatment lasted six weeks.", "level": "intermediate", "cefr": "B1"},
+  {"w": "therapy", "pos": "n.", "ipa": "/ˈθerəpi/", "th": "การบำบัด", "def": "treatment to help someone recover", "ex": "Physical therapy helped her walk again.", "level": "intermediate", "cefr": "B2"},
+  {"w": "referral", "pos": "n.", "ipa": "/rɪˈfɜːrəl/", "th": "การส่งต่อผู้ป่วย", "def": "the act of sending a patient to a specialist", "ex": "Your doctor can give you a referral to a specialist.", "level": "advanced", "cefr": "B2"},
+  {"w": "specialist", "pos": "n.", "ipa": "/ˈspeʃəlɪst/", "th": "แพทย์ผู้เชี่ยวชาญ", "def": "a doctor who is expert in one area of medicine", "ex": "She was referred to a heart specialist.", "level": "intermediate", "cefr": "B1"},
+  {"w": "physician", "pos": "n.", "ipa": "/fɪˈzɪʃən/", "th": "แพทย์", "def": "a doctor, especially one who is not a surgeon", "ex": "Consult your physician before taking this drug.", "level": "intermediate", "cefr": "B2"},
+  {"w": "surgeon", "pos": "n.", "ipa": "/ˈsɜːdʒən/", "th": "ศัลยแพทย์", "def": "a doctor who performs operations", "ex": "The surgeon explained the procedure clearly.", "level": "intermediate", "cefr": "B1"},
+  {"w": "clinic", "pos": "n.", "ipa": "/ˈklɪnɪk/", "th": "คลินิก", "def": "a place where people get medical treatment", "ex": "The clinic opens at eight in the morning.", "level": "intermediate", "cefr": "B1"},
+  {"w": "ward", "pos": "n.", "ipa": "/wɔːd/", "th": "หอผู้ป่วย", "def": "a room in a hospital for several patients", "ex": "He was moved to the recovery ward.", "level": "intermediate", "cefr": "B2"},
+  {"w": "outpatient", "pos": "n.", "ipa": "/ˈaʊtpeɪʃənt/", "th": "ผู้ป่วยนอก", "def": "a patient who is treated without staying overnight", "ex": "The surgery is done on an outpatient basis.", "level": "advanced", "cefr": "B2"},
+  {"w": "inpatient", "pos": "n.", "ipa": "/ˈɪnpeɪʃənt/", "th": "ผู้ป่วยใน", "def": "a patient who stays in hospital overnight", "ex": "Inpatient care is covered by the policy.", "level": "advanced", "cefr": "B2"},
+  {"w": "admit", "pos": "v.", "ipa": "/ədˈmɪt/", "th": "รับเข้ารักษา (ในรพ.)", "def": "to take a patient into hospital", "ex": "She was admitted for further tests.", "level": "intermediate", "cefr": "B2"},
+  {"w": "discharge", "pos": "v.", "ipa": "/dɪsˈtʃɑːdʒ/", "th": "อนุญาตให้ออกจากรพ.", "def": "to allow a patient to leave hospital", "ex": "He was discharged after three days.", "level": "advanced", "cefr": "B2"},
+  {"w": "recover", "pos": "v.", "ipa": "/rɪˈkʌvə/", "th": "ฟื้นตัว, หายป่วย", "def": "to get well again after illness", "ex": "It took weeks to recover from the surgery.", "level": "intermediate", "cefr": "B1"},
+  {"w": "ailment", "pos": "n.", "ipa": "/ˈeɪlmənt/", "th": "อาการป่วย (เล็กน้อย)", "def": "a minor illness", "ex": "The clinic treats common ailments like colds.", "level": "advanced", "cefr": "C1"},
+  {"w": "chronic", "pos": "adj.", "ipa": "/ˈkrɒnɪk/", "th": "เรื้อรัง", "def": "lasting for a long time", "ex": "He suffers from chronic back pain.", "level": "advanced", "cefr": "B2"},
+  {"w": "acute", "pos": "adj.", "ipa": "/əˈkjuːt/", "th": "เฉียบพลัน, รุนแรง", "def": "severe and starting quickly", "ex": "She was treated for acute appendicitis.", "level": "advanced", "cefr": "B2"},
+  {"w": "infection", "pos": "n.", "ipa": "/ɪnˈfekʃən/", "th": "การติดเชื้อ", "def": "an illness caused by germs", "ex": "The wound developed an infection.", "level": "intermediate", "cefr": "B1"},
+  {"w": "inflammation", "pos": "n.", "ipa": "/ˌɪnfləˈmeɪʃən/", "th": "การอักเสบ", "def": "redness and swelling in part of the body", "ex": "The medicine reduces inflammation in the joints.", "level": "advanced", "cefr": "B2"},
+  {"w": "swelling", "pos": "n.", "ipa": "/ˈswelɪŋ/", "th": "อาการบวม", "def": "a part of the body that has become larger", "ex": "Apply ice to reduce the swelling.", "level": "intermediate", "cefr": "B1"},
+  {"w": "nausea", "pos": "n.", "ipa": "/ˈnɔːziə/", "th": "อาการคลื่นไส้", "def": "the feeling that you are going to be sick", "ex": "The drug may cause mild nausea.", "level": "advanced", "cefr": "B2"},
+  {"w": "fatigue", "pos": "n.", "ipa": "/fəˈtiːɡ/", "th": "ความอ่อนเพลีย", "def": "a feeling of being very tired", "ex": "Fatigue is a common side effect.", "level": "advanced", "cefr": "B2"},
+  {"w": "dizzy", "pos": "adj.", "ipa": "/ˈdɪzi/", "th": "วิงเวียน", "def": "feeling that things are spinning around you", "ex": "Stand up slowly if you feel dizzy.", "level": "intermediate", "cefr": "B1"},
+  {"w": "allergic", "pos": "adj.", "ipa": "/əˈlɜːdʒɪk/", "th": "ที่แพ้ (สิ่งใดสิ่งหนึ่ง)", "def": "having a bad reaction to a substance", "ex": "She is allergic to penicillin.", "level": "intermediate", "cefr": "B1"},
+  {"w": "allergy", "pos": "n.", "ipa": "/ˈælədʒi/", "th": "อาการแพ้", "def": "a condition that makes you react badly to something", "ex": "He has a serious nut allergy.", "level": "intermediate", "cefr": "B1"},
+  {"w": "vaccine", "pos": "n.", "ipa": "/ˈvæksiːn/", "th": "วัคซีน", "def": "a substance that protects against a disease", "ex": "The flu vaccine is offered every autumn.", "level": "intermediate", "cefr": "B1"},
+  {"w": "vaccinate", "pos": "v.", "ipa": "/ˈvæksɪneɪt/", "th": "ฉีดวัคซีน", "def": "to give someone a vaccine", "ex": "All staff were vaccinated before the trip.", "level": "intermediate", "cefr": "B2"},
+  {"w": "immunize", "pos": "v.", "ipa": "/ˈɪmjʊnaɪz/", "th": "สร้างภูมิคุ้มกัน", "def": "to make someone protected against a disease", "ex": "The program immunizes children for free.", "level": "advanced", "cefr": "C1"},
+  {"w": "checkup reminder", "pos": "n.", "ipa": "/ˈtʃekʌp rɪˈmaɪndə/", "th": "การแจ้งเตือนนัดตรวจ", "def": "a message telling you a checkup is due", "ex": "The clinic sends a checkup reminder by text.", "level": "intermediate", "cefr": "B1"},
+  {"w": "sick leave", "pos": "n.", "ipa": "/sɪk liːv/", "th": "การลาป่วย", "def": "time off work because of illness", "ex": "He took three days of sick leave.", "level": "intermediate", "cefr": "B1"},
+  {"w": "medical certificate", "pos": "n.", "ipa": "/ˈmedɪkl səˈtɪfɪkət/", "th": "ใบรับรองแพทย์", "def": "a document from a doctor about your health", "ex": "Bring a medical certificate to claim sick pay.", "level": "intermediate", "cefr": "B1"},
+  {"w": "fitness to work", "pos": "n.", "ipa": "/ˈfɪtnəs tə wɜːk/", "th": "ความพร้อมในการทำงาน", "def": "a judgment that someone is healthy enough to work", "ex": "The doctor assessed his fitness to work.", "level": "advanced", "cefr": "B2"},
+  {"w": "occupational health", "pos": "n.", "ipa": "/ˌɒkjʊˈpeɪʃənl helθ/", "th": "อาชีวอนามัย", "def": "the care of workers' health and safety", "ex": "Occupational health checks new employees.", "level": "advanced", "cefr": "C1"},
+  {"w": "insurance premium", "pos": "n.", "ipa": "/ɪnˈʃʊərəns ˈpriːmiəm/", "th": "เบี้ยประกัน", "def": "the regular amount paid for insurance", "ex": "The insurance premium rose this year.", "level": "intermediate", "cefr": "B2"},
+  {"w": "policyholder", "pos": "n.", "ipa": "/ˈpɒləsihəʊldə/", "th": "ผู้ถือกรมธรรม์", "def": "a person who owns an insurance policy", "ex": "The policyholder must report claims promptly.", "level": "advanced", "cefr": "B2"},
+  {"w": "deductible", "pos": "n.", "ipa": "/dɪˈdʌktəbl/", "th": "ค่าใช้จ่ายส่วนแรกที่ต้องจ่ายเอง", "def": "the amount you pay before insurance covers the rest", "ex": "The plan has a low annual deductible.", "level": "advanced", "cefr": "B2"},
+  {"w": "co-payment", "pos": "n.", "ipa": "/ˈkəʊ peɪmənt/", "th": "ค่าใช้จ่ายร่วม", "def": "a fixed amount the patient pays per visit", "ex": "There is a small co-payment for each appointment.", "level": "advanced", "cefr": "B2"},
+  {"w": "claim form", "pos": "n.", "ipa": "/kleɪm fɔːm/", "th": "แบบฟอร์มเรียกร้องค่าสินไหม", "def": "a document used to request insurance money", "ex": "Fill in the claim form within thirty days.", "level": "intermediate", "cefr": "B1"},
+  {"w": "reimbursement", "pos": "n.", "ipa": "/ˌriːɪmˈbɜːsmənt/", "th": "การคืนเงินที่จ่ายไป", "def": "money paid back for an expense", "ex": "Keep receipts for reimbursement.", "level": "advanced", "cefr": "B2"},
+  {"w": "pre-existing", "pos": "adj.", "ipa": "/ˌpriː ɪɡˈzɪstɪŋ/", "th": "ที่เป็นมาก่อน (โรค)", "def": "existing before the insurance started", "ex": "The policy excludes pre-existing conditions.", "level": "advanced", "cefr": "C1"},
+  {"w": "coverage limit", "pos": "n.", "ipa": "/ˈkʌvərɪdʒ ˈlɪmɪt/", "th": "วงเงินคุ้มครองสูงสุด", "def": "the most an insurer will pay", "ex": "Treatment costs exceeded the coverage limit.", "level": "advanced", "cefr": "B2"},
+  {"w": "underwriting", "pos": "n.", "ipa": "/ˈʌndəraɪtɪŋ/", "th": "การพิจารณารับประกันภัย", "def": "the assessing of risk before issuing insurance", "ex": "Underwriting decides the premium for each client.", "level": "nearnative", "cefr": "C2"},
+  {"w": "medical history", "pos": "n.", "ipa": "/ˈmedɪkl ˈhɪstri/", "th": "ประวัติการรักษา", "def": "a record of a person's past health and illnesses", "ex": "The form asks for your full medical history.", "level": "intermediate", "cefr": "B1"},
+  {"w": "follow-up visit", "pos": "n.", "ipa": "/ˈfɒləʊ ʌp ˈvɪzɪt/", "th": "การนัดติดตามอาการ", "def": "a later appointment to check progress", "ex": "Schedule a follow-up visit in two weeks.", "level": "intermediate", "cefr": "B1"},
+  {"w": "side effect", "pos": "n.", "ipa": "/saɪd ɪˈfekt/", "th": "ผลข้างเคียง", "def": "an extra and usually bad effect of a drug", "ex": "Drowsiness is a common side effect.", "level": "intermediate", "cefr": "B1"},
+  {"w": "over-the-counter", "pos": "adj.", "ipa": "/ˌəʊvə ðə ˈkaʊntə/", "th": "ที่ซื้อได้โดยไม่ต้องมีใบสั่งยา", "def": "able to be bought without a prescription", "ex": "You can get this as an over-the-counter medicine.", "level": "advanced", "cefr": "B2"},
+  {"w": "wellness", "pos": "n.", "ipa": "/ˈwelnəs/", "th": "สุขภาวะ, ความเป็นอยู่ที่ดี", "def": "the state of being healthy", "ex": "The company runs a staff wellness program.", "level": "intermediate", "cefr": "B2"},
+  {"w": "relapse", "pos": "n.", "ipa": "/ˈriːlæps/", "th": "การกลับมาป่วยซ้ำ", "def": "the return of an illness after improvement", "ex": "She had a relapse after stopping the medicine.", "level": "advanced", "cefr": "C1"},
+  {"w": "co-insurance", "pos": "n.", "ipa": "/ˈkəʊ ɪnʃʊərəns/", "th": "การร่วมจ่ายตามสัดส่วน", "def": "the share of costs the patient pays after the deductible", "ex": "After the deductible, co-insurance is twenty percent.", "level": "nearnative", "cefr": "C2"},
+  {"w": "grace period", "pos": "n.", "ipa": "/ɡreɪs ˈpɪəriəd/", "th": "ระยะผ่อนผัน", "def": "extra time allowed to pay without penalty", "ex": "The policy has a 30-day grace period for payment.", "level": "advanced", "cefr": "B2"},
+  {"w": "bedside manner", "pos": "n.", "ipa": "/ˈbedsaɪd ˈmænə/", "th": "ท่าทีของแพทย์ต่อผู้ป่วย", "def": "the way a doctor talks to and treats patients", "ex": "The young doctor has a warm bedside manner.", "level": "advanced", "cefr": "C1"},
+  {"w": "stapler", "pos": "n.", "ipa": "/ˈsteɪplə/", "th": "ที่เย็บกระดาษ", "def": "a device for joining papers with metal pins", "ex": "The stapler ran out of staples again.", "level": "intermediate", "cefr": "B1"},
+  {"w": "staple", "pos": "n.", "ipa": "/ˈsteɪpl/", "th": "ลวดเย็บกระดาษ", "def": "a small metal pin used to join papers", "ex": "Remove the staple before scanning the page.", "level": "intermediate", "cefr": "B1"},
+  {"w": "paper clip", "pos": "n.", "ipa": "/ˈpeɪpə klɪp/", "th": "คลิปหนีบกระดาษ", "def": "a bent wire that holds papers together", "ex": "Use a paper clip instead of a staple.", "level": "beginner", "cefr": "A2"},
+  {"w": "binder", "pos": "n.", "ipa": "/ˈbaɪndə/", "th": "แฟ้มห่วง", "def": "a cover for holding loose papers together", "ex": "File the reports in the blue binder.", "level": "intermediate", "cefr": "B1"},
+  {"w": "folder", "pos": "n.", "ipa": "/ˈfəʊldə/", "th": "แฟ้มเอกสาร", "def": "a folded cover for storing papers", "ex": "Each client has a separate folder.", "level": "intermediate", "cefr": "B1"},
+  {"w": "filing cabinet", "pos": "n.", "ipa": "/ˈfaɪlɪŋ ˈkæbɪnət/", "th": "ตู้เก็บเอกสาร", "def": "a piece of furniture with drawers for files", "ex": "The contracts are in the locked filing cabinet.", "level": "intermediate", "cefr": "B1"},
+  {"w": "shredder", "pos": "n.", "ipa": "/ˈʃredə/", "th": "เครื่องทำลายเอกสาร", "def": "a machine that cuts paper into thin pieces", "ex": "Put confidential papers through the shredder.", "level": "intermediate", "cefr": "B2"},
+  {"w": "hole punch", "pos": "n.", "ipa": "/həʊl pʌntʃ/", "th": "ที่เจาะรูกระดาษ", "def": "a tool that makes holes in paper for filing", "ex": "Use the hole punch before adding pages to the binder.", "level": "intermediate", "cefr": "B1"},
+  {"w": "whiteboard", "pos": "n.", "ipa": "/ˈwaɪtbɔːd/", "th": "กระดานไวท์บอร์ด", "def": "a smooth white surface for writing with markers", "ex": "She drew the plan on the whiteboard.", "level": "intermediate", "cefr": "B1"},
+  {"w": "marker", "pos": "n.", "ipa": "/ˈmɑːkə/", "th": "ปากกาเมจิก", "def": "a pen with a thick felt tip", "ex": "The marker is running dry.", "level": "intermediate", "cefr": "B1"},
+  {"w": "highlighter", "pos": "n.", "ipa": "/ˈhaɪlaɪtə/", "th": "ปากกาเน้นข้อความ", "def": "a bright pen used to mark important text", "ex": "She marked key points with a yellow highlighter.", "level": "intermediate", "cefr": "B1"},
+  {"w": "notepad", "pos": "n.", "ipa": "/ˈnəʊtpæd/", "th": "สมุดฉีก, สมุดจด", "def": "a small book of paper for writing notes", "ex": "He jotted the number on a notepad.", "level": "intermediate", "cefr": "B1"},
+  {"w": "sticky note", "pos": "n.", "ipa": "/ˈstɪki nəʊt/", "th": "กระดาษโน้ตกาวในตัว", "def": "a small piece of paper that sticks to surfaces", "ex": "She left a sticky note on his monitor.", "level": "intermediate", "cefr": "B1"},
+  {"w": "envelope", "pos": "n.", "ipa": "/ˈenvələʊp/", "th": "ซองจดหมาย", "def": "a paper cover for a letter", "ex": "Seal the envelope before mailing it.", "level": "intermediate", "cefr": "B1"},
+  {"w": "letterhead", "pos": "n.", "ipa": "/ˈletəhed/", "th": "หัวจดหมาย (ของบริษัท)", "def": "printed name and address at the top of paper", "ex": "Print the offer on company letterhead.", "level": "advanced", "cefr": "B2"},
+  {"w": "laminator", "pos": "n.", "ipa": "/ˈlæmɪneɪtə/", "th": "เครื่องเคลือบบัตร/เอกสาร", "def": "a machine that covers paper in clear plastic", "ex": "Use the laminator to protect the sign.", "level": "advanced", "cefr": "B2"},
+  {"w": "photocopier", "pos": "n.", "ipa": "/ˈfəʊtəʊkɒpiə/", "th": "เครื่องถ่ายเอกสาร", "def": "a machine that makes copies of documents", "ex": "The photocopier is out of paper.", "level": "intermediate", "cefr": "B1"},
+  {"w": "scanner", "pos": "n.", "ipa": "/ˈskænə/", "th": "เครื่องสแกน", "def": "a device that turns documents into digital files", "ex": "Use the scanner to email the form.", "level": "intermediate", "cefr": "B1"},
+  {"w": "toner", "pos": "n.", "ipa": "/ˈtəʊnə/", "th": "ผงหมึก (เครื่องพิมพ์เลเซอร์)", "def": "the powder used by a laser printer", "ex": "We need to order more toner.", "level": "advanced", "cefr": "B2"},
+  {"w": "cartridge", "pos": "n.", "ipa": "/ˈkɑːtrɪdʒ/", "th": "ตลับหมึก", "def": "a container of ink or toner for a printer", "ex": "Replace the ink cartridge when it runs low.", "level": "intermediate", "cefr": "B2"},
+  {"w": "ink", "pos": "n.", "ipa": "/ɪŋk/", "th": "หมึก", "def": "the colored liquid used for printing or writing", "ex": "The printer is low on ink.", "level": "beginner", "cefr": "A2"},
+  {"w": "printout", "pos": "n.", "ipa": "/ˈprɪntaʊt/", "th": "เอกสารที่พิมพ์ออกมา", "def": "a printed copy of computer data", "ex": "She handed me a printout of the schedule.", "level": "intermediate", "cefr": "B1"},
+  {"w": "projector", "pos": "n.", "ipa": "/prəˈdʒektə/", "th": "เครื่องฉายภาพ", "def": "a device that shows images on a screen or wall", "ex": "Connect your laptop to the projector.", "level": "intermediate", "cefr": "B1"},
+  {"w": "extension cord", "pos": "n.", "ipa": "/ɪkˈstenʃən kɔːd/", "th": "สายไฟต่อพ่วง", "def": "an electric cable that adds reach to a plug", "ex": "Run an extension cord to the far desk.", "level": "intermediate", "cefr": "B1"},
+  {"w": "power strip", "pos": "n.", "ipa": "/ˈpaʊə strɪp/", "th": "ปลั๊กพ่วง", "def": "a block with several sockets for plugs", "ex": "Plug the monitor into the power strip.", "level": "intermediate", "cefr": "B1"},
+  {"w": "surge protector", "pos": "n.", "ipa": "/sɜːdʒ prəˈtektə/", "th": "อุปกรณ์ป้องกันไฟกระชาก", "def": "a device that guards equipment from power spikes", "ex": "A surge protector saved the computers.", "level": "advanced", "cefr": "B2"},
+  {"w": "adapter", "pos": "n.", "ipa": "/əˈdæptə/", "th": "อะแดปเตอร์, หัวแปลง", "def": "a device that connects two pieces of equipment", "ex": "You need an adapter for the foreign plug.", "level": "intermediate", "cefr": "B1"},
+  {"w": "charger", "pos": "n.", "ipa": "/ˈtʃɑːdʒə/", "th": "ที่ชาร์จ", "def": "a device that supplies power to a battery", "ex": "I left my phone charger at home.", "level": "beginner", "cefr": "A2"},
+  {"w": "headset", "pos": "n.", "ipa": "/ˈhedset/", "th": "ชุดหูฟังพร้อมไมค์", "def": "earphones with a microphone for calls", "ex": "Call agents wear a headset all day.", "level": "intermediate", "cefr": "B1"},
+  {"w": "webcam", "pos": "n.", "ipa": "/ˈwebkæm/", "th": "กล้องเว็บแคม", "def": "a camera used for online video", "ex": "Turn on your webcam for the meeting.", "level": "intermediate", "cefr": "B1"},
+  {"w": "keyboard", "pos": "n.", "ipa": "/ˈkiːbɔːd/", "th": "แป้นพิมพ์", "def": "a set of keys for typing on a computer", "ex": "The keyboard has a sticky key.", "level": "beginner", "cefr": "A2"},
+  {"w": "mouse pad", "pos": "n.", "ipa": "/maʊs pæd/", "th": "แผ่นรองเมาส์", "def": "a flat surface for using a computer mouse", "ex": "A mouse pad helps the cursor move smoothly.", "level": "intermediate", "cefr": "B1"},
+  {"w": "monitor", "pos": "n.", "ipa": "/ˈmɒnɪtə/", "th": "จอภาพ", "def": "a screen that shows computer output", "ex": "She works with two monitors.", "level": "intermediate", "cefr": "B1"},
+  {"w": "docking station", "pos": "n.", "ipa": "/ˈdɒkɪŋ ˈsteɪʃən/", "th": "แท่นเชื่อมต่ออุปกรณ์", "def": "a device a laptop connects to for extra ports", "ex": "Plug the laptop into the docking station.", "level": "advanced", "cefr": "B2"},
+  {"w": "swivel chair", "pos": "n.", "ipa": "/ˈswɪvl tʃeə/", "th": "เก้าอี้หมุน", "def": "a chair that turns around on its base", "ex": "He spun around in his swivel chair.", "level": "intermediate", "cefr": "B1"},
+  {"w": "desk drawer", "pos": "n.", "ipa": "/desk drɔː/", "th": "ลิ้นชักโต๊ะ", "def": "a sliding box in a desk for storage", "ex": "The pens are in the top desk drawer.", "level": "beginner", "cefr": "A2"},
+  {"w": "cubicle", "pos": "n.", "ipa": "/ˈkjuːbɪkl/", "th": "คอกทำงานกั้นห้อง", "def": "a small partly enclosed work space", "ex": "Each clerk has a small cubicle.", "level": "advanced", "cefr": "B2"},
+  {"w": "partition", "pos": "n.", "ipa": "/pɑːˈtɪʃən/", "th": "ฉากกั้น", "def": "a screen or wall dividing a space", "ex": "A glass partition separates the two teams.", "level": "advanced", "cefr": "B2"},
+  {"w": "bulletin board", "pos": "n.", "ipa": "/ˈbʊlətɪn bɔːd/", "th": "บอร์ดประกาศ", "def": "a board where notices are pinned", "ex": "The schedule is posted on the bulletin board.", "level": "intermediate", "cefr": "B1"},
+  {"w": "intercom", "pos": "n.", "ipa": "/ˈɪntəkɒm/", "th": "ระบบสื่อสารภายใน", "def": "a system for speaking between rooms", "ex": "She paged him over the intercom.", "level": "advanced", "cefr": "B2"},
+  {"w": "landline", "pos": "n.", "ipa": "/ˈlændlaɪn/", "th": "โทรศัพท์บ้าน/สำนักงาน", "def": "a telephone that uses a fixed wire", "ex": "Call the office landline if my mobile is off.", "level": "intermediate", "cefr": "B2"},
+  {"w": "voicemail", "pos": "n.", "ipa": "/ˈvɔɪsmeɪl/", "th": "ข้อความเสียงฝากไว้", "def": "a recorded message left on a phone", "ex": "He left a voicemail about the meeting.", "level": "intermediate", "cefr": "B1"},
+  {"w": "switchboard", "pos": "n.", "ipa": "/ˈswɪtʃbɔːd/", "th": "ตู้สลับสายโทรศัพท์", "def": "equipment that connects phone calls in an office", "ex": "The switchboard directs calls to each department.", "level": "advanced", "cefr": "B2"},
+  {"w": "conference phone", "pos": "n.", "ipa": "/ˈkɒnfərəns fəʊn/", "th": "โทรศัพท์ประชุมกลุ่ม", "def": "a phone that lets several people join a call", "ex": "We used the conference phone for the group call.", "level": "intermediate", "cefr": "B1"},
+  {"w": "paper tray", "pos": "n.", "ipa": "/ˈpeɪpə treɪ/", "th": "ถาดใส่กระดาษ (เครื่องพิมพ์)", "def": "the part of a printer that holds paper", "ex": "Refill the paper tray before printing.", "level": "intermediate", "cefr": "B1"},
+  {"w": "reams", "pos": "n.", "ipa": "/riːmz/", "th": "กระดาษจำนวนมาก (รีม)", "def": "large quantities of paper", "ex": "The report used reams of paper.", "level": "advanced", "cefr": "C1"},
+  {"w": "correction fluid", "pos": "n.", "ipa": "/kəˈrekʃən ˈfluːɪd/", "th": "น้ำยาลบคำผิด", "def": "white liquid used to cover writing mistakes", "ex": "Use correction fluid to fix the typo.", "level": "advanced", "cefr": "B2"},
+  {"w": "desk organizer", "pos": "n.", "ipa": "/desk ˈɔːɡənaɪzə/", "th": "ที่จัดระเบียบโต๊ะ", "def": "a tray or box for holding desk items", "ex": "A desk organizer keeps her pens tidy.", "level": "intermediate", "cefr": "B1"},
+  {"w": "label maker", "pos": "n.", "ipa": "/ˈleɪbl ˈmeɪkə/", "th": "เครื่องพิมพ์ฉลาก", "def": "a device that prints sticky labels", "ex": "She used a label maker for the folders.", "level": "advanced", "cefr": "B2"},
+  {"w": "ergonomic", "pos": "adj.", "ipa": "/ˌɜːɡəˈnɒmɪk/", "th": "ที่ออกแบบเพื่อสรีระ", "def": "designed for comfort and to avoid injury", "ex": "An ergonomic chair supports your back.", "level": "advanced", "cefr": "C1"},
+  {"w": "adjustable", "pos": "adj.", "ipa": "/əˈdʒʌstəbl/", "th": "ที่ปรับได้", "def": "able to be changed to fit your needs", "ex": "The desk has an adjustable height.", "level": "intermediate", "cefr": "B2"},
+  {"w": "refill", "pos": "v.", "ipa": "/ˌriːˈfɪl/", "th": "เติมใหม่", "def": "to fill something again", "ex": "Please refill the paper tray.", "level": "intermediate", "cefr": "B1"},
+  {"w": "restock supplies", "pos": "phr.", "ipa": "/ˌriːˈstɒk səˈplaɪz/", "th": "เติมวัสดุสำนักงาน", "def": "to add more office materials when low", "ex": "We restock supplies at the start of each month.", "level": "intermediate", "cefr": "B1"},
+  {"w": "stationery", "pos": "n.", "ipa": "/ˈsteɪʃənri/", "th": "เครื่องเขียน, อุปกรณ์สำนักงาน", "def": "paper, pens, and other writing materials", "ex": "Order more stationery for the office.", "level": "advanced", "cefr": "B2"},
+  {"w": "supply closet", "pos": "n.", "ipa": "/səˈplaɪ ˈklɒzɪt/", "th": "ตู้เก็บอุปกรณ์", "def": "a small room or cupboard for office supplies", "ex": "Spare toner is in the supply closet.", "level": "intermediate", "cefr": "B1"},
+  {"w": "out of order", "pos": "phr.", "ipa": "/aʊt əv ˈɔːdə/", "th": "ใช้การไม่ได้, เสีย", "def": "not working at the moment", "ex": "The lift is out of order today.", "level": "intermediate", "cefr": "B1"},
+  {"w": "maintenance request", "pos": "n.", "ipa": "/ˈmeɪntənəns rɪˈkwest/", "th": "การแจ้งซ่อมบำรุง", "def": "a report asking for a repair", "ex": "Submit a maintenance request for the broken fan.", "level": "intermediate", "cefr": "B2"},
+  {"w": "jam", "pos": "v.", "ipa": "/dʒæm/", "th": "ติดขัด (กระดาษในเครื่อง)", "def": "to become stuck and stop working", "ex": "The printer jams when the paper is damp.", "level": "intermediate", "cefr": "B1"},
+  {"w": "overhead projector", "pos": "n.", "ipa": "/ˌəʊvəhed prəˈdʒektə/", "th": "เครื่องฉายภาพข้ามศีรษะ", "def": "a device that projects images onto a screen above", "ex": "The trainer used an overhead projector.", "level": "advanced", "cefr": "B2"},
+  {"w": "recruitment drive", "pos": "n.", "ipa": "/rɪˈkruːtmənt draɪv/", "th": "การรณรงค์รับสมัครงาน", "def": "an organized effort to hire many people", "ex": "The firm launched a recruitment drive for graduates.", "level": "advanced", "cefr": "B2"},
+  {"w": "onboarding", "pos": "n.", "ipa": "/ˈɒnbɔːdɪŋ/", "th": "การปฐมนิเทศพนักงานใหม่", "def": "the process of settling a new employee into a job", "ex": "Onboarding takes the first two weeks.", "level": "advanced", "cefr": "B2"},
+  {"w": "carpool", "pos": "n.", "ipa": "/ˈkɑːpuːl/", "th": "การใช้รถร่วมกัน", "def": "an arrangement to share car rides to work", "ex": "Several staff joined the office carpool.", "level": "advanced", "cefr": "B2"},
+  {"w": "boarding pass", "pos": "n.", "ipa": "/ˈbɔːdɪŋ pɑːs/", "th": "บัตรขึ้นเครื่อง", "def": "a card allowing you to board a plane", "ex": "Show your boarding pass at the gate.", "level": "intermediate", "cefr": "B1"},
+  {"w": "layover", "pos": "n.", "ipa": "/ˈleɪəʊvə/", "th": "การแวะพักเปลี่ยนเครื่อง", "def": "a short stay between flights", "ex": "We have a two-hour layover in Dubai.", "level": "advanced", "cefr": "B2"},
+  {"w": "agenda item", "pos": "n.", "ipa": "/əˈdʒendə ˈaɪtəm/", "th": "หัวข้อในวาระประชุม", "def": "a topic to be discussed in a meeting", "ex": "Budget is the first agenda item.", "level": "intermediate", "cefr": "B2"},
+  {"w": "collate", "pos": "v.", "ipa": "/kəˈleɪt/", "th": "เรียงเอกสารตามลำดับ", "def": "to arrange pages in the correct order", "ex": "The printer can collate the copies for you.", "level": "advanced", "cefr": "C1"},
+  {"w": "swivel", "pos": "v.", "ipa": "/ˈswɪvl/", "th": "หมุนรอบจุดศูนย์กลาง", "def": "to turn around a fixed point", "ex": "The monitor can swivel toward the window.", "level": "advanced", "cefr": "B2"},
+  {"w": "multifunction printer", "pos": "n.", "ipa": "/ˌmʌltiˈfʌŋkʃən ˈprɪntə/", "th": "เครื่องพิมพ์มัลติฟังก์ชัน", "def": "a machine that prints, scans, and copies", "ex": "The multifunction printer also sends faxes.", "level": "advanced", "cefr": "B2"},
+  {"w": "desk pad", "pos": "n.", "ipa": "/desk pæd/", "th": "แผ่นรองโต๊ะทำงาน", "def": "a flat protective mat for a desk surface", "ex": "A leather desk pad protects the table.", "level": "advanced", "cefr": "B2"},
+  {"w": "in-tray", "pos": "n.", "ipa": "/ˈɪn treɪ/", "th": "ถาดรับเอกสารเข้า", "def": "a tray for documents that need attention", "ex": "New requests pile up in my in-tray.", "level": "advanced", "cefr": "B2"},
+  {"w": "performance review", "pos": "n.", "ipa": "/pəˈfɔːməns rɪˈvjuː/", "th": "การประเมินผลการทำงาน", "def": "a meeting to assess an employee's work", "ex": "Her performance review is scheduled for Friday.", "level": "intermediate", "cefr": "B2"},
+  {"w": "turnover rate", "pos": "n.", "ipa": "/ˈtɜːnəʊvə reɪt/", "th": "อัตราการลาออกของพนักงาน", "def": "the rate at which staff leave and are replaced", "ex": "A high turnover rate raises training costs.", "level": "advanced", "cefr": "C1"},
 ];
 
 // blank state per mode
@@ -2934,6 +3468,26 @@ function App() {
     const text = `Coach ช่วยติวคำพวกนี้ให้หน่อย (คำที่ผมยังไม่แม่นจากแอป) — อธิบายความหมาย จุดที่ต้องระวัง แล้วลองให้ผมแต่งประโยคใช้เองด้วยนะครับ:\n\n${lines.join("\n\n")}`;
     openCopy(`คำที่ยังไม่แม่น (${list.length} คำ)`, text);
   }
+  // Copy AI-generated words with NO CEFR yet, as a JSON block to send to Coach. Supports
+  // BATCHING (size>0): long pastes get truncated by the channel, so we split into stable,
+  // alphabetically-sorted chunks. Coach assigns CEFR+tier and bakes them into VOCAB_BANK;
+  // on next load the seeding upgrade-path backfills level/cefr in place (rating/SRS kept).
+  function copyUnleveledVocab(batchIndex = 0, size = 0) {
+    const st = M.current.vocab;
+    const list = Object.values(st.data).filter(x => !x.cefr)
+      .sort((a, b) => { const wa = a.w || "", wb = b.w || ""; return wa < wb ? -1 : wa > wb ? 1 : 0; });
+    if (!list.length) { openCopy("คำที่ยังไม่จัดระดับ", "ตอนนี้ทุกคำมีระดับ CEFR ครบแล้วครับ 🎉"); return; }
+    const total = list.length;
+    const batches = size > 0 ? Math.ceil(total / size) : 1;
+    let slice = list, tag = `(${total} คำ)`;
+    if (size > 0 && batches > 1) {
+      slice = list.slice(batchIndex * size, batchIndex * size + size);
+      tag = `(ชุด ${batchIndex + 1}/${batches} · ${slice.length} คำ)`;
+    }
+    const arr = slice.map(x => ({ w: x.w, pos: x.pos || "", ipa: x.ipa || "", th: x.th || "", def: x.def || "", ex: x.ex || "" }));
+    const text = `Coach ช่วยจัดระดับ CEFR (A1–C2) + tier (beginner/intermediate/advanced/nearnative) ให้คำพวกนี้ แล้วเพิ่มเข้าคลังถาวร (VOCAB_BANK) ให้หน่อยครับ — คำที่ผมเจนไว้แต่ยังไม่มีระดับ ${tag}:\n\n` + JSON.stringify(arr);
+    openCopy(`คำที่ยังไม่จัดระดับ ${tag}`, text);
+  }
   function copyGrammarItem(x) {
     const opts = ["A", "B", "C", "D"].filter(k => x.options[k]).map(k => `   ${k}. ${x.options[k]}`).join("\n");
     const text = `Coach ช่วยอธิบายข้อนี้ให้ละเอียดหน่อยครับ — ทำไมตอบข้อนี้ และตัวเลือกอื่นผิดเพราะอะไร:\n\nโจทย์: ${x.q}\n${opts}\nเฉลย: ${x.answer}. ${x.options[x.answer]}\nคำอธิบายในแอป: ${x.explain || "-"}`;
@@ -3191,6 +3745,8 @@ function App() {
     }
     return items;
   })();
+  // count of vocab words with no CEFR yet (AI-generated, not yet curated into the bank)
+  const unleveledCount = mode === "vocab" ? Object.values(st.data).reduce((n, x) => n + (x.cefr ? 0 : 1), 0) : 0;
   const reviewable = counts.forgot + counts.sort;
   const card = st.deck[st.pos];
   const sessionDone = loaded && st.tab === "study" && st.deck.length > 0 && st.pos >= st.deck.length;
@@ -3779,7 +4335,7 @@ function App() {
 
         {/* MODE SWITCHER */}
         <div style={{ display: "flex", background: "#efe7d7", borderRadius: 13, padding: 4, gap: 4, margin: "12px 0 14px" }}>
-          {[["vocab", "📕 Vocab"], ["grammar", "✏️ Grammar"], ["listening", "📖 Reading"], ["audio", "🎧 Listening"], ["exam", "📝 สอบจริง"]].map(([id, lbl]) => {
+          {[["vocab", "📕 Vocab"], ["grammar", "✏️ Grammar"], ["listening", "📖 Reading"], ["audio", "🎧 Listening"], ["exam", "📝 Exam"]].map(([id, lbl]) => {
             const on = mode === id;
             return (
               <button key={id} onClick={() => { setMode(id); }}
@@ -5093,7 +5649,10 @@ function App() {
                 return (
                   <button key={d.id} onClick={() => buildBankLevelDeck(d.id)} disabled={empty}
                     style={{ textAlign: "left", border: `1.5px solid ${empty ? C.line : tierColor}`, background: empty ? "#f3eee4" : "#fbf6ec", borderRadius: 10, padding: "9px 11px", lineHeight: 1.3, opacity: empty ? 0.6 : 1 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink }}>{d.icon} {d.label}</div>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink }}>
+                      {d.icon} {d.label}
+                      {d.cefr && <span style={{ fontSize: 9.5, fontWeight: 700, color: C.accent, background: C.accentSoft, padding: "1px 6px", borderRadius: 8, marginLeft: 6, letterSpacing: .2, verticalAlign: "middle" }}>{d.cefr}</span>}
+                    </div>
                     <div style={{ fontSize: 10.5, color: empty ? C.sub : tierColor, marginTop: 2, fontWeight: 600 }}>
                       {empty ? `${tot} คำ` : stt.label}
                     </div>
@@ -5379,6 +5938,33 @@ function App() {
                     📋 ก๊อปคำที่ยังไม่แม่นไปถาม Coach ({reviewable} คำ)
                   </button>
                 )}
+                {mode === "vocab" && unleveledCount > 0 && (() => {
+                  const SIZE = 50;
+                  const batches = Math.ceil(unleveledCount / SIZE);
+                  if (batches <= 1) {
+                    return (
+                      <button onClick={() => copyUnleveledVocab(0, 0)}
+                        style={{ width: "100%", background: "#fff", color: C.accent, border: `1.5px dashed ${C.accent}`, borderRadius: 12, padding: "11px", fontSize: 13.5, fontWeight: 700, marginBottom: 12, lineHeight: 1.4 }}>
+                        🏷️ ก๊อปคำที่ยังไม่จัดระดับ ({unleveledCount} คำ) ไปให้ Coach
+                        <span style={{ display: "block", fontSize: 11, fontWeight: 400, color: C.sub, marginTop: 2 }}>ส่งให้ Coach จัดระดับ → เพิ่มเข้าคลังถาวร → คำเดิมได้ระดับเองตอนเปิดรอบหน้า</span>
+                      </button>
+                    );
+                  }
+                  return (
+                    <div style={{ border: `1.5px dashed ${C.accent}`, borderRadius: 12, padding: "11px 12px 12px", marginBottom: 12, background: "#fff" }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: C.accent }}>🏷️ คำที่ยังไม่จัดระดับ ({unleveledCount} คำ) — แบ่ง {batches} ชุด</div>
+                      <div style={{ fontSize: 11, color: C.sub, margin: "2px 0 9px", lineHeight: 1.5 }}>แตะทีละชุด → ก๊อป → ส่งให้ Coach (แบ่งชุดกันข้อความยาวเกินถูกตัด) · ส่งครบทุกชุด Coach จะจัดระดับให้ทีเดียว</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(96px, 1fr))", gap: 6 }}>
+                        {Array.from({ length: batches }).map((_, i) => (
+                          <button key={i} onClick={() => copyUnleveledVocab(i, SIZE)}
+                            style={{ background: C.accentSoft, color: C.accent, border: `1px solid ${C.accent}`, borderRadius: 9, padding: "9px 6px", fontSize: 12.5, fontWeight: 700 }}>
+                            📋 ชุด {i + 1}/{batches}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
                 {mode === "vocab" && (
                   <div style={{ position: "relative", marginBottom: 10 }}>
                     <input value={vocabSearch} onChange={e => { setVocabSearch(e.target.value); setBankShow(60); }} placeholder="ค้นหาคำ (อังกฤษ หรือ คำแปลไทย)…"
@@ -5673,8 +6259,8 @@ function ConfirmBtn({ onConfirm, idleLabel, confirmLabel, style }) {
   );
 }
 
-const root = ReactDOM.createRoot(document.getElementById("root"));
-root.render(<App />);
+const _root = ReactDOM.createRoot(document.getElementById("root"));
+_root.render(<App />);
 </script>
 </body>
 </html>
