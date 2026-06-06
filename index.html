@@ -1,17 +1,26 @@
 <!DOCTYPE html>
 <html lang="th">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <title>TOEIC Trainer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <style>
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; padding: 0; }
-  @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400..700&family=Noto+Sans+Thai:wght@400..700&display=swap');
-  body { font-family: 'Noto Sans Thai', system-ui, sans-serif; }
+  body { font-family: 'Noto Sans Thai', system-ui, sans-serif; background: #f3ead9; }
+  button { font-family: inherit; cursor: pointer; }
+  input, textarea, select { font-family: inherit; }
+  .opt:active { transform: scale(0.997); }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .rise { animation: rise .28s ease both; }
 </style>
 </head>
 <body>
@@ -21,7 +30,7 @@ const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 // App version — bump on every release. Shown as a small badge (tap to confirm the
 // browser is running the latest build, not a stale cached one).
-const VERSION = "0.38.0";
+const VERSION = "0.41.0";
 
 // ============================================================
 //  ENVIRONMENT DETECTION
@@ -310,6 +319,7 @@ const STATS_KEY = "toeic_stats_v1"; // { history: {date:snapshot}, sessions: [..
 const READTYPE_KEY = "toeic_readtype_v1"; // Reading practice type: part7 | part6 | mix
 const AUDIOTYPE_KEY = "toeic_audiotype_v1"; // Listening practice type: part3 | part4 | mix
 const GOAL_KEY = "toeic_goal_v1"; // daily goal: how many cards/questions to do per day
+const EXAM_BANK_KEY = "toeic_exam_bank_v1"; // saved mock-exam decks for replay (avoid re-gen): { [id]: {scope,parts,deck,n,durationMs,gen} }
 const GOAL_OPTIONS = [10, 20, 30, 50];
 const BACKUP_PREFIX = "TZv1:"; // marks a compressed backup string
 
@@ -799,6 +809,35 @@ function shuffle(arr) {
   return a;
 }
 
+// Re-randomise the position of the correct answer for ONE multiple-choice question.
+// LLMs tend to pile the correct key on "A" (it mirrors the example shape in the prompt),
+// so after parsing we shuffle the option VALUES and remap the answer key. Works for both
+// 4-choice items (A/B/C/D — grammar/reading) and 3-choice items (A/B/C — Part 2).
+// Returns a NEW question object; leaves the input untouched. Safe to call on any shape:
+// if options/answer are missing or malformed, it returns the question unchanged.
+function shuffleQuestionOptions(q) {
+  if (!q || !q.options || !q.answer) return q;
+  const keys = Object.keys(q.options);
+  // only handle the canonical letter-keyed shapes
+  const expected3 = ["A", "B", "C"];
+  const expected4 = ["A", "B", "C", "D"];
+  const isLetters =
+    (keys.length === 3 && expected3.every(k => keys.includes(k))) ||
+    (keys.length === 4 && expected4.every(k => keys.includes(k)));
+  if (!isLetters) return q;
+  const orderedKeys = keys.length === 3 ? expected3 : expected4;
+  if (!orderedKeys.includes(q.answer)) return q; // answer not a valid key → leave as-is
+  const correctVal = q.options[q.answer];
+  const values = shuffle(orderedKeys.map(k => q.options[k]));
+  const newOptions = {};
+  let newAnswer = q.answer;
+  orderedKeys.forEach((k, i) => {
+    newOptions[k] = values[i];
+    if (values[i] === correctVal) newAnswer = k;
+  });
+  return { ...q, options: newOptions, answer: newAnswer };
+}
+
 function vocabPrompt(avoidWords, category, diffPrompt) {
   const avoid = avoidWords.length
     ? `\nDo NOT include any of these words the learner already has: ${avoidWords.slice(-150).join(", ")}.`
@@ -834,8 +873,9 @@ For EACH question provide:
 - "answer": the correct key ("A"|"B"|"C"|"D")
 - "point": the grammar point in THAI, short (e.g. "กาล (tense)", "คำบุพบท", "รูปคำ", "คำเชื่อม")
 - "explain": a THAI explanation, 1-3 sentences, why the answer is correct AND why one key distractor is wrong
+IMPORTANT: vary the position of the correct answer across A/B/C/D — do NOT always put it at "A". Spread the correct keys roughly evenly across the 5 questions.
 Respond with ONLY a valid minified JSON array of 5 objects, no markdown, no backticks, no preamble.
-Shape: [{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"A","point":"...","explain":"..."}]`;
+Shape: [{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"C","point":"...","explain":"..."}]`;
 }
 
 function listeningPart6Prompt(category, diffPrompt) {
@@ -856,8 +896,9 @@ For EACH question provide:
 - "options": object with keys "A","B","C","D" (English; for the sentence-insertion blank, options are full sentences)
 - "answer": the correct key ("A"|"B"|"C"|"D")
 - "explain": a THAI explanation, 1-2 sentences: why the answer fits and which clue/grammar rule proves it
+IMPORTANT: vary the position of the correct answer across A/B/C/D — do NOT always put it at "A".
 Respond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
-Shape: {"ptype":"Part 6","transcript":"...(passage with (1) ______ ... (4) ______; use \\n for line breaks)...","questions":[{"q":"ช่องที่ (1)","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"A","explain":"..."}]}`;
+Shape: {"ptype":"Part 6","transcript":"...(passage with (1) ______ ... (4) ______; use \\n for line breaks)...","questions":[{"q":"ช่องที่ (1)","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"C","explain":"..."}]}`;
 }
 
 function listeningPracticePrompt(category, diffPrompt) {
@@ -879,8 +920,9 @@ For EACH question provide:
 - "options": object with keys "A","B","C","D" (English, plausible distractors)
 - "answer": the correct key ("A"|"B"|"C"|"D")
 - "explain": a THAI explanation, 1-2 sentences: why the answer is right and which clue in the passage proves it
+IMPORTANT: vary the position of the correct answer across A/B/C/D — do NOT always put it at "A".
 Respond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
-Shape: {"ptype":"Part 7","transcript":"...(the full passage; use \\n for line breaks)...","questions":[{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"A","explain":"..."}]}`;
+Shape: {"ptype":"Part 7","transcript":"...(the full passage; use \\n for line breaks)...","questions":[{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"C","explain":"..."}]}`;
 }
 
 // ---- LISTENING (audio) prompt builders — same JSON shape as Reading, but the "transcript"
@@ -896,8 +938,9 @@ For EACH question provide:
 - "options": object with keys "A","B","C","D" (English, plausible distractors)
 - "answer": the correct key ("A"|"B"|"C"|"D")
 - "explain": a THAI explanation, 1-2 sentences: why it is right and which spoken clue proves it
+IMPORTANT: vary the position of the correct answer across A/B/C/D — do NOT always put it at "A".
 Respond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
-Shape: {"ptype":"Part 3","transcript":"Man: ...\\nWoman: ...\\nMan: ...","questions":[{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"A","explain":"..."}]}`;
+Shape: {"ptype":"Part 3","transcript":"Man: ...\\nWoman: ...\\nMan: ...","questions":[{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"C","explain":"..."}]}`;
 }
 
 function audioPart4Prompt(category, diffPrompt) {
@@ -918,8 +961,9 @@ For EACH question provide:
 - "options": object with keys "A","B","C","D" (English, plausible distractors)
 - "answer": the correct key ("A"|"B"|"C"|"D")
 - "explain": a THAI explanation, 1-2 sentences: why it is right and which spoken clue proves it
+IMPORTANT: vary the position of the correct answer across A/B/C/D — do NOT always put it at "A".
 Respond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
-Shape: {"ptype":"Part 4","transcript":"...the talk as one speaker; use \\n for paragraph breaks...","questions":[{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"A","explain":"..."}]}`;
+Shape: {"ptype":"Part 4","transcript":"...the talk as one speaker; use \\n for paragraph breaks...","questions":[{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"C","explain":"..."}]}`;
 }
 
 function audioPart2Prompt(category, diffPrompt) {
@@ -933,8 +977,9 @@ For EACH item provide:
 - "options": object with keys "A","B","C" (each a short spoken response; NO key "D")
 - "answer": the correct key ("A"|"B"|"C")
 - "explain": a THAI explanation, 1-2 sentences: why the answer fits and why the trap options are wrong (name the trap type if useful, e.g. คำพ้องเสียง / ตอบผิดประเภทคำถาม)
+IMPORTANT: vary the position of the correct answer across A/B/C — do NOT always put it at "A". Spread the correct keys roughly evenly across the 6 items.
 Respond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
-Shape: {"ptype":"Part 2","transcript":"","questions":[{"q":"Where did you put the report?","options":{"A":"On your desk.","B":"It was a great report.","C":"At three o'clock."},"answer":"A","explain":"..."}]}`;
+Shape: {"ptype":"Part 2","transcript":"","questions":[{"q":"Where did you put the report?","options":{"A":"It was a great report.","B":"On your desk.","C":"At three o'clock."},"answer":"B","explain":"..."}]}`;
 }
 
 // ---- TIMED MOCK EXAM ("สอบจริง") blueprint ----
@@ -1998,6 +2043,8 @@ function App() {
   const [audioType, setAudioType] = useState("part3"); // Listening practice: part3 | part4 | mix
   const [goal, setGoal] = useState(20); // daily goal (cards/questions per day)
   const [vocabSearch, setVocabSearch] = useState(""); // bank search box (vocab only)
+  const [bankLevel, setBankLevel] = useState("all"); // vocab bank CEFR filter: all|A1|A2|B1|B2|C1|C2|none
+  const [bankShow, setBankShow] = useState(60); // how many bank rows to render (perf: avoid dumping all 952 at once)
   const [showSettings, setShowSettings] = useState(false); // settings modal (engine + API key)
   const [keyTick, setKeyTick] = useState(0); // bump to recompute key presence after save/delete
   const [keyDraft, setKeyDraft] = useState(""); // draft value in the settings input
@@ -2069,6 +2116,8 @@ function App() {
   // { scope, parts, deck:[{id,_ptype,transcript,q,options,answer,explain}], picked:{}, pos,
   //   start, durationMs, submitted:bool, genErr, reveal:{} (per-id transcript reveal) }
   const [examGen, setExamGen] = useState(null); // { current, total } progress while generating, or null
+  const [examBank, setExamBank] = useState({}); // saved exam decks for replay, keyed by id
+  const [statsFilter, setStatsFilter] = useState(null); // Stats modal: null = all modes, else "vocab"|"grammar"|"listening"|"audio"
   const [revealTh, setRevealTh] = useState(false); // vocab card: show Thai meaning?
 
   useEffect(() => {
@@ -2174,6 +2223,10 @@ function App() {
           const rg = await STORAGE.get(GOAL_KEY);
           if (rg) { const n = parseInt(JSON.parse(rg), 10); if (GOAL_OPTIONS.includes(n)) setGoal(n); }
         } catch (e) { /* no saved goal */ }
+        try {
+          const reb = await STORAGE.get(EXAM_BANK_KEY);
+          if (reb) { const b = JSON.parse(reb); if (b && typeof b === "object") setExamBank(b); }
+        } catch (e) { /* no saved exam bank */ }
       } finally { setLoaded(true); }
     })();
   }, []);
@@ -2367,6 +2420,7 @@ function App() {
   function openStats() {
     // snapshot the ref into state so the modal renders a stable view
     updateHistory();
+    setStatsFilter(null);
     setStatsView({ history: { ...STATS.current.history }, sessions: [...(STATS.current.sessions || [])] });
     setShowStats(true);
   }
@@ -2428,8 +2482,9 @@ function App() {
       } else {
         arr.forEach((it, i) => {
           if (!it || !it.q || !it.options || !it.answer) return;
+          const sq = shuffleQuestionOptions(it);
           const id = `g${newGen}-${i}-${Math.random().toString(36).slice(2, 6)}`;
-          const obj = { id, q: it.q, options: it.options, answer: it.answer, point: it.point || "", explain: it.explain || "", gen: newGen, model: mdl.label };
+          const obj = { id, q: sq.q, options: sq.options, answer: sq.answer, point: sq.point || "", explain: sq.explain || "", gen: newGen, model: mdl.label };
           nextData[id] = obj; fresh.push(obj);
         });
       }
@@ -2603,10 +2658,13 @@ function App() {
       });
       const ptype = obj.ptype || (usePart6 ? "Part 6" : "Part 7");
       const passageId = "rp" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
-      const deck = obj.questions.filter(q => q && q.q && q.options && q.answer).map((q, i) => ({
-        id: passageId + "-q" + i,
-        q: q.q, options: q.options, answer: q.answer, explain: q.explain || "",
-      }));
+      const deck = obj.questions.filter(q => q && q.q && q.options && q.answer).map((q, i) => {
+        const sq = shuffleQuestionOptions(q);
+        return {
+          id: passageId + "-q" + i,
+          q: sq.q, options: sq.options, answer: sq.answer, explain: sq.explain || "",
+        };
+      });
       if (!deck.length) throw new Error("คำตอบจาก AI ถูกตัดกลางคัน เลยไม่มีคำถามที่สมบูรณ์ — ลองกดสร้างใหม่อีกครั้งครับ");
       // SAVE the whole passage to the persistent bank (so a generated reading is never lost —
       // it cost tokens to make). Stored as one bank entry keyed by passageId, holding the
@@ -2688,9 +2746,10 @@ function App() {
       });
       const ptype = obj.ptype || (isP2 ? "Part 2" : useP3 ? "Part 3" : "Part 4");
       const clipId = "au" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
-      const deck = obj.questions.filter(q => q && q.q && q.options && q.answer).map((q, i) => ({
-        id: clipId + "-q" + i, q: q.q, options: q.options, answer: q.answer, explain: q.explain || "",
-      }));
+      const deck = obj.questions.filter(q => q && q.q && q.options && q.answer).map((q, i) => {
+        const sq = shuffleQuestionOptions(q);
+        return { id: clipId + "-q" + i, q: sq.q, options: sq.options, answer: sq.answer, explain: sq.explain || "" };
+      });
       if (!deck.length) throw new Error("คำตอบจาก AI ถูกตัดกลางคัน เลยไม่มีคำถามที่สมบูรณ์ — ลองกดสร้างใหม่อีกครั้งครับ");
       const transcript = isP2 ? "" : obj.transcript;
       st.data = { ...st.data, [clipId]: { id: clipId, transcript, ptype, model: mdl.label, questions: deck, gen: Date.now(), category } };
@@ -2795,14 +2854,25 @@ function App() {
         const qs = kind === "array" ? obj : obj.questions;
         qs.forEach((q, qi) => {
           if (!q || !q.q || !q.options || !q.answer) return;
+          const sq = shuffleQuestionOptions(q);
           deck.push({
             id: `ex${i}-${qi}`, _ptype: part, transcript,
-            q: q.q, options: q.options, answer: q.answer, explain: q.explain || "",
+            q: sq.q, options: sq.options, answer: sq.answer, explain: sq.explain || "",
           });
         });
         setExamGen({ current: i + 1, total: unitParts.length });
       }
       if (!deck.length) throw new Error("สร้างข้อสอบไม่ได้เลยสักข้อ — ลองกดเริ่มสอบใหม่อีกครั้งครับ");
+      // SAVE the freshly-generated deck to the bank so it can be REPLAYED without re-gen
+      // (a full mock costs many tokens). Cap to the 20 most recent to bound storage.
+      const examId = "exam" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+      setExamBank(prev => {
+        const next = { ...prev, [examId]: { id: examId, scope: examScope, parts: plan.parts, deck, n: deck.length, durationMs: plan.totalSec * 1000, gen: Date.now() } };
+        const ids = Object.keys(next).sort((a, b) => (next[b].gen || 0) - (next[a].gen || 0));
+        if (ids.length > 20) for (const k of ids.slice(20)) delete next[k];
+        STORAGE.set(EXAM_BANK_KEY, JSON.stringify(next));
+        return next;
+      });
       setExam(e => ({ ...e, deck, start: Date.now(), building: false }));
     } catch (err) {
       setExam(e => ({ ...e, building: false, genErr: "สร้างชุดสอบไม่สำเร็จ — " + (err && err.message ? err.message : String(err)) }));
@@ -2834,6 +2904,21 @@ function App() {
     });
   }
   function quitExam() { setExam(null); setExamGen(null); }
+  // replay a SAVED exam deck (no re-generation) — fresh attempt: clears answers, restarts timer
+  function replaySavedExam(id) {
+    const ex = examBank[id]; if (!ex) return;
+    const dur = ex.durationMs || ((examPlan(ex.scope) || {}).totalSec || 0) * 1000;
+    setExam({ scope: ex.scope, parts: ex.parts, deck: (ex.deck || []).map(q => ({ ...q })), picked: {}, pos: 0, start: Date.now(), durationMs: dur, submitted: false, genErr: null, reveal: {}, building: false });
+  }
+  function deleteSavedExam(id) {
+    setExamBank(prev => { const next = { ...prev }; delete next[id]; STORAGE.set(EXAM_BANK_KEY, JSON.stringify(next)); return next; });
+  }
+  // human label for an exam scope id (single part, or a combined set)
+  function examScopeLabel(scope) {
+    if (scope === "listening") return "🎧 Listening รวม";
+    if (scope === "reading") return "📖 Reading รวม";
+    return scope; // e.g. "Part 5"
+  }
 
   // ---- copy helpers (for asking Coach in chat) ----
   function openCopy(title, text) { setCopyBox({ title, text, msg: null }); }
@@ -3066,7 +3151,7 @@ function App() {
   const setTab = t => { cur().tab = t; rerender(); };
   const setFlip = () => { cur().flipped = !cur().flipped; setRevealTh(false); rerender(); };
   const setPos = fn => { const st = cur(); st.flipped = false; st.pos = fn(st.pos); setRevealTh(false); rerender(); };
-  const setBankFilter = f => { cur().bankFilter = f; rerender(); };
+  const setBankFilter = f => { cur().bankFilter = f; setBankShow(60); rerender(); };
 
   const st = cur();
   const S = STATUS[mode];
@@ -3079,12 +3164,28 @@ function App() {
   const genIdx = genIndexMap(st.data); // rawGen → 1..N for gapless "ชุด N" labels in the bank
   // items shown in the bank. vocab → alphabetical + text search (you look words up);
   // grammar/reading → newest set first (you review by set).
-  const bankItems = (() => {
-    let items = Object.values(st.data).filter(x => { const s = st.ratings[idOf(x)] || "new"; return st.bankFilter === "all" || s === st.bankFilter; });
+  // bankBase = status-filtered (+ vocab text search), BEFORE the CEFR level filter — so the
+  // level chips can show per-level counts off the same base.
+  const bankBase = Object.values(st.data).filter(x => {
+    const s = st.ratings[idOf(x)] || "new";
+    if (!(st.bankFilter === "all" || s === st.bankFilter)) return false;
     if (mode === "vocab") {
       const q = (vocabSearch || "").trim().toLowerCase();
-      if (q) items = items.filter(x => (x.w || "").toLowerCase().includes(q) || (x.th || "").toLowerCase().includes(q) || (x.def || "").toLowerCase().includes(q));
-      items = items.slice().sort((a, b) => (a.w || "").localeCompare(b.w || ""));
+      if (q && !((x.w || "").toLowerCase().includes(q) || (x.th || "").toLowerCase().includes(q) || (x.def || "").toLowerCase().includes(q))) return false;
+    }
+    return true;
+  });
+  const vocabLevelCounts = mode === "vocab" ? (() => {
+    const c = { all: bankBase.length, A1: 0, A2: 0, B1: 0, B2: 0, C1: 0, C2: 0, none: 0 };
+    for (const x of bankBase) { if (x.cefr && c[x.cefr] != null) c[x.cefr]++; else if (!x.cefr) c.none++; }
+    return c;
+  })() : null;
+  const bankItems = (() => {
+    let items = bankBase;
+    if (mode === "vocab") {
+      if (bankLevel !== "all") items = bankLevel === "none" ? items.filter(x => !x.cefr) : items.filter(x => x.cefr === bankLevel);
+      // plain string compare (ASCII lowercase) — far faster than localeCompare on ~1k words
+      items = items.slice().sort((a, b) => { const wa = a.w || "", wb = b.w || ""; return wa < wb ? -1 : wa > wb ? 1 : 0; });
     } else {
       items = items.slice().sort((a, b) => (b.gen || 0) - (a.gen || 0));
     }
@@ -3510,17 +3611,24 @@ function App() {
 
         {/* STATS MODAL — streak, mastery-over-time, recent accuracy */}
         {showStats && statsView && (() => {
+          const f = statsFilter; // active mode filter or null (= all)
+          const histK = { vocab: "vk", grammar: "gk", listening: "rk", audio: "ak" };
+          const histT = { vocab: "vt", grammar: "gt", listening: "rt", audio: "at" };
           const hist = statsView.history || {};
           const dates = Object.keys(hist).sort();
           const last = dates.slice(-30);
           const masterySeries = last.map(d => {
             const s = hist[d] || {};
-            return { x: d.slice(5), y: (s.vk || 0) + (s.gk || 0) + (s.rk || 0) + (s.ak || 0) };
+            const y = f ? (s[histK[f]] || 0) : (s.vk || 0) + (s.gk || 0) + (s.rk || 0) + (s.ak || 0);
+            return { x: d.slice(5), y };
           });
           const today = hist[todayStr()] || {};
-          const totalKnown = (today.vk || 0) + (today.gk || 0) + (today.rk || 0) + (today.ak || 0);
-          const sessions = (statsView.sessions || []).slice(-14);
-          const recent = (statsView.sessions || []).slice(-20);
+          const totalKnown = f ? (today[histK[f]] || 0) : (today.vk || 0) + (today.gk || 0) + (today.rk || 0) + (today.ak || 0);
+          // sessions filtered by the active mode (drives recent-accuracy + per-part table)
+          const allSess = statsView.sessions || [];
+          const fSess = f ? allSess.filter(s => s.m === f) : allSess;
+          const sessions = fSess.slice(-14);
+          const recent = fSess.slice(-20);
           const avgPct = recent.length ? Math.round(recent.reduce((a, s) => a + (s.c / s.n) * 100, 0) / recent.length) : null;
           const sColor = { vocab: C.accent, grammar: "#3f7d3a", listening: "#1a73e8", audio: "#7c3aed" };
           const sLabel = { vocab: "Vocab", grammar: "Grammar", listening: "Reading", audio: "Listening" };
@@ -3543,19 +3651,31 @@ function App() {
                   <Stat label="แม่นแล้วรวม" value={totalKnown} color={C.green} bg={C.greenBg} />
                 </div>
 
-                {/* mastery now, per mode */}
-                <div style={{ fontSize: 12.5, color: C.sub, fontWeight: 600, marginBottom: 6 }}>แม่นแล้ว (เข้าใจ/จำได้) ตอนนี้</div>
-                <div style={{ display: "flex", gap: 6, marginBottom: 18 }}>
-                  {[["vocab", today.vk || 0, today.vt || 0], ["grammar", today.gk || 0, today.gt || 0], ["listening", today.rk || 0, today.rt || 0], ["audio", today.ak || 0, today.at || 0]].map(([m, k, t]) => (
-                    <div key={m} style={{ flex: 1, minWidth: 0, background: "#fff", border: `1px solid ${C.line}`, borderRadius: 11, padding: "10px 4px", textAlign: "center" }}>
-                      <div style={{ fontSize: 10.5, color: sColor[m], fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sLabel[m]}</div>
-                      <div style={{ fontSize: 17, fontWeight: 700, color: C.ink, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>{k}<span style={{ fontSize: 11, color: C.sub }}>/{t}</span></div>
-                    </div>
-                  ))}
+                {/* mastery now, per mode — TAP a box to filter the whole panel to that mode */}
+                <div style={{ fontSize: 12.5, color: C.sub, fontWeight: 600, marginBottom: 6 }}>
+                  แม่นแล้ว (เข้าใจ/จำได้) ตอนนี้ <span style={{ fontWeight: 400, fontSize: 11 }}>· แตะช่องเพื่อกรองเฉพาะโหมดนั้น</span>
                 </div>
+                <div style={{ display: "flex", gap: 6, marginBottom: f ? 8 : 18 }}>
+                  {[["vocab", today.vk || 0, today.vt || 0], ["grammar", today.gk || 0, today.gt || 0], ["listening", today.rk || 0, today.rt || 0], ["audio", today.ak || 0, today.at || 0]].map(([m, k, t]) => {
+                    const active = f === m;
+                    return (
+                      <button key={m} onClick={() => setStatsFilter(active ? null : m)}
+                        style={{ flex: 1, minWidth: 0, background: active ? "#fff6f0" : "#fff", border: active ? `2px solid ${C.accent}` : `1px solid ${C.line}`, borderRadius: 11, padding: "10px 4px", textAlign: "center", opacity: f && !active ? 0.45 : 1, cursor: "pointer" }}>
+                        <div style={{ fontSize: 10.5, color: sColor[m], fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sLabel[m]}</div>
+                        <div style={{ fontSize: 17, fontWeight: 700, color: C.ink, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>{k}<span style={{ fontSize: 11, color: C.sub }}>/{t}</span></div>
+                      </button>
+                    );
+                  })}
+                </div>
+                {f && (
+                  <div style={{ fontSize: 11.5, color: C.accent, fontWeight: 600, marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
+                    <span>🔎 กำลังดูเฉพาะ {sLabel[f]}</span>
+                    <button onClick={() => setStatsFilter(null)} style={{ background: C.accentSoft, color: C.accent, border: "none", borderRadius: 8, padding: "3px 9px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>ดูรวมทุกโหมด</button>
+                  </div>
+                )}
 
                 {/* mastery over time */}
-                <div style={{ fontSize: 12.5, color: C.sub, fontWeight: 600, marginBottom: 8 }}>📈 คำ/ข้อที่แม่นสะสม (30 วันล่าสุด)</div>
+                <div style={{ fontSize: 12.5, color: C.sub, fontWeight: 600, marginBottom: 8 }}>📈 คำ/ข้อที่แม่นสะสม{f ? ` · ${sLabel[f]}` : ""} (30 วันล่าสุด)</div>
                 {masterySeries.length >= 2 ? (
                   <MiniLineChart series={masterySeries} color={C.accent} />
                 ) : (
@@ -3566,13 +3686,13 @@ function App() {
 
                 {/* recent accuracy */}
                 <div style={{ fontSize: 12.5, color: C.sub, fontWeight: 600, margin: "18px 0 8px" }}>
-                  🎯 ความแม่นรอบล่าสุด{avgPct != null ? ` · เฉลี่ย ${avgPct}%` : ""}
+                  🎯 ความแม่นรอบล่าสุด{f ? ` · ${sLabel[f]}` : ""}{avgPct != null ? ` · เฉลี่ย ${avgPct}%` : ""}
                 </div>
                 {sessions.length ? (
                   <>
                     <MiniBars items={sessions.map(s => ({ value: Math.round((s.c / s.n) * 100), color: sColor[s.m] || C.accent }))} />
                     <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 8, justifyContent: "center" }}>
-                      {Object.keys(sLabel).map(m => (
+                      {Object.keys(sLabel).filter(m => !f || m === f).map(m => (
                         <span key={m} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, color: C.sub }}>
                           <span style={{ width: 10, height: 10, borderRadius: 3, background: sColor[m], display: "inline-block" }} /> {sLabel[m]}
                         </span>
@@ -3581,13 +3701,13 @@ function App() {
                   </>
                 ) : (
                   <div style={{ fontSize: 12.5, color: C.sub, background: "#fff", border: `1px dashed ${C.line}`, borderRadius: 11, padding: "16px 12px", textAlign: "center", lineHeight: 1.6 }}>
-                    ยังไม่มีรอบที่ทำเสร็จ — ไปทำชุดข้อสอบ (Vocab quiz / Grammar / Reading / Listening) ให้จบสักรอบ แล้วคะแนนจะมาโชว์ที่นี่
+                    {f ? `ยังไม่มีรอบ ${sLabel[f]} ที่ทำเสร็จ — ทำชุด ${sLabel[f]} ให้จบสักรอบ แล้วคะแนนจะมาโชว์ที่นี่` : "ยังไม่มีรอบที่ทำเสร็จ — ไปทำชุดข้อสอบ (Vocab quiz / Grammar / Reading / Listening) ให้จบสักรอบ แล้วคะแนนจะมาโชว์ที่นี่"}
                   </div>
                 )}
 
                 {/* accuracy by PART — from completed timed rounds (distinct from SRS mastery below) */}
                 {(() => {
-                  const all = statsView.sessions || [];
+                  const all = fSess;
                   const byPart = {};
                   for (const s of all) {
                     if (!s.p || !s.n) continue;
@@ -3628,21 +3748,27 @@ function App() {
                 })()}
 
                 {/* weakness by topic / part — built from rated drill questions */}
-                <WeaknessCard
-                  title='🧩 จุดอ่อนรายหัวข้อ (ไวยากรณ์) · เรียงจากพลาดบ่อยสุด'
-                  items={grammarWeakness()}
-                  hint='แถบเขียว = สัดส่วนที่ "เข้าใจแล้ว" · ความยาวแถบ = จำนวนข้อที่เคยทำในหัวข้อนั้น · เน้นฝึกหัวข้อบนสุดก่อน'
-                />
-                <WeaknessCard
-                  title='🧩 จุดอ่อนรายพาร์ท (Reading) · เรียงจากพลาดบ่อยสุด'
-                  items={readingWeakness()}
-                  hint='แถบเขียว = สัดส่วนที่ "เข้าใจแล้ว" ในแต่ละพาร์ท (6/7) · เน้นพาร์ทบนสุดก่อน'
-                />
-                <WeaknessCard
-                  title='🧩 จุดอ่อนรายพาร์ท (Listening) · เรียงจากพลาดบ่อยสุด'
-                  items={listeningWeakness()}
-                  hint='แถบเขียว = สัดส่วนที่ "เข้าใจแล้ว" ในแต่ละพาร์ท (3/4) · เน้นพาร์ทบนสุดก่อน'
-                />
+                {(!f || f === "grammar") && (
+                  <WeaknessCard
+                    title='🧩 จุดอ่อนรายหัวข้อ (ไวยากรณ์) · เรียงจากพลาดบ่อยสุด'
+                    items={grammarWeakness()}
+                    hint='แถบเขียว = สัดส่วนที่ "เข้าใจแล้ว" · ความยาวแถบ = จำนวนข้อที่เคยทำในหัวข้อนั้น · เน้นฝึกหัวข้อบนสุดก่อน'
+                  />
+                )}
+                {(!f || f === "listening") && (
+                  <WeaknessCard
+                    title='🧩 จุดอ่อนรายพาร์ท (Reading) · เรียงจากพลาดบ่อยสุด'
+                    items={readingWeakness()}
+                    hint='แถบเขียว = สัดส่วนที่ "เข้าใจแล้ว" ในแต่ละพาร์ท (6/7) · เน้นพาร์ทบนสุดก่อน'
+                  />
+                )}
+                {(!f || f === "audio") && (
+                  <WeaknessCard
+                    title='🧩 จุดอ่อนรายพาร์ท (Listening) · เรียงจากพลาดบ่อยสุด'
+                    items={listeningWeakness()}
+                    hint='แถบเขียว = สัดส่วนที่ "เข้าใจแล้ว" ในแต่ละพาร์ท (3/4) · เน้นพาร์ทบนสุดก่อน'
+                  />
+                )}
 
                 <button onClick={() => setShowStats(false)}
                   style={{ marginTop: 16, width: "100%", background: C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ปิด</button>
@@ -4073,7 +4199,7 @@ function App() {
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ fontSize: 12.5, color: C.sub, marginBottom: 6 }}>เลือกแนวข้อสอบ</div>
                   <div style={{ display: "flex", background: "#efe7d7", borderRadius: 10, padding: 3, gap: 3 }}>
-                    {[["part7", "Part 7", "จับใจความ"], ["part6", "Part 6", "เติมย่อหน้า"], ["mix", "สุ่ม", "สลับ 6/7"]].map(([id, lbl, sub]) => {
+                    {[["part7", "Part 7", "จับใจความ"], ["part6", "Part 6", "เติมย่อหน้า"], ["mix", "รวม", "สลับ 6/7"]].map(([id, lbl, sub]) => {
                       const on = readType === id;
                       return (
                         <button key={id} onClick={() => chooseReadType(id)} disabled={st.generating}
@@ -4109,7 +4235,7 @@ function App() {
                     ? <><span className="spin" style={{ width: 16, height: 16, border: "2px solid #fff", borderTopColor: "transparent", borderRadius: "50%", display: "inline-block" }} /> กำลังสร้างชุดฝึก…</>
                     : (needsKey && !hasKey)
                     ? <>🔒 สร้างชุดใหม่ต้องใส่ API key</>
-                    : <>✨ สร้างชุดฝึกอ่านใหม่ ({readType === "part6" ? "Part 6" : readType === "mix" ? "สุ่ม 6/7" : "Part 7"})</>}
+                    : <>✨ สร้างชุดฝึกอ่านใหม่ ({readType === "part6" ? "Part 6" : readType === "mix" ? "รวม 6/7" : "Part 7"})</>}
                 </button>
                 {st.genErr && <div style={{ color: C.red, fontSize: 12.5, marginBottom: 10, lineHeight: 1.5, wordBreak: "break-word", background: C.redBg, border: `1px solid ${C.red}`, borderRadius: 9, padding: "8px 10px" }}>{st.genErr}</div>}
                 {/* unified review zone (Reading): SRS-due primary, all-weak fallback */}
@@ -4158,14 +4284,18 @@ function App() {
                 {/* คลังข้อสอบ: passages saved from previous generations (never lost) */}
                 {(() => {
                   // hide legacy/empty entries (no passage text or no questions) — they can't be replayed
-                  const passages = Object.values(st.data || {})
+                  let passages = Object.values(st.data || {})
                     .filter(p => p && p.transcript && (p.questions || []).length > 0)
                     .sort((a, b) => (b.gen || 0) - (a.gen || 0));
+                  // filter the bank to the currently-selected part (รวม = show all)
+                  const wantPart = readType === "part6" ? "Part 6" : readType === "part7" ? "Part 7" : null;
+                  if (wantPart) passages = passages.filter(p => (p.ptype || "Part 7") === wantPart);
                   if (!passages.length) return null;
+                  const scopeLbl = wantPart ? wantPart : "ทุกพาร์ท";
                   return (
                     <div style={{ marginTop: 4 }}>
                       <div style={{ fontSize: 12.5, color: C.sub, fontWeight: 600, marginBottom: 8 }}>
-                        📚 คลังข้อสอบที่เคยสร้าง ({passages.length} ชุด) — แตะเพื่อทำซ้ำ
+                        📚 คลังข้อสอบที่เคยสร้าง · {scopeLbl} ({passages.length} ชุด) — แตะเพื่อทำซ้ำ
                       </div>
                       <div style={{ display: "grid", gap: 8 }}>
                         {passages.map(p => {
@@ -4247,16 +4377,19 @@ function App() {
                       <div style={{ fontWeight: 600, color: picked === item.answer ? C.green : C.red, marginBottom: 10 }}>
                         {picked === item.answer ? "ถูกต้อง! 🎉" : `ยังไม่ใช่ — คำตอบคือ ${item.answer}`}
                       </div>
-                      <div style={{ background: "#fbf6ec", border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", fontSize: 14, lineHeight: 1.65, marginBottom: 12 }}>
-                        <b style={{ color: C.accent }}>อธิบาย:</b> {item.explain}
-                      </div>
-                      {/* rating — same model as Grammar/Vocab; keyed by the question's stable bank id */}
-                      <RatingRow mode="listening" current={st.ratings[item.id]} onRate={s => rateReading(item.id, s)} small />
-                      <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", marginTop: 12 }}>
+                      {/* rating + next FIRST (same order as Grammar) so the user can rate & move on
+                          without scrolling past a long explanation on mobile */}
+                      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
+                        <div style={{ flex: 1, minWidth: 200 }}>
+                          <RatingRow mode="listening" current={st.ratings[item.id]} onRate={s => rateReading(item.id, s)} small />
+                        </div>
                         <button onClick={nextLQ}
-                          style={{ background: C.accent, color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontSize: 15, fontWeight: 700, boxShadow: "0 6px 16px -8px rgba(191,77,40,.8)" }}>
+                          style={{ flex: "0 0 auto", background: C.accent, color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontSize: 15, fontWeight: 700, boxShadow: "0 6px 16px -8px rgba(191,77,40,.8)" }}>
                           {v.pos + 1 >= v.deck.length ? "จบ" : "→"}
                         </button>
+                      </div>
+                      <div style={{ background: "#fbf6ec", border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", fontSize: 14, lineHeight: 1.65 }}>
+                        <b style={{ color: C.accent }}>อธิบาย:</b> {item.explain}
                       </div>
                     </div>
                   )}
@@ -4383,7 +4516,7 @@ function App() {
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ fontSize: 12.5, color: C.sub, marginBottom: 6 }}>เลือกแนวข้อสอบ</div>
                   <div style={{ display: "flex", background: "#efe7d7", borderRadius: 10, padding: 3, gap: 3 }}>
-                    {[["part2", "Part 2", "ถาม-ตอบ"], ["part3", "Part 3", "บทสนทนา"], ["part4", "Part 4", "บทพูด"], ["mix", "สุ่ม", "3/4"]].map(([id, lbl, sub]) => {
+                    {[["part2", "Part 2", "ถาม-ตอบ"], ["part3", "Part 3", "บทสนทนา"], ["part4", "Part 4", "บทพูด"], ["mix", "รวม", "3/4"]].map(([id, lbl, sub]) => {
                       const on = audioType === id;
                       return (
                         <button key={id} onClick={() => chooseAudioType(id)} disabled={st.generating}
@@ -4419,7 +4552,7 @@ function App() {
                     ? <><span className="spin" style={{ width: 16, height: 16, border: "2px solid #fff", borderTopColor: "transparent", borderRadius: "50%", display: "inline-block" }} /> กำลังสร้างชุดฝึก…</>
                     : (needsKey && !hasKey)
                     ? <>🔒 สร้างชุดใหม่ต้องใส่ API key</>
-                    : <>✨ สร้างชุดฝึกฟังใหม่ ({audioType === "part2" ? "Part 2" : audioType === "part4" ? "Part 4" : audioType === "mix" ? "สุ่ม 3/4" : "Part 3"})</>}
+                    : <>✨ สร้างชุดฝึกฟังใหม่ ({audioType === "part2" ? "Part 2" : audioType === "part4" ? "Part 4" : audioType === "mix" ? "รวม 3/4" : "Part 3"})</>}
                 </button>
                 {!TTS_OK && <div style={{ fontSize: 11.5, color: C.sub, background: "#fcf8f0", border: `1px solid ${C.line}`, borderRadius: 9, padding: "8px 10px", marginBottom: 10, lineHeight: 1.5 }}>ℹ️ โหมดนี้เล่นเสียงไม่ได้ (เปิดบนหน้าเว็บจริงถึงจะมีเสียง) — ระหว่างนี้กด "ดูสคริปต์" เพื่ออ่านบทแทนได้</div>}
                 {st.genErr && <div style={{ color: C.red, fontSize: 12.5, marginBottom: 10, lineHeight: 1.5, wordBreak: "break-word", background: C.redBg, border: `1px solid ${C.red}`, borderRadius: 9, padding: "8px 10px" }}>{st.genErr}</div>}
@@ -4468,14 +4601,20 @@ function App() {
                 })()}
                 {/* คลังบทฟัง: clips saved from previous generations (never lost) */}
                 {(() => {
-                  const clips = Object.values(st.data || {})
-                    .filter(p => p && p.transcript && (p.questions || []).length > 0)
+                  // Part 2 clips legitimately have an EMPTY transcript (the questions ARE the audio),
+                  // so accept a clip if it has questions AND (a transcript OR it is Part 2).
+                  let clips = Object.values(st.data || {})
+                    .filter(p => p && (p.questions || []).length > 0 && ((p.transcript && p.transcript.trim()) || p.ptype === "Part 2"))
                     .sort((a, b) => (b.gen || 0) - (a.gen || 0));
+                  // filter to the currently-selected part (รวม = show all) — mirrors Reading
+                  const wantPart = audioType === "part2" ? "Part 2" : audioType === "part3" ? "Part 3" : audioType === "part4" ? "Part 4" : null;
+                  if (wantPart) clips = clips.filter(p => (p.ptype || "Part 3") === wantPart);
                   if (!clips.length) return null;
+                  const scopeLbl = wantPart ? wantPart : "ทุกพาร์ท";
                   return (
                     <div style={{ marginTop: 4 }}>
                       <div style={{ fontSize: 12.5, color: C.sub, fontWeight: 600, marginBottom: 8 }}>
-                        📚 คลังบทฟังที่เคยสร้าง ({clips.length} ชุด) — แตะเพื่อฟังซ้ำ
+                        📚 คลังบทฟังที่เคยสร้าง · {scopeLbl} ({clips.length} ชุด) — แตะเพื่อฟังซ้ำ
                       </div>
                       <div style={{ display: "grid", gap: 8 }}>
                         {clips.map(p => {
@@ -4580,15 +4719,18 @@ function App() {
                       <div style={{ fontWeight: 600, color: picked === item.answer ? C.green : C.red, marginBottom: 10 }}>
                         {picked === item.answer ? "ถูกต้อง! 🎉" : `ยังไม่ใช่ — คำตอบคือ ${item.answer}`}
                       </div>
-                      <div style={{ background: "#fbf6ec", border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", fontSize: 14, lineHeight: 1.65, marginBottom: 12 }}>
-                        <b style={{ color: C.accent }}>อธิบาย:</b> {item.explain}
-                      </div>
-                      <RatingRow mode="audio" current={st.ratings[item.id]} onRate={s => rateAudio(item.id, s)} small />
-                      <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", marginTop: 12 }}>
+                      {/* rating + next FIRST (same order as Grammar) to avoid long scrolls on mobile */}
+                      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
+                        <div style={{ flex: 1, minWidth: 200 }}>
+                          <RatingRow mode="audio" current={st.ratings[item.id]} onRate={s => rateAudio(item.id, s)} small />
+                        </div>
                         <button onClick={nextAQ}
-                          style={{ background: C.accent, color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontSize: 15, fontWeight: 700, boxShadow: "0 6px 16px -8px rgba(191,77,40,.8)" }}>
+                          style={{ flex: "0 0 auto", background: C.accent, color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontSize: 15, fontWeight: 700, boxShadow: "0 6px 16px -8px rgba(191,77,40,.8)" }}>
                           {v.pos + 1 >= v.deck.length ? "จบ" : "→"}
                         </button>
+                      </div>
+                      <div style={{ background: "#fbf6ec", border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", fontSize: 14, lineHeight: 1.65 }}>
+                        <b style={{ color: C.accent }}>อธิบาย:</b> {item.explain}
                       </div>
                     </div>
                   )}
@@ -4675,6 +4817,35 @@ function App() {
                 <div style={{ fontSize: 11, color: C.sub, marginTop: 10, lineHeight: 1.5, textAlign: "center" }}>
                   หมดเวลาแล้วจะ <b>เตือน</b> แต่ยังทำต่อได้ — กด "ส่งคำตอบ" เมื่อพร้อม
                 </div>
+
+                {/* คลังชุดสอบที่เคยสร้าง — ทำซ้ำได้โดยไม่ต้องเจนใหม่ (ประหยัด token) */}
+                {(() => {
+                  const saved = Object.values(examBank || {}).sort((a, b) => (b.gen || 0) - (a.gen || 0));
+                  if (!saved.length) return null;
+                  return (
+                    <div style={{ marginTop: 20, borderTop: `1px solid ${C.line}`, paddingTop: 16 }}>
+                      <div style={{ fontSize: 12.5, color: C.sub, fontWeight: 600, marginBottom: 8 }}>
+                        🗂 ชุดสอบที่เคยสร้าง ({saved.length} ชุด) — แตะเพื่อทำซ้ำ ไม่ต้องเจนใหม่
+                      </div>
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {saved.map(ex => {
+                          const mins = Math.round((ex.durationMs || 0) / 60000);
+                          return (
+                            <div key={ex.id} style={{ display: "flex", alignItems: "stretch", gap: 8, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 11, overflow: "hidden" }}>
+                              <button onClick={() => replaySavedExam(ex.id)}
+                                style={{ flex: 1, textAlign: "left", background: "none", border: "none", padding: "11px 13px", cursor: "pointer", minWidth: 0 }}>
+                                <div style={{ fontSize: 13, color: C.accent, fontWeight: 700, marginBottom: 3 }}>{examScopeLabel(ex.scope)} · {ex.n} ข้อ · {mins} นาที</div>
+                                <div style={{ fontSize: 11.5, color: C.sub, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{(ex.parts || []).join(" + ")}</div>
+                              </button>
+                              <ConfirmBtn onConfirm={() => deleteSavedExam(ex.id)} idleLabel="🗑" confirmLabel="ลบ?"
+                                style={{ flex: "0 0 auto", alignSelf: "center", marginRight: 8, padding: "8px 10px", fontSize: 13, borderRadius: 9 }} />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             );
           }
@@ -5210,7 +5381,7 @@ function App() {
                 )}
                 {mode === "vocab" && (
                   <div style={{ position: "relative", marginBottom: 10 }}>
-                    <input value={vocabSearch} onChange={e => setVocabSearch(e.target.value)} placeholder="ค้นหาคำ (อังกฤษ หรือ คำแปลไทย)…"
+                    <input value={vocabSearch} onChange={e => { setVocabSearch(e.target.value); setBankShow(60); }} placeholder="ค้นหาคำ (อังกฤษ หรือ คำแปลไทย)…"
                       style={{ width: "100%", boxSizing: "border-box", padding: "11px 36px 11px 14px", fontSize: 14, borderRadius: 11,
                         border: `1.5px solid ${C.line}`, background: "#fff", color: C.ink, outline: "none", fontFamily: "inherit" }} />
                     {vocabSearch ? (
@@ -5228,12 +5399,29 @@ function App() {
                         color: st.bankFilter === id ? C.accent : C.sub, borderRadius: 20, padding: "6px 13px", fontSize: 12.5, fontWeight: 600 }}>{lbl}</button>
                   ))}
                 </div>
+                {/* VOCAB: CEFR level chips — pick a level to narrow the list (also keeps the render light) */}
+                {mode === "vocab" && vocabLevelCounts && (
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+                    {[["all", "ทั้งหมด"], ["A1", "A1"], ["A2", "A2"], ["B1", "B1"], ["B2", "B2"], ["C1", "C1"], ["C2", "C2"], ["none", "ไม่ระบุ"]]
+                      .filter(([id]) => id === "all" || (vocabLevelCounts[id] || 0) > 0)
+                      .map(([id, lbl]) => {
+                        const on = bankLevel === id;
+                        return (
+                          <button key={id} onClick={() => { setBankLevel(id); setBankShow(60); }}
+                            style={{ border: `1px solid ${on ? C.accent : C.line}`, background: on ? C.accent : "#fff",
+                              color: on ? "#fff" : C.sub, borderRadius: 20, padding: "6px 12px", fontSize: 12, fontWeight: 700 }}>
+                            {lbl} <span style={{ fontWeight: 500, opacity: 0.8 }}>{vocabLevelCounts[id] || 0}</span>
+                          </button>
+                        );
+                      })}
+                  </div>
+                )}
                 <div style={{ display: "grid", gap: 10 }}>
                   {bankItems.length === 0 ? (
                     <div style={{ textAlign: "center", color: C.sub, fontSize: 13, padding: "26px 12px", border: `1px dashed ${C.line}`, borderRadius: 12, lineHeight: 1.6 }}>
                       {mode === "vocab" && (vocabSearch || "").trim() ? <>ไม่พบคำที่ตรงกับ “{vocabSearch.trim()}”</> : "ยังไม่มีรายการในกลุ่มนี้"}
                     </div>
-                  ) : bankItems.map(x => mode === "vocab" ? (
+                  ) : bankItems.slice(0, bankShow).map(x => mode === "vocab" ? (
                       <div key={x.w} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "13px 14px" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flexWrap: "wrap" }}>
@@ -5279,6 +5467,12 @@ function App() {
                       </div>
                     ))}
                 </div>
+                {bankItems.length > bankShow && (
+                  <button onClick={() => setBankShow(s => s + 80)}
+                    style={{ width: "100%", marginTop: 12, background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "11px", fontSize: 13.5, fontWeight: 700 }}>
+                    ดูเพิ่ม · เหลืออีก {bankItems.length - bankShow} {mode === "vocab" ? "คำ" : "ข้อ"}
+                  </button>
+                )}
               </>
             )}
           </div>
