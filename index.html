@@ -16,7 +16,7 @@ const { useState, useEffect, useRef } = React;
 
 // App version — bump on every release. Shown as a small badge (tap to confirm the
 // browser is running the latest build, not a stale cached one).
-const VERSION = "0.45.0";
+const VERSION = "0.46.0";
 
 // ============================================================
 //  ENVIRONMENT DETECTION
@@ -308,6 +308,10 @@ const GOAL_KEY = "toeic_goal_v1"; // daily goal: how many cards/questions to do 
 const EXAM_BANK_KEY = "toeic_exam_bank_v1"; // saved mock-exam decks for replay (avoid re-gen): { [id]: {scope,parts,deck,n,durationMs,gen} }
 const GOAL_OPTIONS = [10, 20, 30, 50];
 const BACKUP_PREFIX = "TZv1:"; // marks a compressed backup string
+// Set by importData on a v3 restore: how many bankRefs keys were absent from this build's
+// VOCAB_BANK (i.e. words that existed when the backup was made but were later removed/renamed).
+// Read once by runRestore to warn the user, then it's stale until the next restore.
+let lastRestoreBankMissing = 0;
 
 // ---- Text-to-speech (pronunciation) ----
 // Uses the browser's built-in speechSynthesis — free, no network. Hidden if unsupported.
@@ -407,12 +411,17 @@ function fnv1a(str) {
 // key order, so the checksum verifies the actual data payload (not formatting).
 function canonicalBackup(obj) {
   const v = obj.vocab || {}, g = obj.grammar || {}, l = obj.listening || {};
-  return JSON.stringify([
+  // NOTE on backward-compat: v3 backups carry `v.bankRefs` (bank-word keys) and a smaller
+  // `v.words` (custom words only). We append bankRefs at the END only when it exists, so OLD
+  // backups (no bankRefs) hash exactly as before — their checksum stays valid.
+  const base = [
     obj.day,
     v.words, v.ratings, v.genCount, v.missQ,
     g.items, g.ratings, g.genCount,
     l.lessons, l.ratings, l.genCount, l.missQ,
-  ]);
+  ];
+  if (v.bankRefs) base.push(v.bankRefs); // v3 only; old backups skip this → identical legacy hash
+  return JSON.stringify(base);
 }
 
 // compress a JSON string -> "TZv1:<base64>"; falls back to raw JSON if pako missing
@@ -2501,6 +2510,14 @@ const VOCAB_BANK = [
   {"w": "turnover rate", "pos": "n.", "ipa": "/ˈtɜːnəʊvə reɪt/", "th": "อัตราการลาออกของพนักงาน", "def": "the rate at which staff leave and are replaced", "ex": "A high turnover rate raises training costs.", "level": "advanced", "cefr": "C1"},
 ];
 
+// key→entry lookup for the static bank. Used to rebuild full word objects from a v3 backup's
+// `bankRefs` (which stores only keys). Key = headword lowercased+trimmed, matching the seed loop.
+const VOCAB_BANK_BY_KEY = (() => {
+  const m = {};
+  for (const e of VOCAB_BANK) m[e.w.toLowerCase().trim()] = e;
+  return m;
+})();
+
 // blank state per mode
 const emptyMode = () => ({
   data: {}, ratings: {}, genCount: 0, missQ: {}, srs: {},
@@ -3534,11 +3551,24 @@ function App() {
 
   // ---- backup / restore (export/import the whole app state as a portable text blob) ----
   function buildBackupJson() {
+    // v3: vocab words that came from the static VOCAB_BANK (gen===0) are NOT stored in full —
+    // we keep only their keys in `bankRefs` and rebuild them from the bundled bank on restore.
+    // AI-generated words (gen>=1) live only in the user's data, so they are still saved in full
+    // under `words`. This shrinks the backup massively (bank words carry ipa/def/ex/th that are
+    // already baked into the code). Old backups (no bankRefs, full words) still restore via the
+    // legacy path. See importData.
+    const vWords = M.current.vocab.data || {};
+    const bankRefs = [];
+    const customWords = {};
+    for (const [k, w] of Object.entries(vWords)) {
+      if (w && (w.gen === 0 || w.gen === "0")) bankRefs.push(k);
+      else customWords[k] = w;
+    }
     const payload = {
       _toeic_trainer: 1,
-      _v: 2, // backup format version (extra fields below are NOT covered by the legacy checksum)
+      _v: 3, // backup format version (extra fields below are NOT covered by the legacy checksum)
       day: dayCount,
-      vocab: { words: M.current.vocab.data, ratings: M.current.vocab.ratings, genCount: M.current.vocab.genCount, missQ: M.current.vocab.missQ },
+      vocab: { words: customWords, bankRefs, ratings: M.current.vocab.ratings, genCount: M.current.vocab.genCount, missQ: M.current.vocab.missQ },
       grammar: { items: M.current.grammar.data, ratings: M.current.grammar.ratings, genCount: M.current.grammar.genCount },
       listening: { lessons: M.current.listening.data, ratings: M.current.listening.ratings, genCount: M.current.listening.genCount, missQ: M.current.listening.missQ },
       audio: { clips: M.current.audio.data, ratings: M.current.audio.ratings, genCount: M.current.audio.genCount, missQ: M.current.audio.missQ },
@@ -3596,6 +3626,23 @@ function App() {
     const mergeMap = (existing, incoming, existingWins) =>
       existingWins ? { ...(incoming || {}), ...(existing || {}) } : { ...(existing || {}), ...(incoming || {}) };
     try {
+      // v3 restore: rebuild full bank words from `bankRefs` (keys only) and merge with the
+      // custom words stored in `vocab.words`. Old backups have no bankRefs, so this block is a
+      // no-op for them and the legacy path below runs unchanged.
+      let bankMissing = 0;
+      if (obj.vocab && Array.isArray(obj.vocab.bankRefs)) {
+        const rebuilt = { ...(obj.vocab.words || {}) }; // custom (gen>=1) words kept as-is
+        for (const key of obj.vocab.bankRefs) {
+          const e = VOCAB_BANK_BY_KEY[key];
+          if (e) {
+            // only add if a custom word didn't already claim this key (custom wins)
+            if (!rebuilt[key]) rebuilt[key] = { w: key, pos: e.pos, ipa: e.ipa, th: e.th, def: e.def, ex: e.ex, level: e.level, cefr: e.cefr, gen: 0, model: "คลังคำ" };
+          } else {
+            bankMissing++; // key not in this build's bank (word removed/renamed) — seed loop can't help, just count
+          }
+        }
+        obj.vocab.words = rebuilt; // hand the fully-expanded map to the normal restore below
+      }
       if (obj.vocab) {
         M.current.vocab.data = isMerge ? mergeRenumberGen(M.current.vocab.data, obj.vocab.words) : (obj.vocab.words || {});
         M.current.vocab.ratings = isMerge ? mergeMap(M.current.vocab.ratings, obj.vocab.ratings, true) : (obj.vocab.ratings || {});
@@ -3666,6 +3713,7 @@ function App() {
         persistStats();
       }
       rerender();
+      lastRestoreBankMissing = bankMissing; // surfaced by runRestore in the success toast
       return null; // success
     } catch (e) { return "กู้คืนไม่สำเร็จ ลองตรวจโค้ดอีกครั้ง"; }
   }
@@ -3678,8 +3726,17 @@ function App() {
     setVquiz(null); setLquiz(null); setAquiz(null);
     setVSection("cards"); setGSection("drill"); setLSection("strategy"); setASection("strategy");
     cur().tab = "study";
-    setBackup(b => ({ ...b, msg: (mode === "merge" ? "รวมข้อมูลสำเร็จ ✓" : "กู้คืนสำเร็จ ✓") + " กำลังกลับหน้าแรก…" }));
-    setTimeout(() => setBackup(null), 900);
+    const miss = lastRestoreBankMissing; lastRestoreBankMissing = 0;
+    const okMsg = (mode === "merge" ? "รวมข้อมูลสำเร็จ ✓" : "กู้คืนสำเร็จ ✓");
+    if (miss > 0) {
+      // progress (rating/SRS) for these words is kept; only their card content couldn't be
+      // rebuilt because they're not in this app version's word bank.
+      setBackup(b => ({ ...b, msg: okMsg + ` (หมายเหตุ: มี ${miss} คำในคลังที่ไม่พบในเวอร์ชันนี้ — ความคืบหน้ายังอยู่ แต่ตัวคำอาจไม่แสดงจนกว่าจะอัปเดตคลัง)` }));
+      setTimeout(() => setBackup(null), 2600);
+    } else {
+      setBackup(b => ({ ...b, msg: okMsg + " กำลังกลับหน้าแรก…" }));
+      setTimeout(() => setBackup(null), 900);
+    }
   }
 
   // Read the clipboard directly via the JS API. This bypasses the mobile <textarea>
