@@ -16,7 +16,7 @@ const { useState, useEffect, useRef } = React;
 
 // App version — bump on every release. Shown as a small badge (tap to confirm the
 // browser is running the latest build, not a stale cached one).
-const VERSION = "0.46.4";
+const VERSION = "0.48.0";
 
 // ============================================================
 //  ENVIRONMENT DETECTION
@@ -85,6 +85,11 @@ const NEW_META = { color: C.sub, bg: "#efe7d7" };
 
 const STORAGE_KEY = { vocab: "toeic_vocab_ai_v1", grammar: "toeic_grammar_ai_v1", listening: "toeic_listening_ai_v1", audio: "toeic_audio_ai_v1" };
 const BATCH = { vocab: 10, grammar: 5, listening: 3, audio: 2 };
+// Max questions per REVIEW round (so re-reviewing a big backlog doesn't dump everything at once).
+// Sized to each part's generated set; reading/listening use their largest sub-part so we don't
+// trim mixed-passage reviews too aggressively (Reading: Part 6 = 4; Listening: Part 2 = 6).
+// TODO(settings): make these user-adjustable in the upcoming Settings screen.
+const REVIEW_CAP = { vocab: 10, grammar: 5, listening: 4, audio: 6 };
 
 // ---- Spaced repetition (SRS) ----
 // Each rated item gets a "due" date. When due arrives, it surfaces for review.
@@ -365,6 +370,13 @@ const DIFFICULTIES = [
 ];
 const DEFAULT_DIFFICULTY = "nearnative";
 function diffById(id) { return DIFFICULTIES.find(d => d.id === id) || DIFFICULTIES[DIFFICULTIES.length - 1]; }
+// difficulty chip data for a saved item/set: real icon+label if it has a stored difficulty,
+// otherwise a muted "ไม่ระบุ" (older items generated before difficulty was recorded).
+function diffBadge(difficultyId) {
+  const d = DIFFICULTIES.find(x => x.id === difficultyId);
+  if (d) return { icon: d.icon, label: d.label, known: true };
+  return { icon: "➖", label: "ไม่ระบุ", known: false };
+}
 // Normalize a quiz ptype into a real TOEIC part label for session logging, or null.
 // Review rounds use Thai labels ("ถึงกำหนดทบทวน" / "ทวนข้อที่ยังไม่แม่น") and mix parts,
 // so we don't tag those with a single part.
@@ -2600,6 +2612,7 @@ function App() {
   const [vSearchFocus, setVSearchFocus] = useState(false); // search box focused → show recent-search zero state
   const [bankLevel, setBankLevel] = useState("all"); // vocab bank CEFR filter: all|A1|A2|B1|B2|C1|C2|none
   const [bankShow, setBankShow] = useState(60); // how many bank rows to render (perf: avoid dumping all 952 at once)
+  const [missShow, setMissShow] = useState(60); // how many missed-question rows to render (perf, same idea)
   const [showSettings, setShowSettings] = useState(false); // settings modal (engine + API key)
   const [keyTick, setKeyTick] = useState(0); // bump to recompute key presence after save/delete
   const [keyDraft, setKeyDraft] = useState(""); // draft value in the settings input
@@ -2922,18 +2935,32 @@ function App() {
     st.srs = { ...st.srs, [id]: nextSrs(st.srs[id], status, now) };
   }
   // how many rated items in a mode are due for review right now
-  function dueCountFor(modeName) {
+  function dueCountFor(modeName, scopeParts) {
     const st = M.current[modeName];
     const now = Date.now();
     if (modeName === "listening" || modeName === "audio") {
+      // count SETS (passages) that have >=1 due question — matches set-based review
+      const defPart = modeName === "audio" ? "Part 3" : "Part 7";
       let n = 0;
-      for (const p of Object.values(st.data || {})) for (const q of (p.questions || [])) {
-        const r = st.ratings[q.id]; if (r && isDue(st.srs[q.id], now)) n++;
+      for (const p of Object.values(st.data || {})) {
+        if (scopeParts && !scopeParts.includes(p.ptype || defPart)) continue;
+        if ((p.questions || []).some(q => st.ratings[q.id] && isDue(st.srs[q.id], now))) n++;
       }
       return n;
     }
     const idOf = x => (modeName === "vocab" ? x.w : x.id);
     return Object.values(st.data).filter(x => { const id = idOf(x); return st.ratings[id] && isDue(st.srs[id], now); }).length;
+  }
+  // count SETS containing not-yet-mastered (forgot/sort) questions, scope-aware (Reading/Listening)
+  function weakCountFor(modeName, scopeParts) {
+    const st = M.current[modeName];
+    const defPart = modeName === "audio" ? "Part 3" : "Part 7";
+    let n = 0;
+    for (const p of Object.values(st.data || {})) {
+      if (scopeParts && !scopeParts.includes(p.ptype || defPart)) continue;
+      if ((p.questions || []).some(q => st.ratings[q.id] === "forgot" || st.ratings[q.id] === "sort")) n++;
+    }
+    return n;
   }
   // build a review deck of only the items that are SRS-due (any rating),
   // ordered by urgency: forgot first, then sort, then known (shuffled within each tier)
@@ -2944,20 +2971,49 @@ function App() {
     const due = Object.values(st.data).filter(x => { const id = idOf(x); return st.ratings[id] && isDue(st.srs[id], now); });
     const tiers = { forgot: [], sort: [], known: [] };
     due.forEach(x => { const r = st.ratings[idOf(x)]; (tiers[r] || tiers.known).push(x); });
-    const built = [...shuffle(tiers.forgot), ...shuffle(tiers.sort), ...shuffle(tiers.known)].slice(0, 40);
+    const built = [...shuffle(tiers.forgot), ...shuffle(tiers.sort), ...shuffle(tiers.known)].slice(0, REVIEW_CAP[mode] || 40);
     st.deck = built; st.pos = 0; st.flipped = false; st.pickedMap = {}; st.tab = "study";
     if (mode === "grammar") { st.startTime = Date.now(); st.endTime = null; st.logged = false; }
     rerender(); scrollToCards();
   }
-  // Reading: build an SRS-due review deck from the saved passage bank (urgency-ordered)
-  function buildReadingDue() {
-    const st = M.current.listening;
+  // Shared builder for passage-based review (Reading & Listening). Reviews whole SETS, not loose
+  // questions: pick passages that contain >=1 qualifying question, order by urgency (most weak/due
+  // questions first), cap to REVIEW_CAP sets, then include EVERY question of each chosen passage
+  // (you're reading/listening to the whole thing anyway). Questions stay grouped by passage so the
+  // passage is read once. `scopeParts` limits to the selected sub-part(s); null = all.
+  function buildPassageReviewDeck(modeKey, qualifies, scopeParts) {
+    const st = M.current[modeKey];
     const now = Date.now();
-    const tiers = { forgot: [], sort: [], known: [] };
-    for (const p of Object.values(st.data || {})) for (const q of (p.questions || [])) {
-      if (st.ratings[q.id] && isDue(st.srs[q.id], now)) { const r = st.ratings[q.id]; (tiers[r] || tiers.known).push({ ...q, transcript: p.transcript, _ptype: p.ptype }); }
-    }
-    const deck = [...shuffle(tiers.forgot), ...shuffle(tiers.sort), ...shuffle(tiers.known)];
+    const passages = Object.values(st.data || {}).filter(p => {
+      if (scopeParts && !scopeParts.includes(p.ptype || (modeKey === "audio" ? "Part 3" : "Part 7"))) return false;
+      return (p.questions || []).some(q => qualifies(q, st, now));
+    });
+    // urgency = number of qualifying questions in the passage (more weak/due → review sooner)
+    passages.sort((a, b) =>
+      (b.questions || []).filter(q => qualifies(q, st, now)).length -
+      (a.questions || []).filter(q => qualifies(q, st, now)).length);
+    const chosen = passages.slice(0, REVIEW_CAP[modeKey] || 3);
+    const deck = [];
+    for (const p of chosen) for (const q of (p.questions || [])) deck.push({ ...q, transcript: p.transcript, _transcript: p.transcript, _ptype: p.ptype });
+    return deck;
+  }
+  // sub-part scope for the current selector (null = all / mix uses the parts the app actually mixes)
+  function readingScopeParts() { return readType === "part6" ? ["Part 6"] : readType === "part7" ? ["Part 7"] : ["Part 6", "Part 7"]; }
+  function audioScopeParts() { return audioType === "part2" ? ["Part 2"] : audioType === "part3" ? ["Part 3"] : audioType === "part4" ? ["Part 4"] : ["Part 3", "Part 4"]; }
+  // overall memory status of a saved passage/clip SET, from its questions' ratings:
+  // none rated → "ใหม่"; any weak (forgot/sort) → "กำลังทบทวน"; all rated & all known → "เข้าใจแล้ว"
+  function passageSetStatus(p, st) {
+    const qs = p.questions || [];
+    const rated = qs.map(q => st.ratings[q.id]).filter(Boolean);
+    if (!rated.length) return { label: "ใหม่", color: C.sub, bg: C.line };
+    if (rated.some(r => r === "forgot" || r === "sort")) return { label: "กำลังทบทวน", color: C.amber, bg: C.amberBg };
+    if (rated.length === qs.length && rated.every(r => r === "known")) return { label: "เข้าใจแล้ว", color: C.green, bg: C.greenBg };
+    return { label: "กำลังทบทวน", color: C.amber, bg: C.amberBg };
+  }
+
+  // Reading: build an SRS-due review deck from the saved passage bank (whole sets, urgency-ordered)
+  function buildReadingDue() {
+    const deck = buildPassageReviewDeck("listening", (q, st, now) => st.ratings[q.id] && isDue(st.srs[q.id], now), readingScopeParts());
     if (!deck.length) return;
     setLquiz({ passageId: null, ptype: "ถึงกำหนดทบทวน", transcript: null, model: "", deck, pos: 0, picked: {}, start: Date.now(), end: null, isReview: true });
     setLSection("practice");
@@ -3068,7 +3124,7 @@ function App() {
           if (!it || !it.q || !it.options || !it.answer) return;
           const sq = shuffleQuestionOptions(it);
           const id = `g${newGen}-${i}-${Math.random().toString(36).slice(2, 6)}`;
-          const obj = { id, q: sq.q, options: sq.options, answer: sq.answer, point: sq.point || "", explain: sq.explain || "", gen: newGen, model: mdl.label };
+          const obj = { id, q: sq.q, options: sq.options, answer: sq.answer, point: sq.point || "", explain: sq.explain || "", gen: newGen, model: mdl.label, difficulty };
           nextData[id] = obj; fresh.push(obj);
         });
       }
@@ -3093,7 +3149,7 @@ function App() {
     const idOf = x => (mode === "vocab" ? x.w : x.id);
     const forgot = all.filter(x => st.ratings[idOf(x)] === "forgot");
     const sort = all.filter(x => st.ratings[idOf(x)] === "sort");
-    const built = shuffle([...forgot.slice(0, 20), ...sort.slice(0, 10)]);
+    const built = shuffle([...forgot, ...sort]).slice(0, REVIEW_CAP[mode] || 30);
     st.deck = built; st.pos = 0; st.flipped = false; st.pickedMap = {}; st.tab = "study";
     if (mode === "grammar") { st.startTime = Date.now(); st.endTime = null; st.logged = false; }
     rerender();
@@ -3182,8 +3238,12 @@ function App() {
   function buildMissedQuiz() {
     const missed = Object.values(M.current.vocab.missQ || {});
     if (!missed.length) return;
+    // most-forgettable first: order by SRS due (earlier due = more overdue), then cap the round
+    // so a big backlog doesn't dump everything at once.
+    const srs = M.current.vocab.srs || {};
+    const ordered = [...missed].sort((a, b) => ((srs[a.word]?.due) || 0) - ((srs[b.word]?.due) || 0)).slice(0, REVIEW_CAP.vocab);
     // re-shuffle options each review attempt
-    const deck = shuffle(missed).map((q, i) => {
+    const deck = ordered.map((q, i) => {
       const letters = ["A", "B", "C", "D"];
       const correctText = q.options[q.answer];
       const opts = shuffle(Object.values(q.options));
@@ -3253,7 +3313,7 @@ function App() {
       // SAVE the whole passage to the persistent bank (so a generated reading is never lost —
       // it cost tokens to make). Stored as one bank entry keyed by passageId, holding the
       // passage text + its questions. The bank powers "คลังข้อสอบ" and review-by-rating.
-      st.data = { ...st.data, [passageId]: { id: passageId, transcript: obj.transcript, ptype, model: mdl.label, questions: deck, gen: Date.now(), category } };
+      st.data = { ...st.data, [passageId]: { id: passageId, transcript: obj.transcript, ptype, model: mdl.label, questions: deck, gen: Date.now(), category, difficulty } };
       await persist("listening");
       touchStreak(); updateHistory();
       setLquiz({ passageId, ptype, transcript: obj.transcript, model: mdl.label, deck, pos: 0, picked: {}, start: Date.now(), end: null });
@@ -3291,21 +3351,12 @@ function App() {
   }
   function chooseLQ(id, key) { if (lquiz && lquiz.picked[id]) return; bumpDaily(); setLquiz(v => (v.picked[id] ? v : { ...v, picked: { ...v.picked, [id]: key } })); }
   function nextLQ() { setLquiz(v => ({ ...v, pos: Math.min(v.pos + 1, v.deck.length) })); }
-  // build a review deck from Reading questions the user rated "forgot"/"sort" (not yet mastered),
-  // pulling them straight out of the saved passage bank — same logic as Grammar review.
+  // build a review deck from Reading passages containing not-yet-mastered (forgot/sort) questions —
+  // whole sets, scope-aware, capped. See buildPassageReviewDeck.
   function buildReadingReview() {
-    const st = M.current.listening;
-    const due = [];
-    for (const p of Object.values(st.data || {})) {
-      for (const q of (p.questions || [])) {
-        const r = st.ratings[q.id];
-        if (r === "forgot" || r === "sort") due.push({ ...q, _transcript: p.transcript, _ptype: p.ptype });
-      }
-    }
-    if (!due.length) return;
-    const deck = shuffle(due);
-    // review shows each question with its own passage (grouped review)
-    setLquiz({ passageId: null, ptype: "ทวนข้อที่ยังไม่แม่น", transcript: null, model: "", deck: deck.map(q => ({ ...q, transcript: q._transcript })), pos: 0, picked: {}, start: Date.now(), end: null, isReview: true });
+    const deck = buildPassageReviewDeck("listening", (q, st) => st.ratings[q.id] === "forgot" || st.ratings[q.id] === "sort", readingScopeParts());
+    if (!deck.length) return;
+    setLquiz({ passageId: null, ptype: "ทวนข้อที่ยังไม่แม่น", transcript: null, model: "", deck, pos: 0, picked: {}, start: Date.now(), end: null, isReview: true });
     setLSection("practice");
   }
 
@@ -3336,7 +3387,7 @@ function App() {
       });
       if (!deck.length) throw new Error("คำตอบจาก AI ถูกตัดกลางคัน เลยไม่มีคำถามที่สมบูรณ์ — ลองกดสร้างใหม่อีกครั้งครับ");
       const transcript = isP2 ? "" : obj.transcript;
-      st.data = { ...st.data, [clipId]: { id: clipId, transcript, ptype, model: mdl.label, questions: deck, gen: Date.now(), category } };
+      st.data = { ...st.data, [clipId]: { id: clipId, transcript, ptype, model: mdl.label, questions: deck, gen: Date.now(), category, difficulty } };
       await persist("audio");
       touchStreak(); updateHistory();
       setRevealScript(false);
@@ -3372,33 +3423,19 @@ function App() {
   }
   function chooseAQ(id, key) { if (aquiz && aquiz.picked[id]) return; bumpDaily(); setAquiz(v => (v.picked[id] ? v : { ...v, picked: { ...v.picked, [id]: key } })); }
   function nextAQ() { setAquiz(v => ({ ...v, pos: Math.min(v.pos + 1, v.deck.length) })); }
-  // Listening: SRS-due review deck from the saved clip bank (urgency-ordered)
+  // Listening: SRS-due review deck from the saved clip bank (whole sets, scope-aware, capped)
   function buildAudioDue() {
-    const st = M.current.audio;
-    const now = Date.now();
-    const tiers = { forgot: [], sort: [], known: [] };
-    for (const p of Object.values(st.data || {})) for (const q of (p.questions || [])) {
-      if (st.ratings[q.id] && isDue(st.srs[q.id], now)) { const r = st.ratings[q.id]; (tiers[r] || tiers.known).push({ ...q, transcript: p.transcript, _ptype: p.ptype }); }
-    }
-    const deck = [...shuffle(tiers.forgot), ...shuffle(tiers.sort), ...shuffle(tiers.known)];
+    const deck = buildPassageReviewDeck("audio", (q, st, now) => st.ratings[q.id] && isDue(st.srs[q.id], now), audioScopeParts());
     if (!deck.length) return;
     setRevealScript(false);
     setAquiz({ passageId: null, ptype: "ถึงกำหนดทบทวน", transcript: null, model: "", deck, pos: 0, picked: {}, start: Date.now(), end: null, isReview: true });
   }
-  // Listening: review deck of all not-yet-mastered (forgot/sort) questions
+  // Listening: review deck of clips containing not-yet-mastered (forgot/sort) questions
   function buildAudioReview() {
-    const st = M.current.audio;
-    const due = [];
-    for (const p of Object.values(st.data || {})) {
-      for (const q of (p.questions || [])) {
-        const r = st.ratings[q.id];
-        if (r === "forgot" || r === "sort") due.push({ ...q, _transcript: p.transcript, _ptype: p.ptype });
-      }
-    }
-    if (!due.length) return;
-    const deck = shuffle(due);
+    const deck = buildPassageReviewDeck("audio", (q, st) => st.ratings[q.id] === "forgot" || st.ratings[q.id] === "sort", audioScopeParts());
+    if (!deck.length) return;
     setRevealScript(false);
-    setAquiz({ passageId: null, ptype: "ทวนข้อที่ยังไม่แม่น", transcript: null, model: "", deck: deck.map(q => ({ ...q, transcript: q._transcript })), pos: 0, picked: {}, start: Date.now(), end: null, isReview: true });
+    setAquiz({ passageId: null, ptype: "ทวนข้อที่ยังไม่แม่น", transcript: null, model: "", deck, pos: 0, picked: {}, start: Date.now(), end: null, isReview: true });
   }
 
   // ---- TIMED MOCK EXAM ("สอบจริง") ----
@@ -4582,7 +4619,7 @@ function App() {
                   <div style={{ marginTop: 4 }}>
                     <div style={{ fontSize: 12.5, color: C.sub, fontWeight: 600, marginBottom: 8 }}>คลังข้อที่พลาด — กด ✓ เมื่อจำได้แล้วเพื่อเอาออก</div>
                     <div style={{ display: "grid", gap: 8 }}>
-                      {Object.values(M.current.vocab.missQ).map(q => (
+                      {Object.values(M.current.vocab.missQ).slice(0, missShow).map(q => (
                         <div key={q.word} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 11, padding: "11px 13px" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                             <span style={{ fontWeight: 600, fontSize: 15 }}>{q.word} <span style={{ color: C.accent, fontWeight: 500 }}>· {q.th}</span></span>
@@ -4591,6 +4628,12 @@ function App() {
                         </div>
                       ))}
                     </div>
+                    {missCount > missShow && (
+                      <button onClick={() => setMissShow(n => n + 60)}
+                        style={{ width: "100%", marginTop: 8, background: "#fff", color: C.accent, border: `1.5px solid ${C.line}`, borderRadius: 11, padding: "10px", fontSize: 13, fontWeight: 600 }}>
+                        โหลดเพิ่ม ({missCount - missShow} ข้อที่เหลือ)
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -4884,29 +4927,29 @@ function App() {
                     : <>✨ สร้างชุดฝึกอ่านใหม่ ({readType === "part6" ? "Part 6" : readType === "mix" ? "รวม 6/7" : "Part 7"})</>}
                 </button>
                 {st.genErr && <div style={{ color: C.red, fontSize: 12.5, marginBottom: 10, lineHeight: 1.5, wordBreak: "break-word", background: C.redBg, border: `1px solid ${C.red}`, borderRadius: 9, padding: "8px 10px" }}>{st.genErr}</div>}
-                {/* unified review zone (Reading): SRS-due primary, all-weak fallback */}
+                {/* unified review zone (Reading): SRS-due primary, all-weak fallback — scope-aware */}
                 {(() => {
-                  let weak = 0;
-                  for (const p of Object.values(st.data || {})) for (const q of (p.questions || [])) { const r = st.ratings[q.id]; if (r === "forgot" || r === "sort") weak++; }
-                  const due = dueCountFor("listening");
+                  const sp = readingScopeParts();
+                  const weak = weakCountFor("listening", sp);
+                  const due = dueCountFor("listening", sp);
                   if (!weak && !due) return null;
                   return (
                     <div style={{ border: `1px solid ${C.line}`, borderRadius: 13, padding: "12px 12px 13px", margin: "4px 0 14px", background: "#fcf8f0" }}>
                       <div style={{ fontSize: 12, color: C.sub, fontWeight: 700, marginBottom: 9 }}>
-                        🔁 ทบทวน <span style={{ fontWeight: 400, fontSize: 11 }}>· ทวนข้อที่ใกล้ลืมมาก่อน</span>
+                        🔁 ทบทวน <span style={{ fontWeight: 400, fontSize: 11 }}>· ทวนทั้งชุดที่ใกล้ลืมมาก่อน</span>
                       </div>
                       {due > 0 ? (
                         <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
                           <button onClick={buildReadingDue}
                             style={{ flex: weak > 0 ? 1.3 : 1, background: C.amberBg, color: C.ink, border: `1.5px solid ${C.amber}`, borderRadius: 11, padding: "12px 8px",
                               fontSize: 13.5, fontWeight: 700, lineHeight: 1.3 }}>
-                            🔔 ถึงกำหนด ({due})
+                            🔔 ถึงกำหนด ({due} ชุด)
                           </button>
                           {weak > 0 && (
                             <button onClick={buildReadingReview}
                               style={{ flex: 1, background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "12px 8px",
                                 fontSize: 13, fontWeight: 600, lineHeight: 1.3 }}>
-                              ยังไม่แม่น ({weak})
+                              ยังไม่แม่น ({weak} ชุด)
                             </button>
                           )}
                         </div>
@@ -4919,7 +4962,7 @@ function App() {
                             <button onClick={buildReadingReview}
                               style={{ width: "100%", background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "11px",
                                 fontSize: 13.5, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 7 }}>
-                              ทวนข้อที่ยังไม่แม่นทั้งหมด ({weak} ข้อ)
+                              ทวนทั้งชุดที่ยังไม่แม่น ({weak} ชุด)
                             </button>
                           )}
                         </>
@@ -4948,13 +4991,18 @@ function App() {
                           const preview = (p.transcript || "").replace(/\n/g, " ").slice(0, 70);
                           const nq = (p.questions || []).length;
                           let ok = 0; for (const q of (p.questions || [])) if (st.ratings[q.id] === "known") ok++;
+                          const setStatus = passageSetStatus(p, st);
                           return (
                             <div key={p.id} style={{ display: "flex", alignItems: "stretch", gap: 8, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 11, overflow: "hidden" }}>
                               <button onClick={() => playSavedReading(p.id)}
                                 style={{ flex: 1, textAlign: "left", background: "none", border: "none", padding: "11px 13px", cursor: "pointer", minWidth: 0 }}>
                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 4 }}>
                                   <span style={{ fontSize: 12, color: C.accent, fontWeight: 600 }}>{p.ptype || "Part 7"} · {nq} ข้อ{ok > 0 ? ` · เข้าใจ ${ok}/${nq}` : ""}</span>
-                                  {p.model ? <span style={{ fontSize: 10, color: C.accent, background: C.accentSoft, padding: "2px 8px", borderRadius: 10, fontWeight: 600 }}>{p.model}</span> : null}
+                                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                    {(() => { const db = diffBadge(p.difficulty); return <span title={db.label} style={{ fontSize: 11, fontWeight: 700, padding: "2px 7px", borderRadius: 10, color: db.known ? C.ink : C.sub, background: db.known ? C.amberBg : C.line }}>{db.icon}</span>; })()}
+                                    <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 10, color: setStatus.color, background: setStatus.bg }}>{setStatus.label}</span>
+                                    {p.model ? <span style={{ fontSize: 10, color: C.accent, background: C.accentSoft, padding: "2px 8px", borderRadius: 10, fontWeight: 600 }}>{p.model}</span> : null}
+                                  </span>
                                 </div>
                                 <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.45 }}>{preview}…</div>
                               </button>
@@ -5202,29 +5250,29 @@ function App() {
                 </button>
                 {!TTS_OK && <div style={{ fontSize: 11.5, color: C.sub, background: "#fcf8f0", border: `1px solid ${C.line}`, borderRadius: 9, padding: "8px 10px", marginBottom: 10, lineHeight: 1.5 }}>ℹ️ โหมดนี้เล่นเสียงไม่ได้ (เปิดบนหน้าเว็บจริงถึงจะมีเสียง) — ระหว่างนี้กด "ดูสคริปต์" เพื่ออ่านบทแทนได้</div>}
                 {st.genErr && <div style={{ color: C.red, fontSize: 12.5, marginBottom: 10, lineHeight: 1.5, wordBreak: "break-word", background: C.redBg, border: `1px solid ${C.red}`, borderRadius: 9, padding: "8px 10px" }}>{st.genErr}</div>}
-                {/* unified review zone (Listening): SRS-due primary, all-weak fallback */}
+                {/* unified review zone (Listening): SRS-due primary, all-weak fallback — scope-aware */}
                 {(() => {
-                  let weak = 0;
-                  for (const p of Object.values(st.data || {})) for (const q of (p.questions || [])) { const r = st.ratings[q.id]; if (r === "forgot" || r === "sort") weak++; }
-                  const due = dueCountFor("audio");
+                  const sp = audioScopeParts();
+                  const weak = weakCountFor("audio", sp);
+                  const due = dueCountFor("audio", sp);
                   if (!weak && !due) return null;
                   return (
                     <div style={{ border: `1px solid ${C.line}`, borderRadius: 13, padding: "12px 12px 13px", margin: "4px 0 14px", background: "#fcf8f0" }}>
                       <div style={{ fontSize: 12, color: C.sub, fontWeight: 700, marginBottom: 9 }}>
-                        🔁 ทบทวน <span style={{ fontWeight: 400, fontSize: 11 }}>· ทวนข้อที่ใกล้ลืมมาก่อน</span>
+                        🔁 ทบทวน <span style={{ fontWeight: 400, fontSize: 11 }}>· ทวนทั้งชุดที่ใกล้ลืมมาก่อน</span>
                       </div>
                       {due > 0 ? (
                         <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
                           <button onClick={buildAudioDue}
                             style={{ flex: weak > 0 ? 1.3 : 1, background: C.amberBg, color: C.ink, border: `1.5px solid ${C.amber}`, borderRadius: 11, padding: "12px 8px",
                               fontSize: 13.5, fontWeight: 700, lineHeight: 1.3 }}>
-                            🔔 ถึงกำหนด ({due})
+                            🔔 ถึงกำหนด ({due} ชุด)
                           </button>
                           {weak > 0 && (
                             <button onClick={buildAudioReview}
                               style={{ flex: 1, background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "12px 8px",
                                 fontSize: 13, fontWeight: 600, lineHeight: 1.3 }}>
-                              ยังไม่แม่น ({weak})
+                              ยังไม่แม่น ({weak} ชุด)
                             </button>
                           )}
                         </div>
@@ -5237,7 +5285,7 @@ function App() {
                             <button onClick={buildAudioReview}
                               style={{ width: "100%", background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "11px",
                                 fontSize: 13.5, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 7 }}>
-                              ทวนข้อที่ยังไม่แม่นทั้งหมด ({weak} ข้อ)
+                              ทวนทั้งชุดที่ยังไม่แม่น ({weak} ชุด)
                             </button>
                           )}
                         </>
@@ -5270,13 +5318,18 @@ function App() {
                             : (p.transcript || "").replace(/\n/g, " ").slice(0, 70);
                           const nq = (p.questions || []).length;
                           let ok = 0; for (const q of (p.questions || [])) if (st.ratings[q.id] === "known") ok++;
+                          const setStatus = passageSetStatus(p, st);
                           return (
                             <div key={p.id} style={{ display: "flex", alignItems: "stretch", gap: 8, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 11, overflow: "hidden" }}>
                               <button onClick={() => playSavedAudio(p.id)}
                                 style={{ flex: 1, textAlign: "left", background: "none", border: "none", padding: "11px 13px", cursor: "pointer", minWidth: 0 }}>
                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 4 }}>
                                   <span style={{ fontSize: 12, color: C.accent, fontWeight: 600 }}>{p.ptype || "Part 3"} · {nq} ข้อ{ok > 0 ? ` · เข้าใจ ${ok}/${nq}` : ""}</span>
-                                  {p.model ? <span style={{ fontSize: 10, color: C.accent, background: C.accentSoft, padding: "2px 8px", borderRadius: 10, fontWeight: 600 }}>{p.model}</span> : null}
+                                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                    {(() => { const db = diffBadge(p.difficulty); return <span title={db.label} style={{ fontSize: 11, fontWeight: 700, padding: "2px 7px", borderRadius: 10, color: db.known ? C.ink : C.sub, background: db.known ? C.amberBg : C.line }}>{db.icon}</span>; })()}
+                                    <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 10, color: setStatus.color, background: setStatus.bg }}>{setStatus.label}</span>
+                                    {p.model ? <span style={{ fontSize: 10, color: C.accent, background: C.accentSoft, padding: "2px 8px", borderRadius: 10, fontWeight: 600 }}>{p.model}</span> : null}
+                                  </span>
                                 </div>
                                 <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.45 }}>{preview}…</div>
                               </button>
@@ -6167,6 +6220,7 @@ function App() {
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
                           <span style={{ fontSize: 11, color: C.accent, fontWeight: 600, textTransform: "uppercase", letterSpacing: .5 }}>{x.point || "Part 5"}</span>
                           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                            {(() => { const db = diffBadge(x.difficulty); return <span title={db.label} style={{ fontSize: 11, fontWeight: 700, padding: "1px 6px", borderRadius: 10, color: db.known ? C.ink : C.sub, background: db.known ? C.amberBg : C.line }}>{db.icon}</span>; })()}
                             {x.model ? <span style={{ fontSize: 10, color: C.accent, background: C.accentSoft, padding: "1px 6px", borderRadius: 10 }}>{x.model}</span> : null}
                             {x.gen ? <span style={{ fontSize: 11, color: C.sub }}>ชุด {genIdx[x.gen] || x.gen}</span> : null}
                             <StatusBadge mode={mode} status={st.ratings[x.id]} />
