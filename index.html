@@ -16,7 +16,7 @@ const { useState, useEffect, useRef } = React;
 
 // App version — bump on every release. Shown as a small badge (tap to confirm the
 // browser is running the latest build, not a stale cached one).
-const VERSION = "0.46.2";
+const VERSION = "0.46.4";
 
 // ============================================================
 //  ENVIRONMENT DETECTION
@@ -3515,7 +3515,7 @@ function App() {
       const tag = st.ratings[w.w] === "forgot" ? "[จำไม่ได้]" : "[จำได้บ้าง]";
       return `${i + 1}. ${w.w} ${w.pos || ""} ${w.ipa || ""} ${tag}\n   แปล: ${w.th || "-"}\n   นิยาม: ${w.def || "-"}\n   ตัวอย่าง: ${w.ex || "-"}`;
     });
-    const text = `Coach ช่วยติวคำพวกนี้ให้หน่อย (คำที่ผมยังไม่แม่นจากแอป) — อธิบายความหมาย จุดที่ต้องระวัง แล้วลองให้ผมแต่งประโยคใช้เองด้วยนะครับ:\n\n${lines.join("\n\n")}`;
+    const text = `Coach ช่วยติวคำพวกนี้ให้หน่อย (คำที่ยังไม่แม่นจากแอป) — อธิบายความหมาย จุดที่ต้องระวัง แล้วลองให้ฉันแต่งประโยคใช้เองด้วย:\n\n${lines.join("\n\n")}`;
     openCopy(`คำที่ยังไม่แม่น (${list.length} คำ)`, text);
   }
   // Copy AI-generated words with NO CEFR yet, as a JSON block to send to Coach. Supports
@@ -3535,7 +3535,7 @@ function App() {
       tag = `(ชุด ${batchIndex + 1}/${batches} · ${slice.length} คำ)`;
     }
     const arr = slice.map(x => ({ w: x.w, pos: x.pos || "", ipa: x.ipa || "", th: x.th || "", def: x.def || "", ex: x.ex || "" }));
-    const text = `Coach ช่วยจัดระดับ CEFR (A1–C2) + tier (beginner/intermediate/advanced/nearnative) ให้คำพวกนี้ แล้วเพิ่มเข้าคลังถาวร (VOCAB_BANK) ให้หน่อยครับ — คำที่ผมเจนไว้แต่ยังไม่มีระดับ ${tag}:\n\n` + JSON.stringify(arr);
+    const text = `Coach ช่วยจัดระดับ CEFR (A1–C2) + tier (beginner/intermediate/advanced/nearnative) ให้คำพวกนี้ แล้วเพิ่มเข้าคลังถาวร (VOCAB_BANK) ให้หน่อย — คำที่เจนไว้แต่ยังไม่มีระดับ ${tag}:\n\n` + JSON.stringify(arr);
     openCopy(`คำที่ยังไม่จัดระดับ ${tag}`, text);
   }
   function copyGrammarItem(x) {
@@ -5851,7 +5851,7 @@ function App() {
                     <span style={{ fontSize: 11, letterSpacing: 1, textTransform: "uppercase", color: C.accent, fontWeight: 600 }}>คำศัพท์</span>
                     {card.cefr && <span style={{ fontSize: 10, fontWeight: 700, color: C.accent, background: C.accentSoft, padding: "2px 7px", borderRadius: 9, letterSpacing: .3 }}>{card.cefr}</span>}
                     <button onClick={(e) => { e.stopPropagation(); openCopy("ถาม Coach เรื่องคำนี้",
-                        `ช่วยอธิบายคำว่า "${card.w}" (${card.pos}${card.cefr ? ", " + card.cefr : ""}) ให้หน่อยครับ\nความหมาย: ${card.def}\nตัวอย่าง: ${card.ex}\n\nอยากรู้: ออกเสียงยังไง, ใช้ในบริบทไหนได้บ้าง, คำที่ความหมายใกล้เคียงต่างกันยังไง`); }}
+                        `ช่วยอธิบายคำว่า "${card.w}" (${card.pos}${card.cefr ? ", " + card.cefr : ""}) ให้หน่อย\nความหมาย: ${card.def}\nตัวอย่าง: ${card.ex}\n\nอยากรู้: ออกเสียงยังไง, ใช้ในบริบทไหนได้บ้าง, คำที่ความหมายใกล้เคียงต่างกันยังไง`); }}
                       title="ก๊อปไปถาม Coach" aria-label="ก๊อปไปถาม Coach"
                       style={{ flex: "0 0 auto", width: 26, height: 26, borderRadius: "50%", border: `1.5px solid ${C.accentSoft}`, background: "#fff",
                         color: C.accent, fontSize: 13, display: "grid", placeItems: "center", lineHeight: 1, padding: 0 }}>💬</button>
@@ -6101,7 +6101,10 @@ function App() {
                     )}
                   </div>
                 )}
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+                {mode === "vocab" && (
+                  <div style={{ fontSize: 11, color: C.sub, fontWeight: 600, marginBottom: 5, letterSpacing: 0.2 }}>สถานะความจำ</div>
+                )}
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: mode === "vocab" ? 14 : 12 }}>
                   {[["all", "ทั้งหมด"], ["new", "ใหม่"], ["forgot", S.forgot.short], ["sort", S.sort.short], ["known", S.known.short]].map(([id, lbl]) => (
                     <button key={id} onClick={() => setBankFilter(id)}
                       style={{ border: `1px solid ${st.bankFilter === id ? C.accent : C.line}`, background: st.bankFilter === id ? C.accentSoft : "#fff",
@@ -6110,20 +6113,24 @@ function App() {
                 </div>
                 {/* VOCAB: CEFR level chips — pick a level to narrow the list (also keeps the render light) */}
                 {mode === "vocab" && vocabLevelCounts && (
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
-                    {[["all", "ทั้งหมด"], ["A1", "A1"], ["A2", "A2"], ["B1", "B1"], ["B2", "B2"], ["C1", "C1"], ["C2", "C2"], ["none", "ไม่ระบุ"]]
-                      .filter(([id]) => id === "all" || (vocabLevelCounts[id] || 0) > 0)
-                      .map(([id, lbl]) => {
-                        const on = bankLevel === id;
-                        return (
-                          <button key={id} onClick={() => { setBankLevel(id); setBankShow(60); }}
-                            style={{ border: `1px solid ${on ? C.accent : C.line}`, background: on ? C.accent : "#fff",
-                              color: on ? "#fff" : C.sub, borderRadius: 20, padding: "6px 12px", fontSize: 12, fontWeight: 700 }}>
-                            {lbl} <span style={{ fontWeight: 500, opacity: 0.8 }}>{vocabLevelCounts[id] || 0}</span>
-                          </button>
-                        );
-                      })}
-                  </div>
+                  <>
+                    <div style={{ borderTop: `1px solid ${C.line}`, margin: "0 0 10px" }} />
+                    <div style={{ fontSize: 11, color: C.sub, fontWeight: 600, marginBottom: 5, letterSpacing: 0.2 }}>ระดับ (CEFR)</div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+                      {[["all", "ทั้งหมด"], ["A1", "A1"], ["A2", "A2"], ["B1", "B1"], ["B2", "B2"], ["C1", "C1"], ["C2", "C2"], ["none", "ไม่ระบุ"]]
+                        .filter(([id]) => id === "all" || (vocabLevelCounts[id] || 0) > 0)
+                        .map(([id, lbl]) => {
+                          const on = bankLevel === id;
+                          return (
+                            <button key={id} onClick={() => { setBankLevel(id); setBankShow(60); }}
+                              style={{ border: `1px solid ${on ? C.accent : C.line}`, background: on ? C.accent : "#fff",
+                                color: on ? "#fff" : C.sub, borderRadius: 20, padding: "6px 12px", fontSize: 12, fontWeight: 700 }}>
+                              {lbl} <span style={{ fontWeight: 500, opacity: 0.8 }}>{vocabLevelCounts[id] || 0}</span>
+                            </button>
+                          );
+                        })}
+                    </div>
+                  </>
                 )}
                 <div style={{ display: "grid", gap: 10 }}>
                   {bankItems.length === 0 ? (
@@ -6140,7 +6147,7 @@ function App() {
                                 style={{ flex: "0 0 auto", width: 28, height: 28, borderRadius: "50%", border: `1.5px solid ${C.accentSoft}`, background: "#fff", color: C.accent, fontSize: 13, display: "grid", placeItems: "center", lineHeight: 1, padding: 0 }}>🔊</button>
                             )}
                             <button onClick={(e) => { e.stopPropagation(); openCopy("ถาม Coach เรื่องคำนี้",
-                                `ช่วยอธิบายคำว่า "${x.w}" (${x.pos}${x.cefr ? ", " + x.cefr : ""}) ให้หน่อยครับ\nความหมาย: ${x.def}\nตัวอย่าง: ${x.ex}\n\nอยากรู้: ออกเสียงยังไง, ใช้ในบริบทไหนได้บ้าง, คำที่ความหมายใกล้เคียงต่างกันยังไง`); }}
+                                `ช่วยอธิบายคำว่า "${x.w}" (${x.pos}${x.cefr ? ", " + x.cefr : ""}) ให้หน่อย\nความหมาย: ${x.def}\nตัวอย่าง: ${x.ex}\n\nอยากรู้: ออกเสียงยังไง, ใช้ในบริบทไหนได้บ้าง, คำที่ความหมายใกล้เคียงต่างกันยังไง`); }}
                               title="ก๊อปไปถาม Coach" aria-label="ก๊อปไปถาม Coach"
                               style={{ flex: "0 0 auto", width: 28, height: 28, borderRadius: "50%", border: `1.5px solid ${C.accentSoft}`, background: "#fff", color: C.accent, fontSize: 13, display: "grid", placeItems: "center", lineHeight: 1, padding: 0 }}>💬</button>
                           </div>
