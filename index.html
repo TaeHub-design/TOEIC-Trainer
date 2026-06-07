@@ -16,7 +16,7 @@ const { useState, useEffect, useRef } = React;
 
 // App version — bump on every release. Shown as a small badge (tap to confirm the
 // browser is running the latest build, not a stale cached one).
-const VERSION = "0.48.0";
+const VERSION = "0.51.1";
 
 // ============================================================
 //  ENVIRONMENT DETECTION
@@ -506,6 +506,43 @@ async function aiComplete({ engineId, model, maxTokens, prompt }) {
 // values, which is invalid JSON and makes JSON.parse fail. Escape them so the string
 // parses. Only touches characters that appear inside a "..." string — structural
 // whitespace between tokens is left alone.
+// Repair a common Opus/LLM JSON breakage: a missing comma between two tokens — e.g. `}{`,
+// `}"`, `"123` outside a string — which yields "Expected ',' or ']' after array element".
+// Walks char-by-char (string-aware) and inserts ", " when a value-closing char ( } ] " or
+// word char ) is immediately followed by a value-opening char ( " { [ ) outside any string.
+function fixMissingCommas(s) {
+  // Insert a comma when one value/element has fully completed and the next one begins
+  // without a separator. We track completion with a small state machine instead of a
+  // single-char regex, so multi-char tokens (numbers like 123, literals like true/null)
+  // are never split mid-token (the bug a naive lookbehind causes).
+  let out = "", inStr = false, esc = false;
+  let prevDone = false;   // a complete value just ended (closer, end-of-string, end-of-number/literal)
+  let inNumLit = false;   // currently inside a bare number or true/false/null token
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (inStr) {
+      out += c;
+      if (esc) esc = false; else if (c === "\\") esc = true; else if (c === '"') { inStr = false; prevDone = true; }
+      continue;
+    }
+    if (inNumLit) {
+      // bare token continues while it's a word char, digit, dot, +/-, or sign in exponent
+      if (/[\w.+-]/.test(c)) { out += c; continue; }
+      inNumLit = false; prevDone = true; // token ended; fall through to handle c normally
+    }
+    if (/\s/.test(c)) { out += c; continue; }          // whitespace: keep, don't change prevDone
+    if (c === ":" || c === ",") { out += c; prevDone = false; continue; } // separator: next is a value, not a missing comma
+    const opensValue = c === '"' || c === "{" || c === "[";
+    const opensNumLit = (c >= "0" && c <= "9") || c === "-" || c === "t" || c === "f" || c === "n";
+    if ((opensValue || opensNumLit) && prevDone) out += ", "; // a value follows a completed value with no separator
+    if (opensValue) { out += c; if (c === '"') inStr = true; else prevDone = false; continue; }
+    if (opensNumLit) { out += c; inNumLit = true; continue; }
+    if (c === "}" || c === "]") { out += c; prevDone = true; continue; } // closer completes a value
+    out += c; prevDone = false; // any other char (shouldn't happen in valid JSON) resets
+  }
+  return out;
+}
+
 function escapeRawCtrlInStrings(s) {
   let out = "", inStr = false, esc = false;
   for (let i = 0; i < s.length; i++) {
@@ -539,6 +576,32 @@ function genMaxTokens(mdl) {
   return 4000; // haiku / flash / flash-lite
 }
 
+// Some models (Opus especially) sometimes emit an extra closing brace per array element,
+// e.g. `...}},{...` where valid JSON needs `},{`. The surplus `}` closes the array/object
+// too early and the parse fails far from the real cause. We re-walk the text with a
+// bracket-type stack and DROP any closer whose type doesn't match the nearest opener
+// (or that appears with nothing open) — a mismatch can only mean a spurious closer, so
+// this never touches well-formed JSON (verified against nested `}}`, arrays, and braces
+// living inside string values).
+function dropExtraClosers(s) {
+  let out = "", inStr = false, esc = false;
+  const stack = [];
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (inStr) { out += c; if (esc) esc = false; else if (c === "\\") esc = true; else if (c === '"') inStr = false; continue; }
+    if (c === '"') { inStr = true; out += c; continue; }
+    if (c === "{" || c === "[") { stack.push(c); out += c; continue; }
+    if (c === "}" || c === "]") {
+      const need = c === "}" ? "{" : "[";
+      if (stack.length === 0) continue;            // nothing open → surplus closer, drop
+      if (stack[stack.length - 1] !== need) continue; // wrong type → surplus closer, drop
+      stack.pop(); out += c; continue;
+    }
+    out += c;
+  }
+  return out;
+}
+
 function parseLooseJson(text) {
   try { return JSON.parse(text); } catch (firstErr) {
     let s = text.trim();
@@ -548,6 +611,14 @@ function parseLooseJson(text) {
     // escape raw control chars inside strings (common LLM JSON mistake), then retry a clean parse
     s = escapeRawCtrlInStrings(s);
     try { return JSON.parse(s); } catch (e2) {}
+    // try fixing a missing comma between tokens (e.g. `}{` or `}"`), a common Opus breakage
+    try { return JSON.parse(fixMissingCommas(s)); } catch (e3) {}
+    // try dropping surplus closing braces/brackets (e.g. `}},{` that should be `},{`)
+    try { return JSON.parse(dropExtraClosers(s)); } catch (e3b) {}
+    // combine both repairs — a response can have both a missing comma and a surplus closer
+    try { return JSON.parse(dropExtraClosers(fixMissingCommas(s))); } catch (e3c) {}
+    // from here, apply structural truncation repair on the comma-fixed text (best chance)
+    s = fixMissingCommas(s);
     const stack = [];
     let inStr = false, esc = false, lastSafe = -1;
     for (let i = 0; i < s.length; i++) {
@@ -578,7 +649,14 @@ function parseLooseJson(text) {
     }
     if (inS) repaired += '"'; // close a still-open string
     for (let i = open.length - 1; i >= 0; i--) repaired += open[i] === "{" ? "}" : "]";
-    return JSON.parse(repaired); // may throw — caller treats that as a real failure
+    try {
+      return JSON.parse(repaired);
+    } catch (finalErr) {
+      // un-repairable: surface the raw model output so the UI can offer a "view raw" debug
+      // affordance. position-in-message still tells us truncation (end) vs corruption (mid).
+      finalErr.rawText = text;
+      throw finalErr;
+    }
   }
 }
 
@@ -906,7 +984,7 @@ For EACH question provide:
 - "answer": the correct key ("A"|"B"|"C"|"D")
 - "explain": a THAI explanation, 1-2 sentences: why the answer fits and which clue/grammar rule proves it
 IMPORTANT: vary the position of the correct answer across A/B/C/D — do NOT always put it at "A".
-Respond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
+Each question object is closed by EXACTLY ONE "}"; separate questions with "},{" (never "}},{"), and close the whole response with "}]}" — do not add extra closing braces.\nRespond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
 Shape: {"ptype":"Part 6","transcript":"...(passage with (1) ______ ... (4) ______; use \\n for line breaks)...","questions":[{"q":"ช่องที่ (1)","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"C","explain":"..."}]}`;
 }
 
@@ -930,7 +1008,7 @@ For EACH question provide:
 - "answer": the correct key ("A"|"B"|"C"|"D")
 - "explain": a THAI explanation, 1-2 sentences: why the answer is right and which clue in the passage proves it
 IMPORTANT: vary the position of the correct answer across A/B/C/D — do NOT always put it at "A".
-Respond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
+Each question object is closed by EXACTLY ONE "}"; separate questions with "},{" (never "}},{"), and close the whole response with "}]}" — do not add extra closing braces.\nRespond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
 Shape: {"ptype":"Part 7","transcript":"...(the full passage; use \\n for line breaks)...","questions":[{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"C","explain":"..."}]}`;
 }
 
@@ -948,7 +1026,7 @@ For EACH question provide:
 - "answer": the correct key ("A"|"B"|"C"|"D")
 - "explain": a THAI explanation, 1-2 sentences: why it is right and which spoken clue proves it
 IMPORTANT: vary the position of the correct answer across A/B/C/D — do NOT always put it at "A".
-Respond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
+Each question object is closed by EXACTLY ONE "}"; separate questions with "},{" (never "}},{"), and close the whole response with "}]}" — do not add extra closing braces.\nRespond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
 Shape: {"ptype":"Part 3","transcript":"Man: ...\\nWoman: ...\\nMan: ...","questions":[{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"C","explain":"..."}]}`;
 }
 
@@ -971,7 +1049,7 @@ For EACH question provide:
 - "answer": the correct key ("A"|"B"|"C"|"D")
 - "explain": a THAI explanation, 1-2 sentences: why it is right and which spoken clue proves it
 IMPORTANT: vary the position of the correct answer across A/B/C/D — do NOT always put it at "A".
-Respond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
+Each question object is closed by EXACTLY ONE "}"; separate questions with "},{" (never "}},{"), and close the whole response with "}]}" — do not add extra closing braces.\nRespond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
 Shape: {"ptype":"Part 4","transcript":"...the talk as one speaker; use \\n for paragraph breaks...","questions":[{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"C","explain":"..."}]}`;
 }
 
@@ -987,7 +1065,7 @@ For EACH item provide:
 - "answer": the correct key ("A"|"B"|"C")
 - "explain": a THAI explanation, 1-2 sentences: why the answer fits and why the trap options are wrong (name the trap type if useful, e.g. คำพ้องเสียง / ตอบผิดประเภทคำถาม)
 IMPORTANT: vary the position of the correct answer across A/B/C — do NOT always put it at "A". Spread the correct keys roughly evenly across the 6 items.
-Respond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
+Each question object is closed by EXACTLY ONE "}"; separate questions with "},{" (never "}},{"), and close the whole response with "}]}" — do not add extra closing braces.\nRespond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
 Shape: {"ptype":"Part 2","transcript":"","questions":[{"q":"Where did you put the report?","options":{"A":"It was a great report.","B":"On your desk.","C":"At three o'clock."},"answer":"B","explain":"..."}]}`;
 }
 
@@ -2611,6 +2689,7 @@ function App() {
   const [vSearchHist, setVSearchHist] = useState([]); // recent vocab searches (most-recent first), local-only
   const [vSearchFocus, setVSearchFocus] = useState(false); // search box focused → show recent-search zero state
   const [bankLevel, setBankLevel] = useState("all"); // vocab bank CEFR filter: all|A1|A2|B1|B2|C1|C2|none
+  const [quizLevel, setQuizLevel] = useState("all"); // vocab QUIZ-page CEFR filter — independent from bankLevel (card view)
   const [bankShow, setBankShow] = useState(60); // how many bank rows to render (perf: avoid dumping all 952 at once)
   const [missShow, setMissShow] = useState(60); // how many missed-question rows to render (perf, same idea)
   const [showSettings, setShowSettings] = useState(false); // settings modal (engine + API key)
@@ -3094,7 +3173,7 @@ function App() {
   async function generate() {
     if (needsKey && !hasKey) { setShowSettings(true); return; }
     const m = mode, st = cur();
-    st.generating = true; st.genErr = null; st.lastAdded = null; rerender();
+    st.generating = true; st.genErr = null; st.genErrRaw = null; st.lastAdded = null; rerender();
     try {
       const avoid = m === "vocab"
         ? Object.keys(st.data)
@@ -3136,6 +3215,7 @@ function App() {
       touchStreak(); updateHistory();
     } catch (e) {
       st.genErr = "สร้างชุดใหม่ไม่สำเร็จ — " + (e && e.message ? e.message : String(e));
+      st.genErrRaw = (e && e.rawText) || null;
     } finally {
       st.generating = false; rerender();
       if (!st.genErr) scrollToCards();
@@ -3230,8 +3310,14 @@ function App() {
     const all = Object.values(M.current.vocab.data);
     // cloze needs the word to appear in its own example sentence
     const usable = all.filter(w => w.ex && new RegExp("\\b" + w.w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i").test(w.ex));
-    if (usable.length < 4) { setVquiz({ deck: [], pos: 0, picked: {}, start: null, end: null, tooFew: true }); return; }
-    const picks = shuffle(usable).slice(0, Math.min(10, usable.length));
+    // CEFR filter applies to the TARGET word only; distractors still come from the whole bank (option B),
+    // so a sparse level (e.g. C2 with 1–3 words) can still build a full 4-choice TOEIC-style item.
+    const targets = quizLevel === "all" ? usable
+      : quizLevel === "none" ? usable.filter(w => !w.cefr)
+      : usable.filter(w => w.cefr === quizLevel);
+    // need ≥1 target in the chosen level, and ≥4 usable words overall to fill A/B/C/D with distractors.
+    if (targets.length < 1 || usable.length < 4) { setVquiz({ deck: [], pos: 0, picked: {}, start: null, end: null, tooFew: true }); return; }
+    const picks = shuffle(targets).slice(0, Math.min(10, targets.length));
     const deck = picks.map((w, i) => makeClozeItem(w, all, i, "vq"));
     setVquiz({ deck, pos: 0, picked: {}, start: Date.now(), end: null, isReview: false });
   }
@@ -3287,7 +3373,7 @@ function App() {
   async function genPractice() {
     if (needsKey && !hasKey) { setShowSettings(true); return; }
     const st = M.current.listening;
-    st.generating = true; st.genErr = null; rerender();
+    st.generating = true; st.genErr = null; st.genErrRaw = null; rerender();
     try {
       const category = pickCategory();
       const mdl = MODELS.find(x => x.id === models.listening) || MODELS[0];
@@ -3319,6 +3405,7 @@ function App() {
       setLquiz({ passageId, ptype, transcript: obj.transcript, model: mdl.label, deck, pos: 0, picked: {}, start: Date.now(), end: null });
     } catch (e) {
       st.genErr = "สร้างชุดฝึกอ่านไม่สำเร็จ — " + (e && e.message ? e.message : String(e));
+      st.genErrRaw = (e && e.rawText) || null;
     } finally { st.generating = false; rerender(); }
   }
   // replay a saved passage from the bank (for คลังข้อสอบ / review)
@@ -3364,7 +3451,7 @@ function App() {
   async function genAudio() {
     if (needsKey && !hasKey) { setShowSettings(true); return; }
     const st = M.current.audio;
-    st.generating = true; st.genErr = null; rerender();
+    st.generating = true; st.genErr = null; st.genErrRaw = null; rerender();
     try {
       const category = pickCategory();
       const mdl = MODELS.find(x => x.id === models.audio) || MODELS[0];
@@ -3394,6 +3481,7 @@ function App() {
       setAquiz({ passageId: clipId, ptype, transcript, model: mdl.label, deck, pos: 0, picked: {}, start: Date.now(), end: null });
     } catch (e) {
       st.genErr = "สร้างชุดฝึกฟังไม่สำเร็จ — " + (e && e.message ? e.message : String(e));
+      st.genErrRaw = (e && e.rawText) || null;
     } finally { st.generating = false; rerender(); }
   }
   function playSavedAudio(clipId) {
@@ -4570,6 +4658,18 @@ function App() {
           const v = vquiz;
           const total = Object.keys(M.current.vocab.data).length;
           const missCount = Object.keys(M.current.vocab.missQ || {}).length;
+          // usable = words whose own example sentence actually contains the word (cloze-able)
+          const quizUsable = Object.values(M.current.vocab.data).filter(w => w.ex && new RegExp("\\b" + w.w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i").test(w.ex));
+          // counts per CEFR level among usable words (drives the filter pills + counts)
+          const quizLevelCounts = (() => {
+            const c = { all: quizUsable.length, A1: 0, A2: 0, B1: 0, B2: 0, C1: 0, C2: 0, none: 0 };
+            for (const w of quizUsable) { if (w.cefr && c[w.cefr] != null) c[w.cefr]++; else if (!w.cefr) c.none++; }
+            return c;
+          })();
+          // how many target words the current filter yields, and whether a round can be built
+          // (option B: ≥1 target in level AND ≥4 usable overall for distractors)
+          const quizTargetCount = quizLevelCounts[quizLevel] || 0;
+          const quizReady = quizTargetCount >= 1 && quizUsable.length >= 4;
           // not started yet — show start screen + model picker + missed bank
           if (!v) {
             return (
@@ -4600,18 +4700,41 @@ function App() {
                 {total < 4 ? (
                   <Centered>ยังมีคำไม่พอ — ไปที่ "📇 เรียน (การ์ด)" แล้วกด ✨ สร้างคำชุดแรกก่อนนะครับ</Centered>
                 ) : (
-                  <div style={{ display: "flex", gap: 8, alignItems: "stretch", marginBottom: 14 }}>
-                    <button onClick={buildVocabQuiz}
-                      style={{ flex: missCount > 0 ? 1.35 : 1, background: C.accent, color: "#fff", border: "none", borderRadius: 13, padding: "13px 10px", fontSize: 14.5, fontWeight: 600, boxShadow: "0 8px 20px -10px rgba(191,77,40,.9)", lineHeight: 1.3 }}>
-                      ▶ เริ่มทำโจทย์ ({Math.min(10, total)} ข้อ)
-                    </button>
-                    {missCount > 0 && (
-                      <button onClick={buildMissedQuiz}
-                        style={{ flex: 1, background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 13, padding: "13px 8px", fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>
-                        🔁 ทวนที่พลาด ({missCount})
+                  <>
+                    {/* CEFR filter — independent from the card-view filter; targets the quiz word only */}
+                    <div style={{ fontSize: 11, color: C.sub, fontWeight: 600, marginBottom: 5, letterSpacing: 0.2 }}>ระดับคำที่จะออกข้อสอบ (CEFR)</div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+                      {[["all", "ทั้งหมด"], ["A1", "A1"], ["A2", "A2"], ["B1", "B1"], ["B2", "B2"], ["C1", "C1"], ["C2", "C2"], ["none", "ไม่ระบุ"]]
+                        .filter(([id]) => id === "all" || (quizLevelCounts[id] || 0) > 0)
+                        .map(([id, lbl]) => {
+                          const on = quizLevel === id;
+                          return (
+                            <button key={id} onClick={() => setQuizLevel(id)}
+                              style={{ border: `1px solid ${on ? C.accent : C.line}`, background: on ? C.accent : "#fff",
+                                color: on ? "#fff" : C.sub, borderRadius: 20, padding: "6px 12px", fontSize: 12, fontWeight: 700 }}>
+                              {lbl} <span style={{ fontWeight: 500, opacity: 0.8 }}>{quizLevelCounts[id] || 0}</span>
+                            </button>
+                          );
+                        })}
+                    </div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "stretch", marginBottom: 14 }}>
+                      <button onClick={buildVocabQuiz} disabled={!quizReady}
+                        style={{ flex: missCount > 0 ? 1.35 : 1, background: quizReady ? C.accent : "#cfc6b6", color: "#fff", border: "none", borderRadius: 13, padding: "13px 10px", fontSize: 14.5, fontWeight: 600, boxShadow: quizReady ? "0 8px 20px -10px rgba(191,77,40,.9)" : "none", lineHeight: 1.3, cursor: quizReady ? "pointer" : "not-allowed" }}>
+                        ▶ เริ่มทำโจทย์ ({Math.min(10, quizTargetCount)} ข้อ)
                       </button>
+                      {missCount > 0 && (
+                        <button onClick={buildMissedQuiz}
+                          style={{ flex: 1, background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 13, padding: "13px 8px", fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>
+                          🔁 ทวนที่พลาด ({missCount})
+                        </button>
+                      )}
+                    </div>
+                    {!quizReady && (
+                      <div style={{ fontSize: 12, color: C.sub, marginTop: -6, marginBottom: 14, lineHeight: 1.5 }}>
+                        ระดับนี้ยังมีคำไม่พอจะออกข้อสอบ — ลองเลือกระดับอื่น หรือสะสมคำในระดับนี้เพิ่มก่อนนะครับ
+                      </div>
                     )}
-                  </div>
+                  </>
                 )}
 
                 {/* missed bank list with remove */}
@@ -4926,7 +5049,7 @@ function App() {
                     ? <>🔒 สร้างชุดใหม่ต้องใส่ API key</>
                     : <>✨ สร้างชุดฝึกอ่านใหม่ ({readType === "part6" ? "Part 6" : readType === "mix" ? "รวม 6/7" : "Part 7"})</>}
                 </button>
-                {st.genErr && <div style={{ color: C.red, fontSize: 12.5, marginBottom: 10, lineHeight: 1.5, wordBreak: "break-word", background: C.redBg, border: `1px solid ${C.red}`, borderRadius: 9, padding: "8px 10px" }}>{st.genErr}</div>}
+                {st.genErr && <GenError err={st.genErr} raw={st.genErrRaw} />}
                 {/* unified review zone (Reading): SRS-due primary, all-weak fallback — scope-aware */}
                 {(() => {
                   const sp = readingScopeParts();
@@ -4937,6 +5060,7 @@ function App() {
                     <div style={{ border: `1px solid ${C.line}`, borderRadius: 13, padding: "12px 12px 13px", margin: "4px 0 14px", background: "#fcf8f0" }}>
                       <div style={{ fontSize: 12, color: C.sub, fontWeight: 700, marginBottom: 9 }}>
                         🔁 ทบทวน <span style={{ fontWeight: 400, fontSize: 11 }}>· ทวนทั้งชุดที่ใกล้ลืมมาก่อน</span>
+                        {due === 0 && <span style={{ fontWeight: 700, fontSize: 11, color: C.green }}> · ครบแล้ววันนี้</span>}
                       </div>
                       {due > 0 ? (
                         <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
@@ -4954,18 +5078,13 @@ function App() {
                           )}
                         </div>
                       ) : (
-                        <>
-                          <div style={{ fontSize: 12.5, color: C.green, fontWeight: 600, textAlign: "center", padding: "4px 0 9px" }}>
-                            ✓ วันนี้ทบทวนครบแล้ว — ที่เหลือยังไม่ถึงกำหนด
-                          </div>
-                          {weak > 0 && (
-                            <button onClick={buildReadingReview}
-                              style={{ width: "100%", background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "11px",
-                                fontSize: 13.5, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 7 }}>
-                              ทวนทั้งชุดที่ยังไม่แม่น ({weak} ชุด)
-                            </button>
-                          )}
-                        </>
+                        weak > 0 && (
+                          <button onClick={buildReadingReview}
+                            style={{ width: "100%", background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "12px 8px",
+                              fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>
+                            ทวนทั้งชุดที่ยังไม่แม่น ({weak} ชุด)
+                          </button>
+                        )
                       )}
                     </div>
                   );
@@ -5249,7 +5368,7 @@ function App() {
                     : <>✨ สร้างชุดฝึกฟังใหม่ ({audioType === "part2" ? "Part 2" : audioType === "part4" ? "Part 4" : audioType === "mix" ? "รวม 3/4" : "Part 3"})</>}
                 </button>
                 {!TTS_OK && <div style={{ fontSize: 11.5, color: C.sub, background: "#fcf8f0", border: `1px solid ${C.line}`, borderRadius: 9, padding: "8px 10px", marginBottom: 10, lineHeight: 1.5 }}>ℹ️ โหมดนี้เล่นเสียงไม่ได้ (เปิดบนหน้าเว็บจริงถึงจะมีเสียง) — ระหว่างนี้กด "ดูสคริปต์" เพื่ออ่านบทแทนได้</div>}
-                {st.genErr && <div style={{ color: C.red, fontSize: 12.5, marginBottom: 10, lineHeight: 1.5, wordBreak: "break-word", background: C.redBg, border: `1px solid ${C.red}`, borderRadius: 9, padding: "8px 10px" }}>{st.genErr}</div>}
+                {st.genErr && <GenError err={st.genErr} raw={st.genErrRaw} />}
                 {/* unified review zone (Listening): SRS-due primary, all-weak fallback — scope-aware */}
                 {(() => {
                   const sp = audioScopeParts();
@@ -5260,6 +5379,7 @@ function App() {
                     <div style={{ border: `1px solid ${C.line}`, borderRadius: 13, padding: "12px 12px 13px", margin: "4px 0 14px", background: "#fcf8f0" }}>
                       <div style={{ fontSize: 12, color: C.sub, fontWeight: 700, marginBottom: 9 }}>
                         🔁 ทบทวน <span style={{ fontWeight: 400, fontSize: 11 }}>· ทวนทั้งชุดที่ใกล้ลืมมาก่อน</span>
+                        {due === 0 && <span style={{ fontWeight: 700, fontSize: 11, color: C.green }}> · ครบแล้ววันนี้</span>}
                       </div>
                       {due > 0 ? (
                         <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
@@ -5277,18 +5397,13 @@ function App() {
                           )}
                         </div>
                       ) : (
-                        <>
-                          <div style={{ fontSize: 12.5, color: C.green, fontWeight: 600, textAlign: "center", padding: "4px 0 9px" }}>
-                            ✓ วันนี้ทบทวนครบแล้ว — ที่เหลือยังไม่ถึงกำหนด
-                          </div>
-                          {weak > 0 && (
-                            <button onClick={buildAudioReview}
-                              style={{ width: "100%", background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "11px",
-                                fontSize: 13.5, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 7 }}>
-                              ทวนทั้งชุดที่ยังไม่แม่น ({weak} ชุด)
-                            </button>
-                          )}
-                        </>
+                        weak > 0 && (
+                          <button onClick={buildAudioReview}
+                            style={{ width: "100%", background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "12px 8px",
+                              fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>
+                            ทวนทั้งชุดที่ยังไม่แม่น ({weak} ชุด)
+                          </button>
+                        )
                       )}
                     </div>
                   );
@@ -5813,6 +5928,7 @@ function App() {
             <div style={{ border: `1px solid ${C.line}`, borderRadius: 13, padding: "12px 12px 13px", marginBottom: 12, background: "#fcf8f0" }}>
               <div style={{ fontSize: 12, color: C.sub, fontWeight: 700, marginBottom: 9 }}>
                 🔁 ทบทวน <span style={{ fontWeight: 400, fontSize: 11 }}>· ระบบจัดคิว{unit}ที่ใกล้ลืมมาก่อน</span>
+                {due === 0 && <span style={{ fontWeight: 700, fontSize: 11, color: C.green }}> · ครบแล้ววันนี้</span>}
               </div>
               {due > 0 ? (
                 <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
@@ -5830,23 +5946,18 @@ function App() {
                   )}
                 </div>
               ) : (
-                <>
-                  <div style={{ fontSize: 12.5, color: C.green, fontWeight: 600, textAlign: "center", padding: "4px 0 9px" }}>
-                    ✓ วันนี้ทบทวนครบแล้ว — ที่เหลือยังไม่ถึงกำหนด
-                  </div>
-                  {reviewable > 0 && (
-                    <button onClick={buildReviewDeck}
-                      style={{ width: "100%", background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "11px",
-                        fontSize: 13.5, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 7 }}>
-                      ทวน{unit}ที่ยังไม่แม่นทั้งหมด ({reviewable} {unit})
-                    </button>
-                  )}
-                </>
+                reviewable > 0 && (
+                  <button onClick={buildReviewDeck}
+                    style={{ width: "100%", background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "12px 8px",
+                      fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>
+                    ทวน{unit}ที่ยังไม่แม่นทั้งหมด ({reviewable} {unit})
+                  </button>
+                )
               )}
             </div>
           );
         })()}
-        {st.genErr && <div style={{ color: C.red, fontSize: 12.5, marginBottom: 10, lineHeight: 1.5, wordBreak: "break-word", background: C.redBg, border: `1px solid ${C.red}`, borderRadius: 9, padding: "8px 10px" }}>{st.genErr}</div>}
+        {st.genErr && <GenError err={st.genErr} raw={st.genErrRaw} />}
         {st.lastAdded != null && !st.generating && (
           <div style={{ color: C.green, fontSize: 13, marginBottom: 10 }}>
             เพิ่ม{mode === "vocab" ? "คำ" : "ข้อ"}ใหม่ {st.lastAdded} {mode === "vocab" ? "คำ" : "ข้อ"}เรียบร้อย ✓
@@ -6421,6 +6532,30 @@ function Stat({ label, value, color, bg }) {
 }
 function Centered({ children }) {
   return <div style={{ display: "grid", placeItems: "center", textAlign: "center", minHeight: 200, color: C.sub, padding: 20, lineHeight: 1.6 }}>{children}</div>;
+}
+
+// Generation error banner + optional raw-output inspector. When the AI returns JSON we
+// can't parse even after repair, parseLooseJson attaches the raw text; this lets us peek
+// at exactly what came back (truncated vs corrupted) without guessing. Collapsed by default.
+function GenError({ err, raw }) {
+  const [show, setShow] = React.useState(false);
+  if (!err) return null;
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ color: C.red, fontSize: 12.5, lineHeight: 1.5, wordBreak: "break-word", background: C.redBg, border: `1px solid ${C.red}`, borderRadius: 9, padding: "8px 10px" }}>{err}</div>
+      {raw && (
+        <>
+          <button onClick={() => setShow(s => !s)}
+            style={{ marginTop: 6, background: "none", border: "none", color: C.sub, fontSize: 11.5, fontWeight: 600, textDecoration: "underline", padding: "2px 0" }}>
+            {show ? "ซ่อนข้อมูลดิบ" : "ดูข้อมูลดิบ (สำหรับ debug)"}
+          </button>
+          {show && (
+            <pre style={{ marginTop: 6, maxHeight: 240, overflow: "auto", background: "#2b2622", color: "#e8dfd0", fontSize: 11, lineHeight: 1.45, padding: "10px 12px", borderRadius: 9, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{raw}</pre>
+          )}
+        </>
+      )}
+    </div>
+  );
 }
 
 // tap-once shows "แน่ใจ? ลบเลย"; tap-again confirms. auto-reverts after 3s so a stray tap is harmless.
