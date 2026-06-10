@@ -16,7 +16,7 @@ const { useState, useEffect, useRef } = React;
 
 // App version — bump on every release. Shown as a small badge (tap to confirm the
 // browser is running the latest build, not a stale cached one).
-const VERSION = "0.52.0";
+const VERSION = "0.55.0";
 
 // ============================================================
 //  ENVIRONMENT DETECTION
@@ -86,10 +86,7 @@ const NEW_META = { color: C.sub, bg: "#efe7d7" };
 const STORAGE_KEY = { vocab: "toeic_vocab_ai_v1", grammar: "toeic_grammar_ai_v1", listening: "toeic_listening_ai_v1", audio: "toeic_audio_ai_v1" };
 const BATCH = { vocab: 10, grammar: 5, listening: 3, audio: 2 };
 // Max questions per REVIEW round (so re-reviewing a big backlog doesn't dump everything at once).
-// Sized to each part's generated set; reading/listening use their largest sub-part so we don't
-// trim mixed-passage reviews too aggressively (Reading: Part 6 = 4; Listening: Part 2 = 6).
-// TODO(settings): make these user-adjustable in the upcoming Settings screen.
-const REVIEW_CAP = { vocab: 10, grammar: 5, listening: 4, audio: 6 };
+// v0.54.0: moved into user Settings (capVocab/capGrammar/capP2..P7) — read via reviewCap().
 
 // ---- Spaced repetition (SRS) ----
 // Each rated item gets a "due" date. When due arrives, it surfaces for review.
@@ -330,8 +327,47 @@ const SETTINGS_DEFAULT = {
   ttsRate: 0.92,     // ความเร็วอ่าน: 0.75 ช้า | 0.92 ปกติ | 1.1 เร็ว
   ttsAuto: false,    // เล่นเสียงอัตโนมัติเมื่อขึ้นข้อใหม่ (โหมด Listening)
   sfx: true,         // เสียงติ๊กเฉลยถูก/ผิด (เคาะแล้ว: default เปิด)
+  // ---- v0.53.0: display group ----
+  cardReveal: "tap", // การ์ดศัพท์ด้านหลัง: tap=แตะเผยคำแปลไทย | show=โชว์ทุกอย่างทันที | hard=ซ่อนไทย+นิยาม เดาจากประโยคก่อน
+  autoScript: false, // Listening: เผยสคริปต์อัตโนมัติเมื่อตอบครบทุกข้อที่แชร์สคริปต์เดียวกัน
+  hideTimer: false,  // ซ่อน pill ⏱ ทุกโหมด (เวลายังถูกบันทึกลงสถิติตามปกติ — แค่ไม่ render)
+  // ---- v0.54.0: learning group — review caps per part (flat keys so the shallow
+  // boot-merge over defaults keeps working when new keys are added later) ----
+  capVocab: 10,      // ทบทวน Vocab สูงสุด/รอบ (ข้อ, 2–20)
+  capGrammar: 5,     // ทบทวน Grammar/Part 5 สูงสุด/รอบ (ข้อ, 2–20)
+  capP2: 6,          // ทบทวน Part 2 (ชุดละ 1 ข้อ, 1–10 ชุด)
+  capP3: 2,          // ทบทวน Part 3 (ชุดละ 3 ข้อ, 1–10 ชุด)
+  capP4: 2,          // ทบทวน Part 4 (ชุดละ 3 ข้อ, 1–10 ชุด)
+  capP6: 2,          // ทบทวน Part 6 (ชุดละ 4 ข้อ, 1–10 ชุด)
+  capP7: 2,          // ทบทวน Part 7 (ชุดละ 3 ข้อ, 1–10 ชุด)
+  vocabQuizCount: 10, // จำนวนข้อโจทย์ Vocab ต่อรอบ (5–25, เดิม hardcode 10)
+  // ---- v0.55.0 ----
+  ttsVoice: "",      // voiceURI ของเสียงอ่านที่เลือกเอง ("" = อัตโนมัติตามสำเนียง) — คุณภาพเสียงต่างกันมากรายตัว
 };
 let SETTINGS = { ...SETTINGS_DEFAULT };
+
+// v0.54.0: per-part review caps now come from Settings (REVIEW_CAP const retired).
+// Falls back to the default when the stored value is missing or garbage.
+const CAP_KEY = { vocab: "capVocab", grammar: "capGrammar", "Part 2": "capP2", "Part 3": "capP3", "Part 4": "capP4", "Part 6": "capP6", "Part 7": "capP7" };
+// [settings key, label, hint, min, max] — single source of truth for the Settings UI + reset button
+const CAP_ROWS = [
+  ["capVocab", "Vocab", "หน่วย: ข้อ · แนะนำ 10", 2, 20],
+  ["capGrammar", "Grammar (Part 5)", "หน่วย: ข้อ · แนะนำ 5", 2, 20],
+  ["capP2", "Part 2 ถาม-ตอบ", "1 ข้อ/ชุด · แนะนำ 6", 1, 10],
+  ["capP3", "Part 3 บทสนทนา", "3 ข้อ/ชุด · แนะนำ 2", 1, 10],
+  ["capP4", "Part 4 บทพูด", "3 ข้อ/ชุด · แนะนำ 2", 1, 10],
+  ["capP6", "Part 6 เติมบทความ", "4 ข้อ/ชุด · แนะนำ 2", 1, 10],
+  ["capP7", "Part 7 อ่านจับใจความ", "3 ข้อ/ชุด · แนะนำ 2", 1, 10],
+];
+function reviewCap(k) {
+  const key = CAP_KEY[k];
+  const v = key ? SETTINGS[key] : null;
+  return (Number.isFinite(v) && v >= 1) ? Math.round(v) : (SETTINGS_DEFAULT[key] || 5);
+}
+function vocabQuizN() {
+  const v = SETTINGS.vocabQuizCount;
+  return (Number.isFinite(v) && v >= 1) ? Math.round(v) : SETTINGS_DEFAULT.vocabQuizCount;
+}
 
 // ---- Answer feedback sound (WebAudio — synthesized, no audio assets) ----
 // Rising notes = correct, falling notes = wrong. Same tones the user approved in mockup v2.
@@ -369,8 +405,18 @@ function speak(text, ev) {
     synth.cancel(); // stop anything already playing
     const u = new SpeechSynthesisUtterance(String(text));
     u.lang = SETTINGS.ttsLang; u.rate = SETTINGS.ttsRate; u.pitch = 1; // v0.52.0: from Settings
+    // v0.55.0: user-picked voice (by voiceURI). If it no longer exists on this device
+    // (voice pack removed / different browser), silently fall back to accent-only above.
+    if (SETTINGS.ttsVoice) {
+      const pick = (synth.getVoices() || []).find(v => v.voiceURI === SETTINGS.ttsVoice);
+      if (pick) { u.voice = pick; u.lang = pick.lang || u.lang; }
+    }
     synth.speak(u);
   } catch (e) { /* speech not available */ }
+}
+// v0.52.1: stop any playing TTS (used when the user answers, finishes, or quits a Listening quiz)
+function stopSpeak() {
+  try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
 }
 
 // ============================================================
@@ -2731,14 +2777,32 @@ function App() {
   const [bankShow, setBankShow] = useState(60); // how many bank rows to render (perf: avoid dumping all 952 at once)
   const [missShow, setMissShow] = useState(60); // how many missed-question rows to render (perf, same idea)
   const [showSettings, setShowSettings] = useState(false); // settings modal (engine + API key)
+  // v0.54.1: settings groups are an accordion — opening the modal shows just the 4 group
+  // headers (less wall-of-controls); tapping a header expands that group and folds the rest.
+  const [openGroup, setOpenGroup] = useState(null); // "ai" | "display" | "tts" | "learn" | null
+  function openSettings(group) { setOpenGroup(group || null); setShowSettings(true); }
+  // v0.55.0: voices installed on this device, for the TTS voice picker. getVoices() is async
+  // on mobile Chrome (empty until "voiceschanged" fires), so load once and subscribe.
+  const [ttsVoices, setTtsVoices] = useState([]);
+  useEffect(() => {
+    if (!TTS_OK) return;
+    const synth = window.speechSynthesis;
+    const load = () => { try { setTtsVoices(synth.getVoices() || []); } catch (e) { /* ignore */ } };
+    load();
+    if (synth.addEventListener) { synth.addEventListener("voiceschanged", load); return () => synth.removeEventListener("voiceschanged", load); }
+    synth.onvoiceschanged = load; // older WebView fallback
+    return () => { if (synth.onvoiceschanged === load) synth.onvoiceschanged = null; };
+  }, []);
   const [settings, setSettingsState] = useState(SETTINGS_DEFAULT); // user settings (toeic_settings_v1)
-  // update one setting: keep React state, module mirror, and storage in sync
-  function updateSetting(k, val) {
-    const next = { ...settings, [k]: val };
+  // update settings: keep React state, module mirror, and storage in sync.
+  // applySettings takes a patch object so multi-key updates (reset button) write storage ONCE.
+  function applySettings(patch) {
+    const next = { ...settings, ...patch };
     SETTINGS = next;
     setSettingsState(next);
     STORAGE.set(SETTINGS_KEY, JSON.stringify(next));
   }
+  function updateSetting(k, val) { applySettings({ [k]: val }); }
   const [keyTick, setKeyTick] = useState(0); // bump to recompute key presence after save/delete
   const [keyDraft, setKeyDraft] = useState(""); // draft value in the settings input
 
@@ -2848,6 +2912,13 @@ function App() {
     lastAutoTx.current = key;
     speak(tx);
   }, [settings.ttsAuto, aquiz]);
+
+  // ---- v0.52.1: silence TTS the moment a Listening quiz ends or is quit ----
+  // (covers both: reaching the score screen, and backing out mid-quiz → aquiz becomes null)
+  useEffect(() => {
+    const v = aquiz;
+    if (!v || v.end || v.pos >= v.deck.length) stopSpeak();
+  }, [aquiz]);
   const [statsFilter, setStatsFilter] = useState(null); // Stats modal: null = all modes, else "vocab"|"grammar"|"listening"|"audio"
   const [revealTh, setRevealTh] = useState(false); // vocab card: show Thai meaning?
 
@@ -3133,14 +3204,14 @@ function App() {
     const due = Object.values(st.data).filter(x => { const id = idOf(x); return st.ratings[id] && isDue(st.srs[id], now); });
     const tiers = { forgot: [], sort: [], known: [] };
     due.forEach(x => { const r = st.ratings[idOf(x)]; (tiers[r] || tiers.known).push(x); });
-    const built = [...shuffle(tiers.forgot), ...shuffle(tiers.sort), ...shuffle(tiers.known)].slice(0, REVIEW_CAP[mode] || 40);
+    const built = [...shuffle(tiers.forgot), ...shuffle(tiers.sort), ...shuffle(tiers.known)].slice(0, reviewCap(mode));
     st.deck = built; st.pos = 0; st.flipped = false; st.pickedMap = {}; st.tab = "study";
     if (mode === "grammar") { st.startTime = Date.now(); st.endTime = null; st.logged = false; }
     rerender(); scrollToCards();
   }
   // Shared builder for passage-based review (Reading & Listening). Reviews whole SETS, not loose
   // questions: pick passages that contain >=1 qualifying question, order by urgency (most weak/due
-  // questions first), cap to REVIEW_CAP sets, then include EVERY question of each chosen passage
+  // questions first), cap to each part's own Settings cap, then include EVERY question of each chosen passage
   // (you're reading/listening to the whole thing anyway). Questions stay grouped by passage so the
   // passage is read once. `scopeParts` limits to the selected sub-part(s); null = all.
   function buildPassageReviewDeck(modeKey, qualifies, scopeParts) {
@@ -3154,7 +3225,16 @@ function App() {
     passages.sort((a, b) =>
       (b.questions || []).filter(q => qualifies(q, st, now)).length -
       (a.questions || []).filter(q => qualifies(q, st, now)).length);
-    const chosen = passages.slice(0, REVIEW_CAP[modeKey] || 3);
+    // v0.54.0: cap PER PART, not per mode — set sizes differ (Part 2 = 1 q/set, Part 6 = 4 q/set)
+    // so one shared number was unfair. Walk the urgency-sorted list and let each part keep its
+    // most-urgent sets first; a mixed scope therefore honors every part's own cap.
+    const defType = modeKey === "audio" ? "Part 3" : "Part 7";
+    const take = {};
+    const chosen = passages.filter(p => {
+      const t = p.ptype || defType;
+      take[t] = (take[t] || 0) + 1;
+      return take[t] <= reviewCap(t);
+    });
     const deck = [];
     for (const p of chosen) for (const q of (p.questions || [])) deck.push({ ...q, transcript: p.transcript, _transcript: p.transcript, _ptype: p.ptype });
     return deck;
@@ -3254,7 +3334,7 @@ function App() {
   }
 
   async function generate() {
-    if (needsKey && !hasKey) { setShowSettings(true); return; }
+    if (needsKey && !hasKey) { openSettings("ai"); return; }
     const m = mode, st = cur();
     st.generating = true; st.genErr = null; st.genErrRaw = null; st.lastAdded = null; rerender();
     try {
@@ -3312,7 +3392,7 @@ function App() {
     const idOf = x => (mode === "vocab" ? x.w : x.id);
     const forgot = all.filter(x => st.ratings[idOf(x)] === "forgot");
     const sort = all.filter(x => st.ratings[idOf(x)] === "sort");
-    const built = shuffle([...forgot, ...sort]).slice(0, REVIEW_CAP[mode] || 30);
+    const built = shuffle([...forgot, ...sort]).slice(0, reviewCap(mode));
     st.deck = built; st.pos = 0; st.flipped = false; st.pickedMap = {}; st.tab = "study";
     if (mode === "grammar") { st.startTime = Date.now(); st.endTime = null; st.logged = false; }
     rerender();
@@ -3401,7 +3481,7 @@ function App() {
       : usable.filter(w => w.cefr === quizLevel);
     // need ≥1 target in the chosen level, and ≥4 usable words overall to fill A/B/C/D with distractors.
     if (targets.length < 1 || usable.length < 4) { setVquiz({ deck: [], pos: 0, picked: {}, start: null, end: null, tooFew: true }); return; }
-    const picks = shuffle(targets).slice(0, Math.min(10, targets.length));
+    const picks = shuffle(targets).slice(0, Math.min(vocabQuizN(), targets.length)); // v0.54.0: count from Settings
     const deck = picks.map((w, i) => makeClozeItem(w, all, i, "vq"));
     setVquiz({ deck, pos: 0, picked: {}, start: Date.now(), end: null, isReview: false });
   }
@@ -3411,7 +3491,7 @@ function App() {
     // most-forgettable first: order by SRS due (earlier due = more overdue), then cap the round
     // so a big backlog doesn't dump everything at once.
     const srs = M.current.vocab.srs || {};
-    const ordered = [...missed].sort((a, b) => ((srs[a.word]?.due) || 0) - ((srs[b.word]?.due) || 0)).slice(0, REVIEW_CAP.vocab);
+    const ordered = [...missed].sort((a, b) => ((srs[a.word]?.due) || 0) - ((srs[b.word]?.due) || 0)).slice(0, reviewCap("vocab"));
     // re-shuffle options each review attempt
     const deck = ordered.map((q, i) => {
       const letters = ["A", "B", "C", "D"];
@@ -3450,7 +3530,7 @@ function App() {
 
   // ---- Reading: Practice (Part 7 passage + questions, timed) ----
   async function genPractice() {
-    if (needsKey && !hasKey) { setShowSettings(true); return; }
+    if (needsKey && !hasKey) { openSettings("ai"); return; }
     const st = M.current.listening;
     st.generating = true; st.genErr = null; st.genErrRaw = null; rerender();
     try {
@@ -3528,7 +3608,7 @@ function App() {
 
   // ---- LISTENING (audio) practice: generate a Part 3/4 clip + questions, play via TTS ----
   async function genAudio() {
-    if (needsKey && !hasKey) { setShowSettings(true); return; }
+    if (needsKey && !hasKey) { openSettings("ai"); return; }
     const st = M.current.audio;
     st.generating = true; st.genErr = null; st.genErrRaw = null; rerender();
     try {
@@ -3588,8 +3668,38 @@ function App() {
     touchStreak(); updateHistory();
     rerender();
   }
-  function chooseAQ(id, key, ans) { if (aquiz && aquiz.picked[id]) return; bumpDaily(); if (ans != null) playFeedback(key === ans); setAquiz(v => (v.picked[id] ? v : { ...v, picked: { ...v.picked, [id]: key } })); }
-  function nextAQ() { setAquiz(v => ({ ...v, pos: Math.min(v.pos + 1, v.deck.length) })); }
+  // v0.53.0: which "script group" a deck item belongs to — Part 2 items are each their own
+  // group (no shared transcript); Part 3/4 questions share one transcript per clip.
+  // Used by autoScript so the script is only revealed once NOTHING left can be spoiled.
+  function aqTxGroup(v, it) {
+    return (v.ptype === "Part 2" || it._ptype === "Part 2") ? "p2:" + it.id : (it.transcript || v.transcript || "");
+  }
+  function chooseAQ(id, key, ans) {
+    if (aquiz && aquiz.picked[id]) return;
+    stopSpeak(); bumpDaily();
+    if (ans != null) playFeedback(key === ans);
+    // v0.53.0: autoScript — reveal the transcript automatically once every question
+    // sharing it has been answered (counting this one). Earlier would spoil the rest.
+    if (SETTINGS.autoScript && aquiz) {
+      const cur = aquiz.deck.find(it => it.id === id);
+      if (cur) {
+        const gid = aqTxGroup(aquiz, cur);
+        const allDone = aquiz.deck.every(it => it.id === id || aqTxGroup(aquiz, it) !== gid || aquiz.picked[it.id]);
+        if (allDone) setRevealScript(true);
+      }
+    }
+    setAquiz(v => (v.picked[id] ? v : { ...v, picked: { ...v.picked, [id]: key } }));
+  }
+  function nextAQ() {
+    // v0.53.0: hide the script again when moving into a DIFFERENT clip/question group
+    // (review decks mix clips; Part 2 is per-question) — otherwise the next item is spoiled.
+    if (aquiz) {
+      const np = Math.min(aquiz.pos + 1, aquiz.deck.length);
+      const a = aquiz.deck[aquiz.pos], b = aquiz.deck[np];
+      if (a && b && aqTxGroup(aquiz, a) !== aqTxGroup(aquiz, b)) setRevealScript(false);
+    }
+    setAquiz(v => ({ ...v, pos: Math.min(v.pos + 1, v.deck.length) }));
+  }
   // Listening: SRS-due review deck from the saved clip bank (whole sets, scope-aware, capped)
   function buildAudioDue() {
     const deck = buildPassageReviewDeck("audio", (q, st, now) => st.ratings[q.id] && isDue(st.srs[q.id], now), audioScopeParts());
@@ -3620,7 +3730,7 @@ function App() {
     }
   }
   async function genExam() {
-    if (needsKey && !hasKey) { setShowSettings(true); return; }
+    if (needsKey && !hasKey) { openSettings("ai"); return; }
     const plan = examPlan(examScope);
     const mdl = MODELS.find(x => x.id === models.audio) || MODELS[0]; // reuse audio's chosen model
     const diffP = diffById(difficulty).prompt;
@@ -4081,7 +4191,7 @@ function App() {
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
           <h1 style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 27, margin: 0, letterSpacing: "-0.5px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span>TOEIC <span style={{ color: C.accent }}>Trainer</span></span>
-            <span onClick={() => setShowSettings(true)} title="แตะเพื่อสลับ AI / ตั้งค่า key"
+            <span onClick={() => openSettings("ai")} title="แตะเพื่อสลับ AI / ตั้งค่า key"
               style={{ fontFamily: "'Spline Sans', sans-serif", fontSize: 11, fontWeight: 600, color: ENG.color, cursor: "pointer",
               background: "#fff", border: `1.5px solid ${ENG.color}40`, borderRadius: 20, padding: "3px 9px", lineHeight: 1, whiteSpace: "nowrap" }}>
               {ENG.icon} {ENG.name} Ver
@@ -4090,7 +4200,7 @@ function App() {
           <div style={{ display: "flex", gap: "6px 14px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
             <button onClick={openStats}
               style={{ background: "none", border: "none", color: C.accent, fontSize: 12, fontWeight: 700, textDecoration: "underline", padding: "3px 0", whiteSpace: "nowrap" }}>📊 สถิติ</button>
-            <button onClick={() => setShowSettings(true)}
+            <button onClick={() => openSettings(needsKey && !hasKey ? "ai" : null)}
               style={{ background: "none", border: "none", color: hasKey ? C.accent : C.red, fontSize: 12, fontWeight: 700, textDecoration: "underline", padding: "3px 0", whiteSpace: "nowrap" }}>
               ⚙️ {needsKey ? (hasKey ? "ตั้งค่า" : "ใส่ API key") : "ตั้งค่า"}
             </button>
@@ -4116,7 +4226,7 @@ function App() {
             but none is set. The app is fully usable for reviewing existing decks;
             only NEW-set generation is locked. Tapping opens settings to unlock. */}
         {needsKey && !hasKey && (
-          <div onClick={() => setShowSettings(true)} title="แตะเพื่อใส่ API key"
+          <div onClick={() => openSettings("ai")} title="แตะเพื่อใส่ API key"
             style={{ cursor: "pointer", display: "flex", alignItems: "flex-start", gap: 10,
               background: C.amberBg, border: `1px solid ${C.amber}66`, borderRadius: 13,
               padding: "11px 14px", margin: streak.streak > 0 ? "0 0 12px" : "14px 0 12px" }}>
@@ -4159,8 +4269,10 @@ function App() {
             style={{ position: "fixed", inset: 0, background: "rgba(33,29,24,.55)", display: "grid", placeItems: "center", padding: 18, zIndex: 60 }}>
             <div onClick={e => e.stopPropagation()} className="rise"
               style={{ background: C.panel, borderRadius: 16, padding: "20px 18px", maxWidth: 480, width: "100%", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 20px 50px -20px rgba(0,0,0,.5)" }}>
-              <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 20, marginBottom: 10 }}>⚙️ ตั้งค่า</div>
-              <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 15.5, marginBottom: 8 }}>🤖 AI</div>
+              <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 20, marginBottom: 6 }}>⚙️ ตั้งค่า</div>
+              {/* v0.54.1: groups are an accordion — tap a header to expand (one at a time) */}
+              <SettingGroup first title="🤖 AI" open={openGroup === "ai"}
+                onToggle={() => setOpenGroup(g => (g === "ai" ? null : "ai"))}>
 
               {/* engine switcher — only when more than one engine is available in this environment */}
               {Object.keys(AVAILABLE_ENGINES).length > 1 && (
@@ -4231,16 +4343,45 @@ function App() {
                   คุณกำลังเปิดแอปในโหมด <b style={{ color: ENG.color }}>{ENG.icon} {ENG.name}</b> — Claude artifact จัดการ AI ให้แล้ว ไม่ต้องใส่ API key ใดๆ
                 </div>
               )}
-              {/* ---- v0.52.0: sound group — TTS accent/speed/auto-play + answer feedback ---- */}
-              <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 16, paddingTop: 14 }}>
-                <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 15.5, marginBottom: 10 }}>🔊 เสียง</div>
+              </SettingGroup>
+              {/* ---- v0.53.0/v0.54.0: display group — wording + layout per approved mockup v5 ---- */}
+              <SettingGroup title="👁️ การแสดงผล" why="คุมว่าเฉลย/คำแปลโผล่เองหรือรอเราแตะ"
+                open={openGroup === "display"} onToggle={() => setOpenGroup(g => (g === "display" ? null : "display"))}>
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 500 }}>ความหมายบนการ์ดศัพท์ (ด้านหลัง)</div>
+                  <div style={{ fontSize: 11, color: C.sub, marginTop: 1, lineHeight: 1.5 }}>ยิ่งซ่อนมาก ยิ่งบังคับสมองให้นึกเอง = จำแน่นขึ้น</div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 7 }}>
+                    <SettingPill on={settings.cardReveal === "show"} onClick={() => updateSetting("cardReveal", "show")}>โชว์ทุกอย่างทันที</SettingPill>
+                    <SettingPill on={settings.cardReveal === "tap"} onClick={() => updateSetting("cardReveal", "tap")}>แตะเพื่อเผยคำแปลไทย</SettingPill>
+                    <SettingPill on={settings.cardReveal === "hard"} onClick={() => updateSetting("cardReveal", "hard")}>ซ่อนไทย+นิยามอังกฤษ</SettingPill>
+                  </div>
+                  <div style={{ fontSize: 11, color: C.sub, marginTop: 6, lineHeight: 1.5 }}>โหมดซ่อนหมด: พลิกแล้วเห็นแค่ประโยคตัวอย่างเป็นใบ้ — แตะอีกทีถึงเผยความหมาย</div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
+                  <span>
+                    <span style={{ fontSize: 13.5, fontWeight: 500, display: "block" }}>โชว์ script อัตโนมัติหลังตอบครบ</span>
+                    <span style={{ fontSize: 11, color: C.sub, lineHeight: 1.5 }}>โหมด Listening — ไม่ต้องกด "ดูสคริปต์" เองทุกครั้ง (เผยเมื่อไม่มีข้อให้สปอยล์แล้ว)</span>
+                  </span>
+                  <SettingToggle on={settings.autoScript} onClick={() => updateSetting("autoScript", !settings.autoScript)} />
+                </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                  <span>
+                    <span style={{ fontSize: 13.5, fontWeight: 500, display: "block" }}>ซ่อนตัวจับเวลา ⏱ ระหว่างทำโจทย์</span>
+                    <span style={{ fontSize: 11, color: C.sub, lineHeight: 1.5 }}>ลดความลน — เวลายังถูกบันทึกในสถิติเหมือนเดิม</span>
+                  </span>
+                  <SettingToggle on={settings.hideTimer} onClick={() => updateSetting("hideTimer", !settings.hideTimer)} />
+                </div>
+              </SettingGroup>
+              {/* ---- v0.52.0/v0.54.0: TTS group — accent/speed/auto-play (sfx moved to learning group per mockup v5) ---- */}
+              <SettingGroup title="🔊 เสียงอ่าน (TTS)" why="สำเนียง ความเร็ว และการเล่นอัตโนมัติของเสียงอ่านในแอป"
+                open={openGroup === "tts"} onToggle={() => setOpenGroup(g => (g === "tts" ? null : "tts"))}>
                 {TTS_OK ? (
                   <>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
                       <span style={{ fontSize: 13, fontWeight: 500 }}>สำเนียงเสียงอ่าน</span>
                       <span style={{ display: "inline-flex", gap: 6 }}>
-                        <SettingPill on={settings.ttsLang === "en-US"} onClick={() => updateSetting("ttsLang", "en-US")}>🇺🇸 US</SettingPill>
-                        <SettingPill on={settings.ttsLang === "en-GB"} onClick={() => updateSetting("ttsLang", "en-GB")}>🇬🇧 UK</SettingPill>
+                        <SettingPill on={settings.ttsLang === "en-US"} onClick={() => applySettings({ ttsLang: "en-US", ttsVoice: "" })}>🇺🇸 US</SettingPill>
+                        <SettingPill on={settings.ttsLang === "en-GB"} onClick={() => applySettings({ ttsLang: "en-GB", ttsVoice: "" })}>🇬🇧 UK</SettingPill>
                       </span>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
@@ -4251,37 +4392,93 @@ function App() {
                         <SettingPill on={settings.ttsRate === 1.1} onClick={() => updateSetting("ttsRate", 1.1)}>เร็ว</SettingPill>
                       </span>
                     </div>
+                    {/* v0.55.0: per-voice picker — devices ship several voices per accent and their
+                        quality varies a LOT (robotic vs near-human). Filtered to the chosen accent;
+                        lang is normalized because some Android voices report "en_US" with underscores.
+                        Hidden entirely when the device exposes no matching voices (auto still works). */}
+                    {(() => {
+                      const langLC = (settings.ttsLang || "en-US").toLowerCase();
+                      const list = ttsVoices.filter(v => (v.lang || "").replace(/_/g, "-").toLowerCase().startsWith(langLC));
+                      if (!list.length) return null;
+                      return (
+                        <div style={{ marginBottom: 10 }}>
+                          <div style={{ fontSize: 13, fontWeight: 500 }}>เสียงที่ใช้อ่าน ({list.length} ตัวในเครื่องนี้)</div>
+                          <div style={{ fontSize: 11, color: C.sub, marginTop: 1, lineHeight: 1.5 }}>ลองสลับแล้วกด ▶ ฟังเทียบ — บางตัวธรรมชาติกว่ากันมาก (☁️ = ใช้เน็ตตอนอ่าน)</div>
+                          <select value={settings.ttsVoice || ""} onChange={e => updateSetting("ttsVoice", e.target.value)}
+                            style={{ width: "100%", boxSizing: "border-box", marginTop: 7, fontSize: 13.5, padding: "9px 10px",
+                              borderRadius: 10, border: `1.5px solid ${C.line}`, background: "#fff", color: C.ink }}>
+                            <option value="">อัตโนมัติ (ให้เครื่องเลือกตามสำเนียง)</option>
+                            {list.map(v => (
+                              <option key={v.voiceURI} value={v.voiceURI}>
+                                {v.name}{v.localService === false ? " ☁️" : ""}{v.default ? " · ค่าเครื่อง" : ""}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      );
+                    })()}
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
                       <span>
                         <span style={{ fontSize: 13, fontWeight: 500, display: "block" }}>เล่นเสียงอัตโนมัติเมื่อขึ้นข้อใหม่</span>
-                        <span style={{ fontSize: 11, color: C.sub }}>โหมด Listening — เสียงมาเองเหมือนข้อสอบจริง</span>
+                        <span style={{ fontSize: 11, color: C.sub }}>โหมด Listening — เสียงมาเองเหมือนข้อสอบจริง ไม่ต้องกด 🔊</span>
                       </span>
                       <SettingToggle on={settings.ttsAuto} onClick={() => updateSetting("ttsAuto", !settings.ttsAuto)} />
                     </div>
                     <button onClick={(e) => speak("The quarterly meeting has been rescheduled to Thursday morning.", e)}
-                      style={{ background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 13, padding: "8px 14px", fontSize: 13, fontWeight: 600, marginBottom: 12 }}>
+                      style={{ background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 13, padding: "8px 14px", fontSize: 13, fontWeight: 600 }}>
                       ▶ ทดลองฟังด้วยค่านี้
                     </button>
                   </>
                 ) : (
-                  <div style={{ fontSize: 12, color: C.sub, marginBottom: 10 }}>ℹ️ หน้านี้ไม่รองรับเสียงอ่าน (TTS) — ตัวเลือกเสียงอ่านใช้ได้บนหน้าเว็บจริง</div>
+                  <div style={{ fontSize: 12, color: C.sub }}>ℹ️ หน้านี้ไม่รองรับเสียงอ่าน (TTS) — ตัวเลือกเสียงอ่านใช้ได้บนหน้าเว็บจริง</div>
                 )}
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              </SettingGroup>
+
+              {/* ---- v0.54.0: learning group — per-part review caps + vocab quiz size + answer sfx ---- */}
+              <SettingGroup title="📚 การเรียน" why="จำนวนสูงสุดต่อรอบทบทวน — แยกราย Part เพราะชุดแต่ละ Part ขนาดไม่เท่ากัน (default จูนให้ ~6-8 ข้อ/รอบ)"
+                open={openGroup === "learn"} onToggle={() => setOpenGroup(g => (g === "learn" ? null : "learn"))}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", rowGap: 9, alignItems: "center" }}>
+                  {CAP_ROWS.map(([key, lbl, hint, lo, hi]) => (
+                    <React.Fragment key={key}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.35 }}>{lbl}</div>
+                        <span style={{ display: "block", fontSize: 10.5, color: C.sub, marginTop: 1 }}>{hint}</span>
+                      </div>
+                      <SettingStepper value={settings[key]} lo={lo} hi={hi} onChange={v => updateSetting(key, v)} />
+                    </React.Fragment>
+                  ))}
+                </div>
+                <button onClick={() => {
+                    const patch = { vocabQuizCount: SETTINGS_DEFAULT.vocabQuizCount };
+                    for (const [key] of CAP_ROWS) patch[key] = SETTINGS_DEFAULT[key];
+                    applySettings(patch);
+                  }}
+                  style={{ background: "none", border: "none", color: C.sub, fontSize: 11.5, fontWeight: 600, textDecoration: "underline", cursor: "pointer", padding: "8px 0 2px" }}>
+                  รีเซ็ตเป็นค่าแนะนำ
+                </button>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 8, marginBottom: 6 }}>
                   <span>
-                    <span style={{ fontSize: 13, fontWeight: 500, display: "block" }}>เสียงติ๊กเฉลยถูก/ผิด</span>
-                    <span style={{ fontSize: 11, color: C.sub }}>เสียงสั้นๆ ตอนตอบโจทย์</span>
+                    <span style={{ fontSize: 13.5, fontWeight: 500, display: "block" }}>จำนวนข้อโจทย์ Vocab ต่อรอบ</span>
+                    <span style={{ fontSize: 11, color: C.sub }}>เดิมล็อก 10 ข้อ — ปรับได้ 5–25</span>
+                  </span>
+                  <SettingStepper value={settings.vocabQuizCount} lo={5} hi={25} onChange={v => updateSetting("vocabQuizCount", v)} />
+                </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 6 }}>
+                  <span>
+                    <span style={{ fontSize: 13.5, fontWeight: 500, display: "block" }}>เสียงติ๊กเฉลยถูก/ผิด</span>
+                    <span style={{ fontSize: 11, color: C.sub }}>เสียงสั้นๆ ตอนตอบโจทย์ — เปิดเป็นค่าเริ่มต้น (ปิดได้ที่นี่)</span>
                   </span>
                   <SettingToggle on={settings.sfx} onClick={() => updateSetting("sfx", !settings.sfx)} />
                 </div>
                 {settings.sfx && (
                   <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                     <button onClick={() => playFeedback(true)}
-                      style={{ background: "#fff", color: C.green, border: `1.5px solid ${C.greenBg}`, borderRadius: 13, padding: "7px 12px", fontSize: 12.5, fontWeight: 600 }}>✔ ลองเสียงถูก</button>
+                      style={{ background: "#fff", color: C.green, border: `1.5px solid ${C.greenBg}`, borderRadius: 13, padding: "7px 12px", fontSize: 12.5, fontWeight: 600 }}>✔ เสียงตอบถูก</button>
                     <button onClick={() => playFeedback(false)}
-                      style={{ background: "#fff", color: C.red, border: `1.5px solid ${C.redBg}`, borderRadius: 13, padding: "7px 12px", fontSize: 12.5, fontWeight: 600 }}>✘ ลองเสียงผิด</button>
+                      style={{ background: "#fff", color: C.red, border: `1.5px solid ${C.redBg}`, borderRadius: 13, padding: "7px 12px", fontSize: 12.5, fontWeight: 600 }}>✘ เสียงตอบผิด</button>
                   </div>
                 )}
-              </div>
+              </SettingGroup>
 
               <button onClick={() => setShowSettings(false)}
                 style={{ marginTop: 10, width: "100%", background: "none", border: "none", color: C.sub, fontSize: 13, textDecoration: "underline" }}>ปิด</button>
@@ -4861,7 +5058,7 @@ function App() {
                     <div style={{ display: "flex", gap: 8, alignItems: "stretch", marginBottom: 14 }}>
                       <button onClick={buildVocabQuiz} disabled={!quizReady}
                         style={{ flex: missCount > 0 ? 1.35 : 1, background: quizReady ? C.accent : "#cfc6b6", color: "#fff", border: "none", borderRadius: 13, padding: "13px 10px", fontSize: 14.5, fontWeight: 600, boxShadow: quizReady ? "0 8px 20px -10px rgba(191,77,40,.9)" : "none", lineHeight: 1.3, cursor: quizReady ? "pointer" : "not-allowed" }}>
-                        ▶ เริ่มทำโจทย์ ({Math.min(10, quizTargetCount)} ข้อ)
+                        ▶ เริ่มทำโจทย์ ({Math.min(vocabQuizN(), quizTargetCount)} ข้อ)
                       </button>
                       {missCount > 0 && (
                         <button onClick={buildMissedQuiz}
@@ -4919,10 +5116,12 @@ function App() {
               <div className="rise" key={v.pos}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, color: C.sub, marginBottom: 8 }}>
                   <span>ข้อ {v.pos + 1}/{v.deck.length}{v.isReview ? " · ทวนข้อพลาด" : ""}</span>
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: C.accentSoft, color: C.accent,
-                    fontWeight: 700, fontSize: 14, padding: "4px 11px", borderRadius: 20, fontVariantNumeric: "tabular-nums" }}>
-                    ⏱ {fmtTime((v.end || now) - v.start)}
-                  </span>
+                  {!settings.hideTimer && (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: C.accentSoft, color: C.accent,
+                      fontWeight: 700, fontSize: 14, padding: "4px 11px", borderRadius: 20, fontVariantNumeric: "tabular-nums" }}>
+                      ⏱ {fmtTime((v.end || now) - v.start)}
+                    </span>
+                  )}
                 </div>
                 <Progress pos={v.pos} len={v.deck.length} />
                 <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 16, padding: "20px 18px", boxShadow: "0 10px 30px -18px rgba(40,30,20,.4)" }}>
@@ -5196,39 +5395,10 @@ function App() {
                   const sp = readingScopeParts();
                   const weak = weakCountFor("listening", sp);
                   const due = dueCountFor("listening", sp);
-                  if (!weak && !due) return null;
-                  return (
-                    <div style={{ border: `1px solid ${C.line}`, borderRadius: 13, padding: "12px 12px 13px", margin: "4px 0 14px", background: "#fcf8f0" }}>
-                      <div style={{ fontSize: 12, color: C.sub, fontWeight: 700, marginBottom: 9 }}>
-                        🔁 ทบทวน <span style={{ fontWeight: 400, fontSize: 11 }}>· ทวนทั้งชุดที่ใกล้ลืมมาก่อน</span>
-                        {due === 0 && <span style={{ fontWeight: 700, fontSize: 11, color: C.green }}> · ครบแล้ววันนี้</span>}
-                      </div>
-                      {due > 0 ? (
-                        <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
-                          <button onClick={buildReadingDue}
-                            style={{ flex: weak > 0 ? 1.3 : 1, background: C.amberBg, color: C.ink, border: `1.5px solid ${C.amber}`, borderRadius: 11, padding: "12px 8px",
-                              fontSize: 13.5, fontWeight: 700, lineHeight: 1.3 }}>
-                            🔔 ถึงกำหนด ({due} ชุด)
-                          </button>
-                          {weak > 0 && (
-                            <button onClick={buildReadingReview}
-                              style={{ flex: 1, background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "12px 8px",
-                                fontSize: 13, fontWeight: 600, lineHeight: 1.3 }}>
-                              ยังไม่แม่น ({weak} ชุด)
-                            </button>
-                          )}
-                        </div>
-                      ) : (
-                        weak > 0 && (
-                          <button onClick={buildReadingReview}
-                            style={{ width: "100%", background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "12px 8px",
-                              fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>
-                            ทวนทั้งชุดที่ยังไม่แม่น ({weak} ชุด)
-                          </button>
-                        )
-                      )}
-                    </div>
-                  );
+                  return <ReviewBox due={due} weak={weak} sub="ทวนทั้งชุดที่ใกล้ลืมมาก่อน"
+                    dueLabel={`ถึงกำหนด (${due} ชุด)`} weakLabel={`ยังไม่แม่น (${weak} ชุด)`}
+                    weakAllLabel={`ทวนทั้งชุดที่ยังไม่แม่น (${weak} ชุด)`}
+                    onDue={buildReadingDue} onWeak={buildReadingReview} />;
                 })()}
                 {/* คลังข้อสอบ: passages saved from previous generations (never lost) */}
                 {(() => {
@@ -5294,8 +5464,8 @@ function App() {
                   <span>{v.ptype} · ข้อ {v.pos + 1}/{v.deck.length}</span>
                   <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                     {v.model ? <span style={{ fontSize: 10, color: C.accent, background: C.accentSoft, padding: "2px 8px", borderRadius: 10, fontWeight: 600 }}>จาก {v.model}</span> : null}
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: C.accentSoft, color: C.accent,
-                      fontWeight: 700, fontSize: 14, padding: "4px 11px", borderRadius: 20, fontVariantNumeric: "tabular-nums" }}>⏱ {fmtTime((v.end || now) - v.start)}</span>
+                    {!settings.hideTimer && <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: C.accentSoft, color: C.accent,
+                      fontWeight: 700, fontSize: 14, padding: "4px 11px", borderRadius: 20, fontVariantNumeric: "tabular-nums" }}>⏱ {fmtTime((v.end || now) - v.start)}</span>}
                   </span>
                 </div>
                 <Progress pos={v.pos} len={v.deck.length} />
@@ -5515,39 +5685,10 @@ function App() {
                   const sp = audioScopeParts();
                   const weak = weakCountFor("audio", sp);
                   const due = dueCountFor("audio", sp);
-                  if (!weak && !due) return null;
-                  return (
-                    <div style={{ border: `1px solid ${C.line}`, borderRadius: 13, padding: "12px 12px 13px", margin: "4px 0 14px", background: "#fcf8f0" }}>
-                      <div style={{ fontSize: 12, color: C.sub, fontWeight: 700, marginBottom: 9 }}>
-                        🔁 ทบทวน <span style={{ fontWeight: 400, fontSize: 11 }}>· ทวนทั้งชุดที่ใกล้ลืมมาก่อน</span>
-                        {due === 0 && <span style={{ fontWeight: 700, fontSize: 11, color: C.green }}> · ครบแล้ววันนี้</span>}
-                      </div>
-                      {due > 0 ? (
-                        <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
-                          <button onClick={buildAudioDue}
-                            style={{ flex: weak > 0 ? 1.3 : 1, background: C.amberBg, color: C.ink, border: `1.5px solid ${C.amber}`, borderRadius: 11, padding: "12px 8px",
-                              fontSize: 13.5, fontWeight: 700, lineHeight: 1.3 }}>
-                            🔔 ถึงกำหนด ({due} ชุด)
-                          </button>
-                          {weak > 0 && (
-                            <button onClick={buildAudioReview}
-                              style={{ flex: 1, background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "12px 8px",
-                                fontSize: 13, fontWeight: 600, lineHeight: 1.3 }}>
-                              ยังไม่แม่น ({weak} ชุด)
-                            </button>
-                          )}
-                        </div>
-                      ) : (
-                        weak > 0 && (
-                          <button onClick={buildAudioReview}
-                            style={{ width: "100%", background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "12px 8px",
-                              fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>
-                            ทวนทั้งชุดที่ยังไม่แม่น ({weak} ชุด)
-                          </button>
-                        )
-                      )}
-                    </div>
-                  );
+                  return <ReviewBox due={due} weak={weak} sub="ทวนทั้งชุดที่ใกล้ลืมมาก่อน"
+                    dueLabel={`ถึงกำหนด (${due} ชุด)`} weakLabel={`ยังไม่แม่น (${weak} ชุด)`}
+                    weakAllLabel={`ทวนทั้งชุดที่ยังไม่แม่น (${weak} ชุด)`}
+                    onDue={buildAudioDue} onWeak={buildAudioReview} />;
                 })()}
                 {/* คลังบทฟัง: clips saved from previous generations (never lost) */}
                 {(() => {
@@ -5622,8 +5763,8 @@ function App() {
                   <span>{v.ptype} · ข้อ {v.pos + 1}/{v.deck.length}</span>
                   <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                     {v.model ? <span style={{ fontSize: 10, color: C.accent, background: C.accentSoft, padding: "2px 8px", borderRadius: 10, fontWeight: 600 }}>จาก {v.model}</span> : null}
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: C.accentSoft, color: C.accent,
-                      fontWeight: 700, fontSize: 14, padding: "4px 11px", borderRadius: 20, fontVariantNumeric: "tabular-nums" }}>⏱ {fmtTime((v.end || now) - v.start)}</span>
+                    {!settings.hideTimer && <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: C.accentSoft, color: C.accent,
+                      fontWeight: 700, fontSize: 14, padding: "4px 11px", borderRadius: 20, fontVariantNumeric: "tabular-nums" }}>⏱ {fmtTime((v.end || now) - v.start)}</span>}
                   </span>
                 </div>
                 <Progress pos={v.pos} len={v.deck.length} />
@@ -5923,10 +6064,12 @@ function App() {
               {/* sticky-ish header: timer + progress */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                 <span style={{ fontSize: 13, color: C.sub }}>{exam.parts.join("+")} · ข้อ {exam.pos + 1}/{exam.deck.length}</span>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: overtime ? C.redBg : C.accentSoft, color: overtime ? C.red : C.accent,
-                  fontWeight: 700, fontSize: 15, padding: "5px 13px", borderRadius: 20, fontVariantNumeric: "tabular-nums" }}>
-                  ⏱ {fmtTime(Math.abs(remain))}{overtime ? " เกิน" : ""}
-                </span>
+                {!settings.hideTimer && (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6, background: overtime ? C.redBg : C.accentSoft, color: overtime ? C.red : C.accent,
+                    fontWeight: 700, fontSize: 15, padding: "5px 13px", borderRadius: 20, fontVariantNumeric: "tabular-nums" }}>
+                    ⏱ {fmtTime(Math.abs(remain))}{overtime ? " เกิน" : ""}
+                  </span>
+                )}
               </div>
               {overtime && <div style={{ fontSize: 12.5, color: C.red, fontWeight: 600, background: C.redBg, border: `1px solid ${C.red}`, borderRadius: 9, padding: "8px 12px", marginBottom: 10 }}>⏰ หมดเวลาแล้ว — ทำต่อได้ แต่ในสนามจริงจะหมดเวลาพอดี กด "ส่งคำตอบ" เมื่อพร้อมครับ</div>}
 
@@ -6065,38 +6208,10 @@ function App() {
         {!st.generating && (reviewable > 0 || dueCountFor(mode) > 0) && (() => {
           const due = dueCountFor(mode);
           const unit = mode === "vocab" ? "คำ" : "ข้อ";
-          return (
-            <div style={{ border: `1px solid ${C.line}`, borderRadius: 13, padding: "12px 12px 13px", marginBottom: 12, background: "#fcf8f0" }}>
-              <div style={{ fontSize: 12, color: C.sub, fontWeight: 700, marginBottom: 9 }}>
-                🔁 ทบทวน <span style={{ fontWeight: 400, fontSize: 11 }}>· ระบบจัดคิว{unit}ที่ใกล้ลืมมาก่อน</span>
-                {due === 0 && <span style={{ fontWeight: 700, fontSize: 11, color: C.green }}> · ครบแล้ววันนี้</span>}
-              </div>
-              {due > 0 ? (
-                <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
-                  <button onClick={buildDueDeck}
-                    style={{ flex: reviewable > 0 ? 1.3 : 1, background: C.amberBg, color: C.ink, border: `1.5px solid ${C.amber}`, borderRadius: 11, padding: "12px 8px",
-                      fontSize: 13.5, fontWeight: 700, lineHeight: 1.3 }}>
-                    🔔 ถึงกำหนด ({due})
-                  </button>
-                  {reviewable > 0 && (
-                    <button onClick={buildReviewDeck}
-                      style={{ flex: 1, background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "12px 8px",
-                        fontSize: 13, fontWeight: 600, lineHeight: 1.3 }}>
-                      ยังไม่แม่น ({reviewable})
-                    </button>
-                  )}
-                </div>
-              ) : (
-                reviewable > 0 && (
-                  <button onClick={buildReviewDeck}
-                    style={{ width: "100%", background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "12px 8px",
-                      fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>
-                    ทวน{unit}ที่ยังไม่แม่นทั้งหมด ({reviewable} {unit})
-                  </button>
-                )
-              )}
-            </div>
-          );
+          return <ReviewBox due={due} weak={reviewable} sub={`ระบบจัดคิว${unit}ที่ใกล้ลืมมาก่อน`}
+            dueLabel={`ถึงกำหนด (${due})`} weakLabel={`ยังไม่แม่น (${reviewable})`}
+            weakAllLabel={`ทวน${unit}ที่ยังไม่แม่นทั้งหมด (${reviewable} ${unit})`}
+            onDue={buildDueDeck} onWeak={buildReviewDeck} margin="0 0 12px" />;
         })()}
         {st.genErr && <GenError err={st.genErr} raw={st.genErrRaw} />}
         {st.lastAdded != null && !st.generating && (
@@ -6171,20 +6286,35 @@ function App() {
                   </div>
                   <div style={{ color: C.sub, fontSize: 16 }}>{card.ipa}</div>
                   <div style={{ color: C.sub, fontSize: 13, marginTop: 4 }}>{card.pos}</div>
-                  <div style={{ marginTop: 18, fontSize: 12.5, color: C.sub }}>แตะการ์ดเพื่อดูคำใบ้ (นิยาม + ประโยค) ↻</div>
+                  <div style={{ marginTop: 18, fontSize: 12.5, color: C.sub }}>
+                    {settings.cardReveal === "show" ? "แตะการ์ดเพื่อดูคำแปล + นิยาม + ประโยค ↻"
+                      : settings.cardReveal === "hard" ? "แตะการ์ดเพื่อดูคำใบ้ (ประโยคตัวอย่าง) ↻"
+                      : "แตะการ์ดเพื่อดูคำใบ้ (นิยาม + ประโยค) ↻"}
+                  </div>
                 </div>
                 <div className="face back" style={faceStyle()}>
                   <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 22, marginBottom: 8 }}>{card.w}</div>
-                  {revealTh ? (
-                    <div style={{ fontSize: 19, fontWeight: 600, color: C.accent, marginBottom: 10, textAlign: "center" }}>{card.th}</div>
-                  ) : (
-                    <button onClick={(e) => { e.stopPropagation(); setRevealTh(true); }}
-                      style={{ marginBottom: 10, border: `1.5px dashed ${C.accent}`, background: C.accentSoft, color: C.accent,
-                        borderRadius: 10, padding: "7px 16px", fontSize: 13.5, fontWeight: 600 }}>
-                      👁 แตะเพื่อดูคำแปล (ลองเดาจากด้านล่างก่อน)
-                    </button>
-                  )}
-                  <div style={{ fontSize: 14, color: C.ink, lineHeight: 1.5, textAlign: "center" }}>{card.def}</div>
+                  {/* v0.53.0: cardReveal — tap (default): hide Thai behind a tap; show: everything
+                      immediately; hard: hide Thai + English definition, one tap reveals both */}
+                  {(() => {
+                    const rv = settings.cardReveal || "tap";
+                    const showTh = rv === "show" || revealTh;
+                    const showDef = rv !== "hard" || revealTh;
+                    return (
+                      <>
+                        {showTh ? (
+                          <div style={{ fontSize: 19, fontWeight: 600, color: C.accent, marginBottom: 10, textAlign: "center" }}>{card.th}</div>
+                        ) : (
+                          <button onClick={(e) => { e.stopPropagation(); setRevealTh(true); }}
+                            style={{ marginBottom: 10, border: `1.5px dashed ${C.accent}`, background: C.accentSoft, color: C.accent,
+                              borderRadius: 10, padding: "7px 16px", fontSize: 13.5, fontWeight: 600 }}>
+                            {rv === "hard" ? "👁 แตะเพื่อดูคำแปล + นิยาม (เดาจากประโยคก่อน)" : "👁 แตะเพื่อดูคำแปล (ลองเดาจากด้านล่างก่อน)"}
+                          </button>
+                        )}
+                        {showDef && <div style={{ fontSize: 14, color: C.ink, lineHeight: 1.5, textAlign: "center" }}>{card.def}</div>}
+                      </>
+                    );
+                  })()}
                   <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "center", gap: 8, marginTop: 12 }}>
                     <div style={{ fontSize: 14, color: C.sub, fontStyle: "italic", lineHeight: 1.5, textAlign: "center" }}>“{card.ex}”</div>
                     {TTS_OK && card.ex && (
@@ -6207,10 +6337,12 @@ function App() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, color: C.sub, marginBottom: 8 }}>
               <span>ข้อ {st.pos + 1}/{st.deck.length}</span>
               <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: C.accentSoft, color: C.accent,
-                  fontWeight: 700, fontSize: 14, padding: "4px 11px", borderRadius: 20, fontVariantNumeric: "tabular-nums" }}>
-                  ⏱ {fmtTime((st.endTime || now) - (st.startTime || now))}
-                </span>
+                {!settings.hideTimer && (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: C.accentSoft, color: C.accent,
+                    fontWeight: 700, fontSize: 14, padding: "4px 11px", borderRadius: 20, fontVariantNumeric: "tabular-nums" }}>
+                    ⏱ {fmtTime((st.endTime || now) - (st.startTime || now))}
+                  </span>
+                )}
                 <StatusBadge mode={mode} status={st.ratings[card.id]} />
               </span>
             </div>
@@ -6679,6 +6811,78 @@ function Centered({ children }) {
 // can't parse even after repair, parseLooseJson attaches the raw text; this lets us peek
 // at exactly what came back (truncated vs corrupted) without guessing. Collapsed by default.
 // ---- v0.52.0: tiny controls for the settings modal ----
+// v0.54.0: shared review zone — the same box used to be copy-pasted in 3 places
+// (vocab/grammar study, Reading practice, Listening practice); any layout fix had to be
+// repeated everywhere, so it's now one component. SRS-due is the primary action,
+// "all weak" is the study-ahead fallback. Renders nothing when there's nothing to review.
+function ReviewBox({ due, weak, sub, dueLabel, weakLabel, weakAllLabel, onDue, onWeak, margin }) {
+  if (!weak && !due) return null;
+  return (
+    <div style={{ border: `1px solid ${C.line}`, borderRadius: 13, padding: "12px 12px 13px", margin: margin || "4px 0 14px", background: "#fcf8f0" }}>
+      <div style={{ fontSize: 12, color: C.sub, fontWeight: 700, marginBottom: 9 }}>
+        🔁 ทบทวน <span style={{ fontWeight: 400, fontSize: 11 }}>· {sub}</span>
+        {due === 0 && <span style={{ fontWeight: 700, fontSize: 11, color: C.green }}> · ครบแล้ววันนี้</span>}
+      </div>
+      {due > 0 ? (
+        <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
+          <button onClick={onDue}
+            style={{ flex: weak > 0 ? 1.3 : 1, background: C.amberBg, color: C.ink, border: `1.5px solid ${C.amber}`, borderRadius: 11, padding: "12px 8px",
+              fontSize: 13.5, fontWeight: 700, lineHeight: 1.3 }}>
+            🔔 {dueLabel}
+          </button>
+          {weak > 0 && (
+            <button onClick={onWeak}
+              style={{ flex: 1, background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "12px 8px",
+                fontSize: 13, fontWeight: 600, lineHeight: 1.3 }}>
+              {weakLabel}
+            </button>
+          )}
+        </div>
+      ) : (
+        weak > 0 && (
+          <button onClick={onWeak}
+            style={{ width: "100%", background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "12px 8px",
+              fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>
+            {weakAllLabel}
+          </button>
+        )
+      )}
+    </div>
+  );
+}
+// v0.54.0: −/value/+ stepper used by the learning group in Settings (mockup v5 layout)
+function SettingStepper({ value, lo, hi, onChange }) {
+  const btn = { width: 26, height: 26, borderRadius: 8, border: `1px solid ${C.line}`, background: "#fff",
+    color: C.ink, fontSize: 15, fontWeight: 600, cursor: "pointer", lineHeight: 1, padding: 0 };
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+      <button onClick={() => onChange(Math.max(lo, (value || lo) - 1))} aria-label="ลด" style={btn}>−</button>
+      <span style={{ minWidth: 22, textAlign: "center", fontSize: 13.5, fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{value}</span>
+      <button onClick={() => onChange(Math.min(hi, (value || lo) + 1))} aria-label="เพิ่ม" style={btn}>+</button>
+    </span>
+  );
+}
+// v0.54.1: collapsible settings group (accordion) — the modal opens showing only the four
+// group headers; tapping one expands it (and the modal's openGroup state folds the others).
+// `first` drops the divider/top spacing for the group right under the modal title.
+function SettingGroup({ title, why, open, onToggle, first, children }) {
+  return (
+    <div style={{ borderTop: first ? "none" : `1px solid ${C.line}`, marginTop: first ? 0 : 10, paddingTop: first ? 0 : 10 }}>
+      <button onClick={onToggle} aria-expanded={open}
+        style={{ width: "100%", background: "none", border: "none", padding: "6px 0", textAlign: "left", cursor: "pointer",
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <span style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 15.5, color: C.ink }}>{title}</span>
+        <span style={{ fontSize: 12, color: C.sub, flex: "0 0 auto" }}>{open ? "▴" : "▾"}</span>
+      </button>
+      {open && (
+        <div className="rise" style={{ marginTop: 2, paddingBottom: 4 }}>
+          {why ? <div style={{ fontSize: 11.5, color: C.sub, lineHeight: 1.55, marginBottom: 10 }}>{why}</div> : null}
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
 function SettingPill({ on, onClick, children }) {
   return (
     <button onClick={onClick}
