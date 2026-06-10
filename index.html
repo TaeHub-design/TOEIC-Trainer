@@ -16,7 +16,7 @@ const { useState, useEffect, useRef } = React;
 
 // App version — bump on every release. Shown as a small badge (tap to confirm the
 // browser is running the latest build, not a stale cached one).
-const VERSION = "0.51.2";
+const VERSION = "0.52.0";
 
 // ============================================================
 //  ENVIRONMENT DETECTION
@@ -320,6 +320,44 @@ const BACKUP_PREFIX = "TZv1:"; // marks a compressed backup string
 // Read once by runRestore to warn the user, then it's stale until the next restore.
 let lastRestoreBankMissing = 0;
 
+// ---- User settings (v0.52.0) ----
+// Stored under one key, merged over defaults at boot so old users never break.
+// `SETTINGS` is a module-level mirror of the React state so non-component code
+// (speak, playFeedback) can read the current values without prop-drilling.
+const SETTINGS_KEY = "toeic_settings_v1";
+const SETTINGS_DEFAULT = {
+  ttsLang: "en-US",  // สำเนียง: en-US | en-GB
+  ttsRate: 0.92,     // ความเร็วอ่าน: 0.75 ช้า | 0.92 ปกติ | 1.1 เร็ว
+  ttsAuto: false,    // เล่นเสียงอัตโนมัติเมื่อขึ้นข้อใหม่ (โหมด Listening)
+  sfx: true,         // เสียงติ๊กเฉลยถูก/ผิด (เคาะแล้ว: default เปิด)
+};
+let SETTINGS = { ...SETTINGS_DEFAULT };
+
+// ---- Answer feedback sound (WebAudio — synthesized, no audio assets) ----
+// Rising notes = correct, falling notes = wrong. Same tones the user approved in mockup v2.
+let _sfxCtx = null;
+function playFeedback(ok) {
+  if (!SETTINGS.sfx) return;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    _sfxCtx = _sfxCtx || new AC();
+    if (_sfxCtx.state === "suspended") _sfxCtx.resume();
+    let t = _sfxCtx.currentTime;
+    const seq = ok ? [[660, 0.09], [880, 0.14]] : [[330, 0.12], [262, 0.18]];
+    for (const [freq, dur] of seq) {
+      const o = _sfxCtx.createOscillator(), g = _sfxCtx.createGain();
+      o.type = "sine"; o.frequency.value = freq;
+      g.gain.setValueAtTime(0.001, t);
+      g.gain.exponentialRampToValueAtTime(0.16, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      o.connect(g); g.connect(_sfxCtx.destination);
+      o.start(t); o.stop(t + dur);
+      t += dur * 0.9;
+    }
+  } catch (e) { /* audio not available */ }
+}
+
 // ---- Text-to-speech (pronunciation) ----
 // Uses the browser's built-in speechSynthesis — free, no network. Hidden if unsupported.
 const TTS_OK = typeof window !== "undefined" && typeof window.speechSynthesis !== "undefined";
@@ -330,7 +368,7 @@ function speak(text, ev) {
     if (!synth || !text) return;
     synth.cancel(); // stop anything already playing
     const u = new SpeechSynthesisUtterance(String(text));
-    u.lang = "en-US"; u.rate = 0.92; u.pitch = 1;
+    u.lang = SETTINGS.ttsLang; u.rate = SETTINGS.ttsRate; u.pitch = 1; // v0.52.0: from Settings
     synth.speak(u);
   } catch (e) { /* speech not available */ }
 }
@@ -2693,6 +2731,14 @@ function App() {
   const [bankShow, setBankShow] = useState(60); // how many bank rows to render (perf: avoid dumping all 952 at once)
   const [missShow, setMissShow] = useState(60); // how many missed-question rows to render (perf, same idea)
   const [showSettings, setShowSettings] = useState(false); // settings modal (engine + API key)
+  const [settings, setSettingsState] = useState(SETTINGS_DEFAULT); // user settings (toeic_settings_v1)
+  // update one setting: keep React state, module mirror, and storage in sync
+  function updateSetting(k, val) {
+    const next = { ...settings, [k]: val };
+    SETTINGS = next;
+    setSettingsState(next);
+    STORAGE.set(SETTINGS_KEY, JSON.stringify(next));
+  }
   const [keyTick, setKeyTick] = useState(0); // bump to recompute key presence after save/delete
   const [keyDraft, setKeyDraft] = useState(""); // draft value in the settings input
 
@@ -2781,6 +2827,27 @@ function App() {
     const t = setInterval(() => setNow(Date.now()), sessionActive ? 1000 : 60000);
     return () => clearInterval(t);
   }, [sessionActive]);
+
+  // ---- v0.52.0: auto-play TTS when a NEW Listening clip appears (Settings → ttsAuto) ----
+  // Keyed by session start + spoken text so Part 3/4 (3 questions sharing one transcript)
+  // plays once per clip, not once per question — but a fresh session replays the same clip.
+  const lastAutoTx = useRef(null);
+  useEffect(() => {
+    if (!settings.ttsAuto || !TTS_OK) return;
+    const v = aquiz;
+    if (!v || v.end || v.pos >= v.deck.length) return;
+    const item = v.deck[v.pos];
+    if (!item) return;
+    const isP2 = v.ptype === "Part 2" || item._ptype === "Part 2";
+    const tx = isP2
+      ? [item.q, ...["A", "B", "C"].map(k => item.options[k] ? `${k}. ${item.options[k]}` : null).filter(Boolean)].join("\n")
+      : (v.transcript || item.transcript);
+    if (!tx) return;
+    const key = v.start + "|" + tx;
+    if (lastAutoTx.current === key) return;
+    lastAutoTx.current = key;
+    speak(tx);
+  }, [settings.ttsAuto, aquiz]);
   const [statsFilter, setStatsFilter] = useState(null); // Stats modal: null = all modes, else "vocab"|"grammar"|"listening"|"audio"
   const [revealTh, setRevealTh] = useState(false); // vocab card: show Thai meaning?
 
@@ -2867,6 +2934,10 @@ function App() {
           const rd = await STORAGE.get(DAY_KEY);
           if (rd) { const d = parseInt(JSON.parse(rd), 10); if (!isNaN(d) && d >= 0) setDayCount(d); }
         } catch (e) { /* no saved day */ }
+        try {
+          const rset = await STORAGE.get(SETTINGS_KEY);
+          if (rset) { const o = { ...SETTINGS_DEFAULT, ...JSON.parse(rset) }; SETTINGS = o; setSettingsState(o); }
+        } catch (e) { /* no saved settings — defaults stay */ }
         try {
           const rs = await STORAGE.get(STREAK_KEY);
           if (rs) { const s = JSON.parse(rs); if (s && typeof s.streak === "number") setStreak({ streak: s.streak || 0, best: s.best || 0, last: s.last || null }); }
@@ -3297,11 +3368,12 @@ function App() {
     rerender();
   }
 
-  function choose(id, key) {
+  function choose(id, key, ans) {
     const st = cur();
     if (st.pickedMap[id]) return;
     st.pickedMap = { ...st.pickedMap, [id]: key };
     bumpDaily(); // first answer of this grammar question
+    if (ans != null) playFeedback(key === ans); // v0.52.0: answer feedback sound
     rerender();
   }
 
@@ -3349,9 +3421,10 @@ function App() {
     });
     setVquiz({ deck, pos: 0, picked: {}, start: Date.now(), end: null, isReview: true });
   }
-  function chooseQuiz(id, key) {
+  function chooseQuiz(id, key, ans) {
     if (vquiz && vquiz.picked[id]) return; // already answered — don't double count
     bumpDaily();
+    if (ans != null) playFeedback(key === ans); // v0.52.0: answer feedback sound
     setVquiz(v => (v.picked[id] ? v : { ...v, picked: { ...v.picked, [id]: key } }));
   }
   function nextQuiz() {
@@ -3442,7 +3515,7 @@ function App() {
     touchStreak(); updateHistory();
     rerender();
   }
-  function chooseLQ(id, key) { if (lquiz && lquiz.picked[id]) return; bumpDaily(); setLquiz(v => (v.picked[id] ? v : { ...v, picked: { ...v.picked, [id]: key } })); }
+  function chooseLQ(id, key, ans) { if (lquiz && lquiz.picked[id]) return; bumpDaily(); if (ans != null) playFeedback(key === ans); setLquiz(v => (v.picked[id] ? v : { ...v, picked: { ...v.picked, [id]: key } })); }
   function nextLQ() { setLquiz(v => ({ ...v, pos: Math.min(v.pos + 1, v.deck.length) })); }
   // build a review deck from Reading passages containing not-yet-mastered (forgot/sort) questions —
   // whole sets, scope-aware, capped. See buildPassageReviewDeck.
@@ -3515,7 +3588,7 @@ function App() {
     touchStreak(); updateHistory();
     rerender();
   }
-  function chooseAQ(id, key) { if (aquiz && aquiz.picked[id]) return; bumpDaily(); setAquiz(v => (v.picked[id] ? v : { ...v, picked: { ...v.picked, [id]: key } })); }
+  function chooseAQ(id, key, ans) { if (aquiz && aquiz.picked[id]) return; bumpDaily(); if (ans != null) playFeedback(key === ans); setAquiz(v => (v.picked[id] ? v : { ...v, picked: { ...v.picked, [id]: key } })); }
   function nextAQ() { setAquiz(v => ({ ...v, pos: Math.min(v.pos + 1, v.deck.length) })); }
   // Listening: SRS-due review deck from the saved clip bank (whole sets, scope-aware, capped)
   function buildAudioDue() {
@@ -4086,7 +4159,8 @@ function App() {
             style={{ position: "fixed", inset: 0, background: "rgba(33,29,24,.55)", display: "grid", placeItems: "center", padding: 18, zIndex: 60 }}>
             <div onClick={e => e.stopPropagation()} className="rise"
               style={{ background: C.panel, borderRadius: 16, padding: "20px 18px", maxWidth: 480, width: "100%", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 20px 50px -20px rgba(0,0,0,.5)" }}>
-              <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 20, marginBottom: 10 }}>⚙️ ตั้งค่า AI</div>
+              <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 20, marginBottom: 10 }}>⚙️ ตั้งค่า</div>
+              <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 15.5, marginBottom: 8 }}>🤖 AI</div>
 
               {/* engine switcher — only when more than one engine is available in this environment */}
               {Object.keys(AVAILABLE_ENGINES).length > 1 && (
@@ -4157,6 +4231,58 @@ function App() {
                   คุณกำลังเปิดแอปในโหมด <b style={{ color: ENG.color }}>{ENG.icon} {ENG.name}</b> — Claude artifact จัดการ AI ให้แล้ว ไม่ต้องใส่ API key ใดๆ
                 </div>
               )}
+              {/* ---- v0.52.0: sound group — TTS accent/speed/auto-play + answer feedback ---- */}
+              <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 16, paddingTop: 14 }}>
+                <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 15.5, marginBottom: 10 }}>🔊 เสียง</div>
+                {TTS_OK ? (
+                  <>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
+                      <span style={{ fontSize: 13, fontWeight: 500 }}>สำเนียงเสียงอ่าน</span>
+                      <span style={{ display: "inline-flex", gap: 6 }}>
+                        <SettingPill on={settings.ttsLang === "en-US"} onClick={() => updateSetting("ttsLang", "en-US")}>🇺🇸 US</SettingPill>
+                        <SettingPill on={settings.ttsLang === "en-GB"} onClick={() => updateSetting("ttsLang", "en-GB")}>🇬🇧 UK</SettingPill>
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
+                      <span style={{ fontSize: 13, fontWeight: 500 }}>ความเร็ว</span>
+                      <span style={{ display: "inline-flex", gap: 6 }}>
+                        <SettingPill on={settings.ttsRate === 0.75} onClick={() => updateSetting("ttsRate", 0.75)}>ช้า</SettingPill>
+                        <SettingPill on={settings.ttsRate === 0.92} onClick={() => updateSetting("ttsRate", 0.92)}>ปกติ</SettingPill>
+                        <SettingPill on={settings.ttsRate === 1.1} onClick={() => updateSetting("ttsRate", 1.1)}>เร็ว</SettingPill>
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
+                      <span>
+                        <span style={{ fontSize: 13, fontWeight: 500, display: "block" }}>เล่นเสียงอัตโนมัติเมื่อขึ้นข้อใหม่</span>
+                        <span style={{ fontSize: 11, color: C.sub }}>โหมด Listening — เสียงมาเองเหมือนข้อสอบจริง</span>
+                      </span>
+                      <SettingToggle on={settings.ttsAuto} onClick={() => updateSetting("ttsAuto", !settings.ttsAuto)} />
+                    </div>
+                    <button onClick={(e) => speak("The quarterly meeting has been rescheduled to Thursday morning.", e)}
+                      style={{ background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 13, padding: "8px 14px", fontSize: 13, fontWeight: 600, marginBottom: 12 }}>
+                      ▶ ทดลองฟังด้วยค่านี้
+                    </button>
+                  </>
+                ) : (
+                  <div style={{ fontSize: 12, color: C.sub, marginBottom: 10 }}>ℹ️ หน้านี้ไม่รองรับเสียงอ่าน (TTS) — ตัวเลือกเสียงอ่านใช้ได้บนหน้าเว็บจริง</div>
+                )}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <span>
+                    <span style={{ fontSize: 13, fontWeight: 500, display: "block" }}>เสียงติ๊กเฉลยถูก/ผิด</span>
+                    <span style={{ fontSize: 11, color: C.sub }}>เสียงสั้นๆ ตอนตอบโจทย์</span>
+                  </span>
+                  <SettingToggle on={settings.sfx} onClick={() => updateSetting("sfx", !settings.sfx)} />
+                </div>
+                {settings.sfx && (
+                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                    <button onClick={() => playFeedback(true)}
+                      style={{ background: "#fff", color: C.green, border: `1.5px solid ${C.greenBg}`, borderRadius: 13, padding: "7px 12px", fontSize: 12.5, fontWeight: 600 }}>✔ ลองเสียงถูก</button>
+                    <button onClick={() => playFeedback(false)}
+                      style={{ background: "#fff", color: C.red, border: `1.5px solid ${C.redBg}`, borderRadius: 13, padding: "7px 12px", fontSize: 12.5, fontWeight: 600 }}>✘ ลองเสียงผิด</button>
+                  </div>
+                )}
+              </div>
+
               <button onClick={() => setShowSettings(false)}
                 style={{ marginTop: 10, width: "100%", background: "none", border: "none", color: C.sub, fontSize: 13, textDecoration: "underline" }}>ปิด</button>
             </div>
@@ -4813,7 +4939,7 @@ function App() {
                       if (revealed) { if (isAns) { bg = C.greenBg; bd = C.green; } else if (isPicked) { bg = C.redBg; bd = C.red; } }
                       return (
                         <button key={k} className="opt" onClick={() => {
-                            chooseQuiz(item.id, k);
+                            chooseQuiz(item.id, k, item.answer);
                             if (k !== item.answer) addMissed(item); // wrong → save to bank
                           }} disabled={revealed}
                           style={{ textAlign: "left", display: "flex", gap: 12, alignItems: "center", background: bg, border: `1.5px solid ${bd}`, color: fg, borderRadius: 11, padding: "12px 14px", fontSize: 15.5, lineHeight: 1.4 }}>
@@ -5188,7 +5314,7 @@ function App() {
                       let bg = "#fff", bd = C.line, fg = C.ink;
                       if (revealed) { if (isAns) { bg = C.greenBg; bd = C.green; } else if (isPicked) { bg = C.redBg; bd = C.red; } }
                       return (
-                        <button key={k} className="opt" onClick={() => { chooseLQ(item.id, k); }} disabled={revealed}
+                        <button key={k} className="opt" onClick={() => { chooseLQ(item.id, k, item.answer); }} disabled={revealed}
                           style={{ textAlign: "left", display: "flex", gap: 12, alignItems: "center", background: bg, border: `1.5px solid ${bd}`, color: fg, borderRadius: 11, padding: "12px 14px", fontSize: 15, lineHeight: 1.4 }}>
                           <span style={{ flex: "0 0 auto", width: 26, height: 26, borderRadius: 7,
                             background: revealed && isAns ? C.green : revealed && isPicked ? C.red : C.accentSoft,
@@ -5530,7 +5656,7 @@ function App() {
                       let bg = "#fff", bd = C.line, fg = C.ink;
                       if (revealed) { if (isAns) { bg = C.greenBg; bd = C.green; } else if (isPicked) { bg = C.redBg; bd = C.red; } }
                       return (
-                        <button key={k} className="opt" onClick={() => { chooseAQ(item.id, k); }} disabled={revealed}
+                        <button key={k} className="opt" onClick={() => { chooseAQ(item.id, k, item.answer); }} disabled={revealed}
                           style={{ textAlign: "left", display: "flex", gap: 12, alignItems: "center", background: bg, border: `1.5px solid ${bd}`, color: fg, borderRadius: 11, padding: "12px 14px", fontSize: 15, lineHeight: 1.4 }}>
                           <span style={{ flex: "0 0 auto", width: 26, height: 26, borderRadius: 7,
                             background: revealed && isAns ? C.green : revealed && isPicked ? C.red : C.accentSoft,
@@ -6102,7 +6228,7 @@ function App() {
                   let bg = "#fff", bd = C.line, fg = C.ink;
                   if (revealed) { if (isAns) { bg = C.greenBg; bd = C.green; } else if (isPicked) { bg = C.redBg; bd = C.red; } }
                   return (
-                    <button key={k} className="opt" onClick={() => choose(card.id, k)} disabled={revealed}
+                    <button key={k} className="opt" onClick={() => choose(card.id, k, card.answer)} disabled={revealed}
                       style={{ textAlign: "left", display: "flex", gap: 12, alignItems: "center", background: bg, border: `1.5px solid ${bd}`, color: fg, borderRadius: 11, padding: "12px 14px", fontSize: 15.5, lineHeight: 1.4 }}>
                       <span style={{ flex: "0 0 auto", width: 26, height: 26, borderRadius: 7,
                         background: revealed && isAns ? C.green : revealed && isPicked ? C.red : C.accentSoft,
@@ -6552,6 +6678,27 @@ function Centered({ children }) {
 // Generation error banner + optional raw-output inspector. When the AI returns JSON we
 // can't parse even after repair, parseLooseJson attaches the raw text; this lets us peek
 // at exactly what came back (truncated vs corrupted) without guessing. Collapsed by default.
+// ---- v0.52.0: tiny controls for the settings modal ----
+function SettingPill({ on, onClick, children }) {
+  return (
+    <button onClick={onClick}
+      style={{ border: on ? `1.5px solid ${C.accent}` : `1px solid ${C.line}`, background: on ? C.accent : "#fff",
+        color: on ? "#fff" : C.sub, borderRadius: 20, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+      {children}
+    </button>
+  );
+}
+function SettingToggle({ on, onClick }) {
+  return (
+    <button onClick={onClick} aria-pressed={on}
+      style={{ position: "relative", width: 46, height: 26, borderRadius: 20, border: "none", cursor: "pointer",
+        background: on ? C.green : "#d9d0bf", transition: "background .15s", flex: "none", padding: 0 }}>
+      <span style={{ position: "absolute", top: 3, left: on ? 23 : 3, width: 20, height: 20, borderRadius: "50%",
+        background: "#fff", transition: "left .15s", boxShadow: "0 1px 3px rgba(0,0,0,.25)" }} />
+    </button>
+  );
+}
+
 function GenError({ err, raw }) {
   const [show, setShow] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
