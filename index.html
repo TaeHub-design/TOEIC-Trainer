@@ -16,7 +16,7 @@ const { useState, useEffect, useRef } = React;
 
 // App version — bump on every release. Shown as a small badge (tap to confirm the
 // browser is running the latest build, not a stale cached one).
-const VERSION = "0.51.1";
+const VERSION = "0.51.2";
 
 // ============================================================
 //  ENVIRONMENT DETECTION
@@ -976,7 +976,7 @@ function listeningPart6Prompt(category, diffPrompt) {
   const diff = diffPrompt ? `\n${diffPrompt}` : "";
   return `You are a TOEIC Part 6 (Text Completion) item writer for a Thai learner (target 850+).
 Write ${kind} as a realistic TOEIC Part 6 passage, 80-130 words, set in this CONTEXT/THEME: "${category}". Use natural written business/daily English.${diff}
-The passage MUST contain EXACTLY 4 numbered blanks shown literally as "(1) ______", "(2) ______", "(3) ______", "(4) ______" placed naturally in different sentences.
+The passage MUST contain EXACTLY 4 numbered blanks shown literally as "(1) ______", "(2) ______", "(3) ______", "(4) ______" placed naturally in different sentences. Each blank number (1)-(4) must appear EXACTLY ONCE in the passage — never repeat a number.
 Then write EXACTLY 4 multiple-choice questions, ONE per blank, in order. TOEIC Part 6 tests a MIX of: word form, verb tense/agreement, prepositions/conjunctions, vocabulary in context, AND (for at least ONE blank) choosing the best full SENTENCE that fits the paragraph's flow.
 For EACH question provide:
 - "q": the blank label in Thai, e.g. "ช่องที่ (1)"
@@ -2727,11 +2727,11 @@ function App() {
     setKeyTick(t => t + 1);
   }
 
-  // tick every second while a grammar session is actively running
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
+  // NOTE (P1a fix): the 1-second clock used to live here with [] deps — it ran for the
+  // entire app lifetime and re-rendered everything every second even while idle.
+  // It now lives below (after the quiz/exam state declarations it depends on) and is
+  // gated: 1s tick only while a timed session is running, 60s tick while idle
+  // (the slow idle tick keeps the "due for review" counters honest — isDue() reads `now`).
 
   // both modes live in a ref; we re-render manually so switching is instant
   const M = useRef({ vocab: emptyMode(), grammar: emptyMode(), listening: emptyMode(), audio: emptyMode() });
@@ -2764,6 +2764,23 @@ function App() {
   //   start, durationMs, submitted:bool, genErr, reveal:{} (per-id transcript reveal) }
   const [examGen, setExamGen] = useState(null); // { current, total } progress while generating, or null
   const [examBank, setExamBank] = useState({}); // saved exam decks for replay, keyed by id
+
+  // ---- P1a: gated 1-second clock ----
+  // true while ANY timed session is live: vocab/reading/listening quiz, running exam,
+  // or a grammar study session (grammar timestamps live in the M ref; every code path
+  // that starts/ends one calls rerender(), so this recomputes when they flip).
+  const sessionActive = !!(
+    (vquiz && !vquiz.end) ||
+    (lquiz && !lquiz.end) ||
+    (aquiz && !aquiz.end) ||
+    (exam && exam.start && !exam.submitted) ||
+    (M.current.grammar.startTime && !M.current.grammar.endTime)
+  );
+  useEffect(() => {
+    setNow(Date.now()); // refresh immediately on flip so timers never show a stale value
+    const t = setInterval(() => setNow(Date.now()), sessionActive ? 1000 : 60000);
+    return () => clearInterval(t);
+  }, [sessionActive]);
   const [statsFilter, setStatsFilter] = useState(null); // Stats modal: null = all modes, else "vocab"|"grammar"|"listening"|"audio"
   const [revealTh, setRevealTh] = useState(false); // vocab card: show Thai meaning?
 
@@ -2909,13 +2926,8 @@ function App() {
     }
   }
 
-  function changeDay(delta) {
-    setDayCount(prev => {
-      const next = Math.max(0, prev + delta);
-      STORAGE.set(DAY_KEY, JSON.stringify(next));
-      return next;
-    });
-  }
+  // (changeDay was removed in v0.51.2 — dead code from the old manual day counter;
+  //  dayCount state itself stays alive because backup/restore still round-trips it.)
 
   // ---- auto streak: bump when the user does anything "study"-like on a new calendar day ----
   function touchStreak() {
@@ -3360,14 +3372,8 @@ function App() {
     persist("vocab");
     rerender();
   }
-  function flagWrongForReview(missedWords) {
-    const st = M.current.vocab;
-    const next = { ...st.ratings };
-    missedWords.forEach(w => { next[w] = "forgot"; });
-    st.ratings = next;
-    persist("vocab");
-    rerender();
-  }
+  // (flagWrongForReview was removed in v0.51.2 — dead code, no callers; missed-word
+  //  handling now goes through missQ + buildMissedQuiz instead.)
 
   // ---- Reading: Practice (Part 7 passage + questions, timed) ----
   async function genPractice() {
@@ -4658,20 +4664,29 @@ function App() {
           const v = vquiz;
           const total = Object.keys(M.current.vocab.data).length;
           const missCount = Object.keys(M.current.vocab.missQ || {}).length;
-          // usable = words whose own example sentence actually contains the word (cloze-able)
-          const quizUsable = Object.values(M.current.vocab.data).filter(w => w.ex && new RegExp("\\b" + w.w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i").test(w.ex));
-          // counts per CEFR level among usable words (drives the filter pills + counts)
-          const quizLevelCounts = (() => {
-            const c = { all: quizUsable.length, A1: 0, A2: 0, B1: 0, B2: 0, C1: 0, C2: 0, none: 0 };
-            for (const w of quizUsable) { if (w.cefr && c[w.cefr] != null) c[w.cefr]++; else if (!w.cefr) c.none++; }
-            return c;
-          })();
-          // how many target words the current filter yields, and whether a round can be built
-          // (option B: ≥1 target in level AND ≥4 usable overall for distractors)
-          const quizTargetCount = quizLevelCounts[quizLevel] || 0;
-          const quizReady = quizTargetCount >= 1 && quizUsable.length >= 4;
           // not started yet — show start screen + model picker + missed bank
           if (!v) {
+            // P1b fix: these four values are only needed by the START screen below, but they
+            // used to be computed on EVERY render of this panel (incl. every answer tap during
+            // a quiz) — that's ~1,500 RegExp builds + tests per render. Now they only run here.
+            // usable = words whose own example sentence actually contains the word (cloze-able)
+            const quizUsable = Object.values(M.current.vocab.data).filter(w => w.ex && new RegExp("\\b" + w.w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i").test(w.ex));
+            // counts per CEFR level among usable words (drives the filter pills + counts)
+            const quizLevelCounts = (() => {
+              const c = { all: quizUsable.length, A1: 0, A2: 0, B1: 0, B2: 0, C1: 0, C2: 0, none: 0 };
+              for (const w of quizUsable) { if (w.cefr && c[w.cefr] != null) c[w.cefr]++; else if (!w.cefr) c.none++; }
+              return c;
+            })();
+            // how many target words the current filter yields, and whether a round can be built
+            // (option B: ≥1 target in level AND ≥4 usable overall for distractors)
+            const quizTargetCount = quizLevelCounts[quizLevel] || 0;
+            const quizReady = quizTargetCount >= 1 && quizUsable.length >= 4;
+            // P4 fix: if the selected level no longer has any usable words (e.g. after a restore),
+            // its pill is hidden by the filter but the stale selection kept the start button
+            // disabled with no visible reason — snap back to "all". (setState-during-render is
+            // the React-sanctioned "adjust state on prop/derived change" pattern; the condition
+            // is false on the very next pass, so it can't loop.)
+            if (quizLevel !== "all" && quizTargetCount === 0) setQuizLevel("all");
             return (
               <div className="rise">
                 <div style={{ fontSize: 13.5, color: C.sub, lineHeight: 1.6, marginBottom: 12 }}>
@@ -6539,7 +6554,24 @@ function Centered({ children }) {
 // at exactly what came back (truncated vs corrupted) without guessing. Collapsed by default.
 function GenError({ err, raw }) {
   const [show, setShow] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
   if (!err) return null;
+  // copy raw text to clipboard — selecting inside a <pre> on mobile is painful (user request).
+  // clipboard API needs a secure context; fall back to the hidden-textarea trick otherwise.
+  const copyRaw = () => {
+    const done = () => { setCopied(true); setTimeout(() => setCopied(false), 2000); };
+    const fallback = () => {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = raw; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.focus(); ta.select();
+        document.execCommand("copy"); document.body.removeChild(ta); done();
+      } catch (e) { /* nothing else we can do */ }
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(raw).then(done).catch(fallback);
+    } else fallback();
+  };
   return (
     <div style={{ marginBottom: 10 }}>
       <div style={{ color: C.red, fontSize: 12.5, lineHeight: 1.5, wordBreak: "break-word", background: C.redBg, border: `1px solid ${C.red}`, borderRadius: 9, padding: "8px 10px" }}>{err}</div>
@@ -6548,6 +6580,10 @@ function GenError({ err, raw }) {
           <button onClick={() => setShow(s => !s)}
             style={{ marginTop: 6, background: "none", border: "none", color: C.sub, fontSize: 11.5, fontWeight: 600, textDecoration: "underline", padding: "2px 0" }}>
             {show ? "ซ่อนข้อมูลดิบ" : "ดูข้อมูลดิบ (สำหรับ debug)"}
+          </button>
+          <button onClick={copyRaw}
+            style={{ marginTop: 6, marginLeft: 12, background: "none", border: "none", color: copied ? C.green : C.sub, fontSize: 11.5, fontWeight: 600, textDecoration: copied ? "none" : "underline", padding: "2px 0" }}>
+            {copied ? "✅ คัดลอกแล้ว" : "📋 คัดลอกข้อมูลดิบ"}
           </button>
           {show && (
             <pre style={{ marginTop: 6, maxHeight: 240, overflow: "auto", background: "#2b2622", color: "#e8dfd0", fontSize: 11, lineHeight: 1.45, padding: "10px 12px", borderRadius: 9, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{raw}</pre>
