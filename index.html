@@ -16,7 +16,7 @@ const { useState, useEffect, useRef } = React;
 
 // App version — bump on every release. Shown as a small badge (tap to confirm the
 // browser is running the latest build, not a stale cached one).
-const VERSION = "0.55.0";
+const VERSION = "0.57.0";
 
 // ============================================================
 //  ENVIRONMENT DETECTION
@@ -40,7 +40,11 @@ const STORAGE = IS_ARTIFACT
     };
 
 // ---- warm editorial palette ----
-const C = {
+// ---- v0.56.0: theme palettes — "Warm Charcoal" dark approved from dark-theme-mockup-v1.
+// C stays the single source every style reads at render time; switching themes just
+// Object.assign's the other palette over it and rerenders (no style-site changes needed).
+const PALETTES = {
+  light: {
   bg: "#f5efe4",
   panel: "#fffdf8",
   ink: "#211d18",
@@ -54,34 +58,87 @@ const C = {
   amberBg: "#f6ecd6",
   green: "#3f7d3a",
   greenBg: "#e6f0e2",
+  // ---- v0.55.1: tokens swept from hardcoded hexes (same values — dark-theme prep).
+  // card vs inkOn share "#fff" on purpose: surfaces and text-on-color diverge in dark mode.
+  card: "#fff",            // พื้นผิวขาว: ปุ่ม/การ์ด/ช่องกรอก
+  inkOn: "#fff",           // ตัวหนังสือ/ไอคอนขาวบนพื้นสี (ปุ่ม accent/เขียว/แดง)
+  track: "#efe7d7",        // พื้นราง progress / segmented switcher หลัก
+  track2: "#f0e7d5",       // พื้น switcher รอง (ครีมต่างจาก track เล็กน้อย — ห้าม merge รอบนี้)
+  soft: "#fbf6ec",         // กล่อง passage/คำอธิบาย
+  soft2: "#fcf8f0",        // กล่องทบทวน
+  soft3: "#f3eee4",        // พื้นอ่อนพิเศษ
+  accentBg: "#fff6f0",     // พื้นจางโทน accent
+  accentDim: "#d9a892",    // accent จาง
+  accentLight: "#c15f3c",  // accent อ่อนหนึ่งสเต็ป
+  subDim: "#8a7f70",       // ตัวหนังสือ tab ไม่ active
+  sub2: "#7a7062",         // เทารอง
+  sub3: "#9a8f7f",         // เทารองอ่อน
+  disabled: "#b9b1a3",     // ปุ่ม disable โทนอุ่น
+  disabled2: "#cfc6b6",    // ปุ่ม disable โทนอุ่นอ่อน
+  disabledCool: "#b9c2cf", // ปุ่ม disable โทนเย็น (ปุ่มบันทึก key)
+  toggleOff: "#d9d0bf",    // พื้นสวิตช์ตอนปิด
+  blue: "#1a73e8",         // สีสถิติโหมด Reading (ค่าบังเอิญตรงสีแบรนด์ Gemini — แยกกันคนละหน้าที่)
+  purple: "#7c3aed",       // สีสถิติโหมด Listening
+  debugBg: "#2b2622",      // พื้นกล่อง raw debug (GenError)
+  debugInk: "#e8dfd0",     // ตัวหนังสือกล่อง raw debug
+  },
+  dark: {
+  bg: "#1c1916", panel: "#26221c", ink: "#ece4d6", sub: "#a89c8c", line: "#3a342b",
+  accent: "#e0764c", accentSoft: "#4a2e22", red: "#e08077", redBg: "#3d2826",
+  amber: "#dca75c", amberBg: "#3a3122", green: "#8bc180", greenBg: "#28352a",
+  card: "#2e2922", inkOn: "#fff8ef", track: "#322d25", track2: "#2f2a22",
+  soft: "#2a2620", soft2: "#282420", soft3: "#262218",
+  accentBg: "#332620", accentDim: "#8a5a44", accentLight: "#e98a5e",
+  subDim: "#7d7264", sub2: "#998d7d", sub3: "#8c8172",
+  disabled: "#4d463c", disabled2: "#565043", disabledCool: "#4d525c",
+  toggleOff: "#443e34", blue: "#6ea8f0", purple: "#a78bfa",
+  debugBg: "#15120f", debugInk: "#d8cfbf",
+  },
 };
+let C = { ...PALETTES.light };
+// apply theme: mutate C + sync browser chrome (status bar color, native controls, body bg
+// behind overscroll). "system" follows prefers-color-scheme. Safe under jsdom (guards).
+function applyThemePalette(theme) {
+  const dark = theme === "dark" ||
+    (theme === "system" && typeof window !== "undefined" && window.matchMedia &&
+     window.matchMedia("(prefers-color-scheme: dark)").matches);
+  Object.assign(C, dark ? PALETTES.dark : PALETTES.light);
+  try {
+    document.documentElement.style.colorScheme = dark ? "dark" : "light"; // native <select>/scrollbars
+    if (document.body) document.body.style.background = C.bg;
+    let mt = document.querySelector('meta[name="theme-color"]');
+    if (!mt) { mt = document.createElement("meta"); mt.setAttribute("name", "theme-color"); document.head.appendChild(mt); }
+    mt.setAttribute("content", C.bg);
+  } catch (e) { /* non-browser env */ }
+  return dark;
+}
 
 // status labels differ slightly per mode
 const STATUS = {
   vocab: {
-    forgot: { label: "ยังจำไม่ได้", short: "จำไม่ได้", color: C.red, bg: C.redBg },
-    sort: { label: "จำได้บ้าง", short: "จำได้บ้าง", color: C.amber, bg: C.amberBg },
-    known: { label: "จำได้แล้ว", short: "จำได้", color: C.green, bg: C.greenBg },
+    forgot: { label: "ยังจำไม่ได้", short: "จำไม่ได้", get color() { return C.red; }, get bg() { return C.redBg; } },
+    sort: { label: "จำได้บ้าง", short: "จำได้บ้าง", get color() { return C.amber; }, get bg() { return C.amberBg; } },
+    known: { label: "จำได้แล้ว", short: "จำได้", get color() { return C.green; }, get bg() { return C.greenBg; } },
   },
   grammar: {
-    forgot: { label: "ยังไม่เข้าใจ", short: "ยังไม่เข้าใจ", color: C.red, bg: C.redBg },
-    sort: { label: "พอเข้าใจ", short: "พอเข้าใจ", color: C.amber, bg: C.amberBg },
-    known: { label: "เข้าใจแล้ว", short: "เข้าใจ", color: C.green, bg: C.greenBg },
+    forgot: { label: "ยังไม่เข้าใจ", short: "ยังไม่เข้าใจ", get color() { return C.red; }, get bg() { return C.redBg; } },
+    sort: { label: "พอเข้าใจ", short: "พอเข้าใจ", get color() { return C.amber; }, get bg() { return C.amberBg; } },
+    known: { label: "เข้าใจแล้ว", short: "เข้าใจ", get color() { return C.green; }, get bg() { return C.greenBg; } },
   },
   listening: {
-    forgot: { label: "ยังไม่เข้าใจ", short: "ยังไม่เข้าใจ", color: C.red, bg: C.redBg },
-    sort: { label: "พอเข้าใจ", short: "พอเข้าใจ", color: C.amber, bg: C.amberBg },
-    known: { label: "เข้าใจแล้ว", short: "เข้าใจ", color: C.green, bg: C.greenBg },
+    forgot: { label: "ยังไม่เข้าใจ", short: "ยังไม่เข้าใจ", get color() { return C.red; }, get bg() { return C.redBg; } },
+    sort: { label: "พอเข้าใจ", short: "พอเข้าใจ", get color() { return C.amber; }, get bg() { return C.amberBg; } },
+    known: { label: "เข้าใจแล้ว", short: "เข้าใจ", get color() { return C.green; }, get bg() { return C.greenBg; } },
   },
   audio: {
-    forgot: { label: "ยังไม่เข้าใจ", short: "ยังไม่เข้าใจ", color: C.red, bg: C.redBg },
-    sort: { label: "พอเข้าใจ", short: "พอเข้าใจ", color: C.amber, bg: C.amberBg },
-    known: { label: "เข้าใจแล้ว", short: "เข้าใจ", color: C.green, bg: C.greenBg },
+    forgot: { label: "ยังไม่เข้าใจ", short: "ยังไม่เข้าใจ", get color() { return C.red; }, get bg() { return C.redBg; } },
+    sort: { label: "พอเข้าใจ", short: "พอเข้าใจ", get color() { return C.amber; }, get bg() { return C.amberBg; } },
+    known: { label: "เข้าใจแล้ว", short: "เข้าใจ", get color() { return C.green; }, get bg() { return C.greenBg; } },
   },
 };
 // short label of each mode's content, used in shared UI text
 const MODE_LABEL = { vocab: "คำศัพท์", grammar: "ไวยากรณ์", listening: "การอ่าน", audio: "การฟัง" };
-const NEW_META = { color: C.sub, bg: "#efe7d7" };
+const NEW_META = { get color() { return C.sub; }, get bg() { return C.track; } };
 
 const STORAGE_KEY = { vocab: "toeic_vocab_ai_v1", grammar: "toeic_grammar_ai_v1", listening: "toeic_listening_ai_v1", audio: "toeic_audio_ai_v1" };
 const BATCH = { vocab: 10, grammar: 5, listening: 3, audio: 2 };
@@ -184,7 +241,7 @@ const ENGINES = {
     id: "claude",
     name: "Claude",
     icon: "🧠",
-    color: "#c15f3c",
+    get color() { return C.accentLight; }, // v0.56.0: live (theme-aware)
     keyStorage: "toeic_claude_key_v1",
     keyPrefix: "sk-ant-…",
     keyUrl: "https://console.anthropic.com/settings/keys",
@@ -248,7 +305,7 @@ const ENGINES = {
     id: "artifact",
     name: "Claude",
     icon: "🧠",
-    color: "#c15f3c",
+    get color() { return C.accentLight; }, // v0.56.0: live (theme-aware)
     keyStorage: null, // no key needed
     keyPrefix: "",
     keyUrl: "",
@@ -343,6 +400,8 @@ const SETTINGS_DEFAULT = {
   vocabQuizCount: 10, // จำนวนข้อโจทย์ Vocab ต่อรอบ (5–25, เดิม hardcode 10)
   // ---- v0.55.0 ----
   ttsVoice: "",      // voiceURI ของเสียงอ่านที่เลือกเอง ("" = อัตโนมัติตามสำเนียง) — คุณภาพเสียงต่างกันมากรายตัว
+  // ---- v0.56.0 ----
+  theme: "light",    // ธีม: light | dark | system (ตาม prefers-color-scheme)
 };
 let SETTINGS = { ...SETTINGS_DEFAULT };
 
@@ -2694,6 +2753,47 @@ const VOCAB_BANK_BY_KEY = (() => {
   return m;
 })();
 
+// shared shape for a bank word materialized into st.data — the seed loop, live-storage load,
+// and v3-backup restore must produce IDENTICAL objects, so this is the single builder.
+function bankWordObj(key, e) {
+  return { w: key, pos: e.pos, ipa: e.ipa, th: e.th, def: e.def, ex: e.ex, level: e.level, cefr: e.cefr, gen: 0, model: "คลังคำ" };
+}
+
+// ---- v0.57.0: live-storage codec for vocab (P2) ----
+// Problem: boot seeds all 1,500 bank words (gen 0) into st.data, and persist("vocab") wrote
+// the WHOLE map (~400KB) to storage on EVERY rating tap. Bank words are bundled in the app
+// itself, so the live store now writes a single ORDER-PRESERVING `entries` array: a bank
+// word is stored as its key (string), a custom/AI word (gen >= 1) as its full object.
+// One array (not the backup's {words,bankRefs} pair) because the คลังคำศัพท์ browser lists
+// words in insertion order — old users may have custom words BEFORE the seeded bank, and
+// that visible order must survive the roundtrip byte-for-byte. A gen-0 word whose key is
+// NOT in this build's bank is also kept full, so a renamed/removed bank entry that the
+// user is still studying can never be silently lost by a routine save.
+function vocabPersistPayload(st) {
+  const entries = [];
+  for (const k of Object.keys(st.data || {})) {
+    const w = st.data[k];
+    if (w && w.gen === 0 && VOCAB_BANK_BY_KEY[k]) entries.push(k); // bank word -> key only
+    else if (w) entries.push(w);                                   // custom/off-bank -> full body
+  }
+  return { fmt: 2, entries, ratings: st.ratings, genCount: st.genCount, missQ: st.missQ, srs: st.srs };
+}
+// Load EITHER format: old (full `words` map, no entries) or new (`entries` array).
+// Old data therefore migrates automatically — first boot reads it as-is, first persist
+// shrinks it. A string entry missing from this build's bank is dropped (same rule as the
+// v3-backup restore); its rating/SRS entries remain harmlessly orphaned.
+function vocabLoadData(s) {
+  if (s && Array.isArray(s.entries)) {
+    const data = {};
+    for (const it of s.entries) {
+      if (typeof it === "string") { const e = VOCAB_BANK_BY_KEY[it]; if (e) data[it] = bankWordObj(it, e); }
+      else if (it && it.w) data[it.w] = it;
+    }
+    return data;
+  }
+  return { ...((s && s.words) || {}) };
+}
+
 // blank state per mode
 const emptyMode = () => ({
   data: {}, ratings: {}, genCount: 0, missQ: {}, srs: {},
@@ -2783,6 +2883,14 @@ function App() {
   function openSettings(group) { setOpenGroup(group || null); setShowSettings(true); }
   // v0.55.0: voices installed on this device, for the TTS voice picker. getVoices() is async
   // on mobile Chrome (empty until "voiceschanged" fires), so load once and subscribe.
+  // v0.56.0: when theme = "system", follow live OS light/dark switches
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = () => { if (SETTINGS.theme === "system") { applyThemePalette("system"); setSettingsState(s => ({ ...s })); } };
+    if (mq.addEventListener) { mq.addEventListener("change", onChange); return () => mq.removeEventListener("change", onChange); }
+    if (mq.addListener) { mq.addListener(onChange); return () => mq.removeListener(onChange); } // iOS Safari เก่า
+  }, []);
   const [ttsVoices, setTtsVoices] = useState([]);
   useEffect(() => {
     if (!TTS_OK) return;
@@ -2799,6 +2907,7 @@ function App() {
   function applySettings(patch) {
     const next = { ...settings, ...patch };
     SETTINGS = next;
+    if (patch.theme !== undefined) applyThemePalette(next.theme); // v0.56.0: swap palette before repaint
     setSettingsState(next);
     STORAGE.set(SETTINGS_KEY, JSON.stringify(next));
   }
@@ -2925,11 +3034,15 @@ function App() {
   useEffect(() => {
     (async () => {
       try {
+        let vocabNeedsMigrate = false; // v0.57.0: old storage format detected -> shrink once
         for (const m of ["vocab", "grammar", "listening", "audio"]) {
           try {
             const raw = await STORAGE.get(STORAGE_KEY[m]);
             const s = raw ? JSON.parse(raw) : {};
-            M.current[m].data = (m === "vocab" ? s.words : m === "listening" ? s.lessons : m === "audio" ? s.clips : s.items) || {};
+            // v0.57.0: vocab loads through the codec (handles both old full-words format and
+            // new bankRefs format); old format triggers a one-time shrink-persist after seeding
+            if (m === "vocab" && raw && !Array.isArray(s.entries)) vocabNeedsMigrate = true;
+            M.current[m].data = m === "vocab" ? vocabLoadData(s) : ((m === "listening" ? s.lessons : m === "audio" ? s.clips : s.items) || {});
             M.current[m].ratings = s.ratings || {};
             // trust the data over the stored counter (which can reset, e.g. in the artifact sandbox)
             M.current[m].genCount = Math.max(s.genCount || 0, topGen(M.current[m].data));
@@ -2948,7 +3061,7 @@ function App() {
           for (const e of VOCAB_BANK) {
             const key = e.w.toLowerCase().trim();
             if (!data[key]) {
-              data[key] = { w: key, pos: e.pos, ipa: e.ipa, th: e.th, def: e.def, ex: e.ex, level: e.level, cefr: e.cefr, gen: 0, model: "คลังคำ" };
+              data[key] = bankWordObj(key, e);
               added++;
             } else if (data[key].level !== e.level || data[key].cefr !== e.cefr) {
               // word already exists (AI-gen or earlier seed) — fold it into the bank's
@@ -2957,7 +3070,9 @@ function App() {
               tagged++;
             }
           }
-          if (added > 0 || tagged > 0) { v.data = data; try { await persist("vocab"); } catch (e) {} }
+          if (added > 0 || tagged > 0) v.data = data;
+          // v0.57.0: rewrite storage when anything changed OR the old fat format was detected
+          if (added > 0 || tagged > 0 || vocabNeedsMigrate) { try { await persist("vocab"); } catch (e) {} }
         }
         // first-launch consistency: if the user has NO saved model prefs and NO saved difficulty,
         // seed the recommended model + thinking from the DEFAULT difficulty (Near-native) so the
@@ -3007,7 +3122,7 @@ function App() {
         } catch (e) { /* no saved day */ }
         try {
           const rset = await STORAGE.get(SETTINGS_KEY);
-          if (rset) { const o = { ...SETTINGS_DEFAULT, ...JSON.parse(rset) }; SETTINGS = o; setSettingsState(o); }
+          if (rset) { const o = { ...SETTINGS_DEFAULT, ...JSON.parse(rset) }; SETTINGS = o; applyThemePalette(o.theme); setSettingsState(o); } // v0.56.0: theme before first themed paint
         } catch (e) { /* no saved settings — defaults stay */ }
         try {
           const rs = await STORAGE.get(STREAK_KEY);
@@ -3027,7 +3142,7 @@ function App() {
         } catch (e) { /* no saved listening type */ }
         try {
           const rg = await STORAGE.get(GOAL_KEY);
-          if (rg) { const n = parseInt(JSON.parse(rg), 10); if (GOAL_OPTIONS.includes(n)) setGoal(n); }
+          if (rg) { const n = parseInt(JSON.parse(rg), 10); if (Number.isFinite(n) && n >= 1 && n <= 999) setGoal(n); } // v0.56.0: stepper ตั้งค่านอก preset ได้
         } catch (e) { /* no saved goal */ }
         try {
           const reb = await STORAGE.get(EXAM_BANK_KEY);
@@ -3323,7 +3438,7 @@ function App() {
   async function persist(m) {
     const st = M.current[m];
     const payload = m === "vocab"
-      ? { words: st.data, ratings: st.ratings, genCount: st.genCount, missQ: st.missQ, srs: st.srs }
+      ? vocabPersistPayload(st) // v0.57.0: bank words as keys only (~400KB -> ~35KB per save)
       : m === "listening"
       ? { lessons: st.data, ratings: st.ratings, genCount: st.genCount, missQ: st.missQ, srs: st.srs }
       : m === "audio"
@@ -3983,7 +4098,7 @@ function App() {
           const e = VOCAB_BANK_BY_KEY[key];
           if (e) {
             // only add if a custom word didn't already claim this key (custom wins)
-            if (!rebuilt[key]) rebuilt[key] = { w: key, pos: e.pos, ipa: e.ipa, th: e.th, def: e.def, ex: e.ex, level: e.level, cefr: e.cefr, gen: 0, model: "คลังคำ" };
+            if (!rebuilt[key]) rebuilt[key] = bankWordObj(key, e);
           } else {
             bankMissing++; // key not in this build's bank (word removed/renamed) — seed loop can't help, just count
           }
@@ -4193,7 +4308,7 @@ function App() {
             <span>TOEIC <span style={{ color: C.accent }}>Trainer</span></span>
             <span onClick={() => openSettings("ai")} title="แตะเพื่อสลับ AI / ตั้งค่า key"
               style={{ fontFamily: "'Spline Sans', sans-serif", fontSize: 11, fontWeight: 600, color: ENG.color, cursor: "pointer",
-              background: "#fff", border: `1.5px solid ${ENG.color}40`, borderRadius: 20, padding: "3px 9px", lineHeight: 1, whiteSpace: "nowrap" }}>
+              background: C.card, border: `1.5px solid ${ENG.color}40`, borderRadius: 20, padding: "3px 9px", lineHeight: 1, whiteSpace: "nowrap" }}>
               {ENG.icon} {ENG.name} Ver
             </span>
           </h1>
@@ -4245,7 +4360,7 @@ function App() {
           const hit = done >= goal;
           return (
             <div onClick={cycleGoal} title="แตะเพื่อปรับเป้าหมาย"
-              style={{ cursor: "pointer", background: hit ? C.greenBg : "#fff", border: `1px solid ${hit ? C.green : C.line}`,
+              style={{ cursor: "pointer", background: hit ? C.greenBg : C.card, border: `1px solid ${hit ? C.green : C.line}`,
                 borderRadius: 13, padding: "10px 14px", marginTop: (streak.streak > 0 || (needsKey && !hasKey)) ? 0 : 14, marginBottom: 10 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 7 }}>
                 <span style={{ fontSize: 12.5, fontWeight: 700, color: hit ? C.green : C.ink }}>
@@ -4258,7 +4373,7 @@ function App() {
               <div style={{ height: 7, borderRadius: 4, background: C.line, overflow: "hidden" }}>
                 <div style={{ height: "100%", width: `${pct}%`, background: hit ? C.green : C.accent, transition: "width .35s" }} />
               </div>
-              <div style={{ fontSize: 10.5, color: C.sub, marginTop: 5, textAlign: "right" }}>แตะเพื่อปรับเป้า (10·20·30·50)</div>
+              <div style={{ fontSize: 10.5, color: C.sub, marginTop: 5, textAlign: "right" }}>แตะเพื่อปรับเป้า (10·20·30·50) · ละเอียดใน ⚙️</div>
             </div>
           );
         })()}
@@ -4287,7 +4402,7 @@ function App() {
                         <button key={eid} onClick={() => switchEngine(eid)}
                           style={{ flex: 1, textAlign: "left", borderRadius: 12, padding: "10px 12px", cursor: "pointer",
                             border: on ? `2px solid ${e.color}` : `1.5px solid ${C.line}`,
-                            background: on ? `${e.color}0d` : "#fff" }}>
+                            background: on ? `${e.color}0d` : C.card }}>
                           <div style={{ fontWeight: 700, fontSize: 14.5, color: on ? e.color : C.ink }}>{e.icon} {e.name}</div>
                           <div style={{ fontSize: 11, color: ok ? C.green : C.sub, marginTop: 3 }}>{e.keyStorage ? (ok ? "✓ มี key แล้ว" : "ยังไม่มี key") : "ไม่ต้องใช้ key"}</div>
                         </button>
@@ -4314,7 +4429,7 @@ function App() {
                   <input type="password" value={keyDraft} onChange={e => setKeyDraft(e.target.value)}
                     placeholder={"วาง API key ที่นี่ (ขึ้นต้นด้วย " + ENG.keyPrefix + ")"}
                     autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
-                    style={{ width: "100%", boxSizing: "border-box", fontSize: 13, fontFamily: "monospace", padding: "10px 12px", borderRadius: 10, border: `1.5px solid ${C.line}`, background: "#fff", color: C.ink, outline: "none" }} />
+                    style={{ width: "100%", boxSizing: "border-box", fontSize: 13, fontFamily: "monospace", padding: "10px 12px", borderRadius: 10, border: `1.5px solid ${C.line}`, background: C.card, color: C.ink, outline: "none" }} />
                   <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
                     <button onClick={() => {
                         const k = (keyDraft || "").trim();
@@ -4322,12 +4437,12 @@ function App() {
                         setKey(engine, k); setKeyDraft(""); setKeyTick(t => t + 1); setShowSettings(false);
                       }}
                       disabled={!keyDraft.trim()}
-                      style={{ flex: 1, background: keyDraft.trim() ? ENG.color : "#b9c2cf", color: "#fff", border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600, cursor: keyDraft.trim() ? "pointer" : "default" }}>
+                      style={{ flex: 1, background: keyDraft.trim() ? ENG.color : C.disabledCool, color: C.inkOn, border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600, cursor: keyDraft.trim() ? "pointer" : "default" }}>
                       บันทึก key
                     </button>
                     {hasKey && (
                       <button onClick={() => { setKey(engine, ""); setKeyTick(t => t + 1); }}
-                        style={{ background: "#fff", color: C.red, border: `1.5px solid ${C.red}`, borderRadius: 11, padding: "12px 14px", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}>
+                        style={{ background: C.card, color: C.red, border: `1.5px solid ${C.red}`, borderRadius: 11, padding: "12px 14px", fontSize: 13.5, fontWeight: 600, cursor: "pointer" }}>
                         ลบ key
                       </button>
                     )}
@@ -4339,7 +4454,7 @@ function App() {
                   )}
                 </>
               ) : (
-                <div style={{ fontSize: 13, color: C.sub, lineHeight: 1.6, padding: "12px 14px", background: "#fff", borderRadius: 11, border: `1.5px solid ${C.line}` }}>
+                <div style={{ fontSize: 13, color: C.sub, lineHeight: 1.6, padding: "12px 14px", background: C.card, borderRadius: 11, border: `1.5px solid ${C.line}` }}>
                   คุณกำลังเปิดแอปในโหมด <b style={{ color: ENG.color }}>{ENG.icon} {ENG.name}</b> — Claude artifact จัดการ AI ให้แล้ว ไม่ต้องใส่ API key ใดๆ
                 </div>
               )}
@@ -4347,6 +4462,17 @@ function App() {
               {/* ---- v0.53.0/v0.54.0: display group — wording + layout per approved mockup v5 ---- */}
               <SettingGroup title="👁️ การแสดงผล" why="คุมว่าเฉลย/คำแปลโผล่เองหรือรอเราแตะ"
                 open={openGroup === "display"} onToggle={() => setOpenGroup(g => (g === "display" ? null : "display"))}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
+                  <span>
+                    <span style={{ fontSize: 13.5, fontWeight: 500, display: "block" }}>ธีม</span>
+                    <span style={{ fontSize: 11, color: C.sub, lineHeight: 1.5 }}>ตามระบบ = สลับเองตามโหมดมืดของเครื่อง</span>
+                  </span>
+                  <span style={{ display: "inline-flex", gap: 6, flex: "0 0 auto" }}>
+                    <SettingPill on={settings.theme === "light"} onClick={() => updateSetting("theme", "light")}>☀️ สว่าง</SettingPill>
+                    <SettingPill on={settings.theme === "dark"} onClick={() => updateSetting("theme", "dark")}>🌙 มืด</SettingPill>
+                    <SettingPill on={settings.theme === "system"} onClick={() => updateSetting("theme", "system")}>อัตโนมัติ</SettingPill>
+                  </span>
+                </div>
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ fontSize: 13.5, fontWeight: 500 }}>ความหมายบนการ์ดศัพท์ (ด้านหลัง)</div>
                   <div style={{ fontSize: 11, color: C.sub, marginTop: 1, lineHeight: 1.5 }}>ยิ่งซ่อนมาก ยิ่งบังคับสมองให้นึกเอง = จำแน่นขึ้น</div>
@@ -4406,7 +4532,7 @@ function App() {
                           <div style={{ fontSize: 11, color: C.sub, marginTop: 1, lineHeight: 1.5 }}>ลองสลับแล้วกด ▶ ฟังเทียบ — บางตัวธรรมชาติกว่ากันมาก (☁️ = ใช้เน็ตตอนอ่าน)</div>
                           <select value={settings.ttsVoice || ""} onChange={e => updateSetting("ttsVoice", e.target.value)}
                             style={{ width: "100%", boxSizing: "border-box", marginTop: 7, fontSize: 13.5, padding: "9px 10px",
-                              borderRadius: 10, border: `1.5px solid ${C.line}`, background: "#fff", color: C.ink }}>
+                              borderRadius: 10, border: `1.5px solid ${C.line}`, background: C.card, color: C.ink }}>
                             <option value="">อัตโนมัติ (ให้เครื่องเลือกตามสำเนียง)</option>
                             {list.map(v => (
                               <option key={v.voiceURI} value={v.voiceURI}>
@@ -4425,7 +4551,7 @@ function App() {
                       <SettingToggle on={settings.ttsAuto} onClick={() => updateSetting("ttsAuto", !settings.ttsAuto)} />
                     </div>
                     <button onClick={(e) => speak("The quarterly meeting has been rescheduled to Thursday morning.", e)}
-                      style={{ background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 13, padding: "8px 14px", fontSize: 13, fontWeight: 600 }}>
+                      style={{ background: C.card, color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 13, padding: "8px 14px", fontSize: 13, fontWeight: 600 }}>
                       ▶ ทดลองฟังด้วยค่านี้
                     </button>
                   </>
@@ -4458,6 +4584,13 @@ function App() {
                 </button>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 8, marginBottom: 6 }}>
                   <span>
+                    <span style={{ fontSize: 13.5, fontWeight: 500, display: "block" }}>เป้าหมายรายวัน</span>
+                    <span style={{ fontSize: 11, color: C.sub }}>ปรับละเอียด 5–100 — แตะแถบหน้าแรกยังวน 10·20·30·50 ได้เหมือนเดิม</span>
+                  </span>
+                  <SettingStepper value={goal} lo={5} hi={100} onChange={v => { setGoal(v); STORAGE.set(GOAL_KEY, JSON.stringify(v)); }} />
+                </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 6, marginBottom: 6 }}>
+                  <span>
                     <span style={{ fontSize: 13.5, fontWeight: 500, display: "block" }}>จำนวนข้อโจทย์ Vocab ต่อรอบ</span>
                     <span style={{ fontSize: 11, color: C.sub }}>เดิมล็อก 10 ข้อ — ปรับได้ 5–25</span>
                   </span>
@@ -4473,9 +4606,9 @@ function App() {
                 {settings.sfx && (
                   <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                     <button onClick={() => playFeedback(true)}
-                      style={{ background: "#fff", color: C.green, border: `1.5px solid ${C.greenBg}`, borderRadius: 13, padding: "7px 12px", fontSize: 12.5, fontWeight: 600 }}>✔ เสียงตอบถูก</button>
+                      style={{ background: C.card, color: C.green, border: `1.5px solid ${C.greenBg}`, borderRadius: 13, padding: "7px 12px", fontSize: 12.5, fontWeight: 600 }}>✔ เสียงตอบถูก</button>
                     <button onClick={() => playFeedback(false)}
-                      style={{ background: "#fff", color: C.red, border: `1.5px solid ${C.redBg}`, borderRadius: 13, padding: "7px 12px", fontSize: 12.5, fontWeight: 600 }}>✘ เสียงตอบผิด</button>
+                      style={{ background: C.card, color: C.red, border: `1.5px solid ${C.redBg}`, borderRadius: 13, padding: "7px 12px", fontSize: 12.5, fontWeight: 600 }}>✘ เสียงตอบผิด</button>
                   </div>
                 )}
               </SettingGroup>
@@ -4496,7 +4629,7 @@ function App() {
                 {[["export", "📤 สำรอง"], ["import", "📥 กู้คืน"]].map(([k, lbl]) => (
                   <button key={k} onClick={() => openBackup(k)}
                     style={{ flex: 1, border: "none", borderRadius: 9, padding: "9px", fontSize: 14, fontWeight: 600,
-                      background: backup.kind === k ? C.accent : "#efe7d7", color: backup.kind === k ? "#fff" : C.sub }}>{lbl}</button>
+                      background: backup.kind === k ? C.accent : C.track, color: backup.kind === k ? C.inkOn : C.sub }}>{lbl}</button>
                 ))}
               </div>
 
@@ -4510,14 +4643,14 @@ function App() {
                         try { await navigator.clipboard.writeText(backup.text); setBackup(b => ({ ...b, msg: "ก๊อปแล้ว ✓ เอาไปวางในโน้ต/แชตเก็บไว้ได้เลย" })); }
                         catch (e) { setBackup(b => ({ ...b, msg: "ก๊อปอัตโนมัติไม่ได้ — แตะในกล่องค้างไว้ แล้วเลือกทั้งหมด (Select All) เพื่อก๊อป" })); }
                       }}
-                      style={{ width: "100%", background: C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "13px", fontSize: 15, fontWeight: 700, marginBottom: 12 }}>
+                      style={{ width: "100%", background: C.accent, color: C.inkOn, border: "none", borderRadius: 11, padding: "13px", fontSize: 15, fontWeight: 700, marginBottom: 12 }}>
                       📋 ก๊อปข้อความสำรอง
                     </button>
                     <div style={{ fontSize: 12.5, color: C.sub, lineHeight: 1.6, marginBottom: 8 }}>
                       หลังกดก๊อป <b>รอ 2-3 วิ</b>ก่อนวาง (โค้ดยาว มือถือใช้เวลาก๊อป ถ้ารีบวางจะหายบางส่วน) · ดาวน์โหลดไฟล์ใช้ได้เฉพาะเว็บ standalone
                     </div>
                     <textarea readOnly value={backup.text} onFocus={e => e.target.select()}
-                      style={{ width: "100%", flex: 1, minHeight: 80, fontSize: 12, fontFamily: "monospace", padding: 10, borderRadius: 10, border: `1px solid ${C.line}`, background: "#fbf6ec", color: C.ink, resize: "none" }} />
+                      style={{ width: "100%", flex: 1, minHeight: 80, fontSize: 12, fontFamily: "monospace", padding: 10, borderRadius: 10, border: `1px solid ${C.line}`, background: C.soft, color: C.ink, resize: "none" }} />
                     <div style={{ fontSize: 12, color: C.sub, marginTop: 6, textAlign: "right" }}>
                       ความยาวโค้ด: <b style={{ color: C.accent }}>{fmtLen((backup.text || "").length)}</b> ตัวอักษร — จำไว้เทียบตอนวาง</div>
                   </>
@@ -4527,14 +4660,14 @@ function App() {
                       <b>แนะนำ:</b> กด "บันทึกเป็นไฟล์" เพื่อโหลดไฟล์ <code>.json</code> เก็บไว้ — ปลอดภัยกว่าก๊อปข้อความ (ตัวอักษรไม่หลุด) <span style={{ color: C.accent }}>· มี checksum กันข้อมูลเพี้ยน</span>
                     </div>
                     <button onClick={() => downloadBackup(backup.text)}
-                      style={{ width: "100%", background: C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "13px", fontSize: 15, fontWeight: 700, marginBottom: 12 }}>
+                      style={{ width: "100%", background: C.accent, color: C.inkOn, border: "none", borderRadius: 11, padding: "13px", fontSize: 15, fontWeight: 700, marginBottom: 12 }}>
                       💾 บันทึกเป็นไฟล์ (.json)
                     </button>
                     <div style={{ fontSize: 12.5, color: C.sub, lineHeight: 1.6, marginBottom: 8 }}>
                       หรือก๊อปข้อความไปเก็บเอง (ระวังตัวอักษรหลุดตอนก๊อป — แตะในกล่องแล้วเลือกทั้งหมด):
                     </div>
                     <textarea readOnly value={backup.text} onFocus={e => e.target.select()}
-                      style={{ width: "100%", flex: 1, minHeight: 80, fontSize: 12, fontFamily: "monospace", padding: 10, borderRadius: 10, border: `1px solid ${C.line}`, background: "#fbf6ec", color: C.ink, resize: "none" }} />
+                      style={{ width: "100%", flex: 1, minHeight: 80, fontSize: 12, fontFamily: "monospace", padding: 10, borderRadius: 10, border: `1px solid ${C.line}`, background: C.soft, color: C.ink, resize: "none" }} />
                     <div style={{ fontSize: 12, color: C.sub, marginTop: 6, textAlign: "right" }}>
                       ความยาวโค้ด: <b style={{ color: C.accent }}>{fmtLen((backup.text || "").length)}</b> ตัวอักษร</div>
                   </>
@@ -4546,22 +4679,22 @@ function App() {
                       กดปุ่มด้านล่างเพื่อ <b>วางอัตโนมัติ</b> (เลี่ยงปัญหาวางในกล่องแล้วโค้ดหายเพราะติด limit) <span style={{ color: C.accent }}>· ถ้าข้อมูลเพี้ยนจะเตือนทันที</span>
                     </div>
                     <button onClick={pasteFromClipboard}
-                      style={{ width: "100%", background: "#efe7d7", color: C.ink, border: `1px solid ${C.line}`, borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 700, marginBottom: 8 }}>
+                      style={{ width: "100%", background: C.track, color: C.ink, border: `1px solid ${C.line}`, borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 700, marginBottom: 8 }}>
                       📋 วางจากคลิปบอร์ดอัตโนมัติ
                     </button>
                     <textarea value={backup.text} onChange={e => setBackup(b => ({ ...b, text: e.target.value, msg: null }))}
                       placeholder="…หรือแตะที่นี่แล้ววางเอง"
-                      style={{ width: "100%", flex: 1, minHeight: 80, fontSize: 12, fontFamily: "monospace", padding: 10, borderRadius: 10, border: `1px solid ${C.line}`, background: "#fff", color: C.ink, resize: "none" }} />
+                      style={{ width: "100%", flex: 1, minHeight: 80, fontSize: 12, fontFamily: "monospace", padding: 10, borderRadius: 10, border: `1px solid ${C.line}`, background: C.card, color: C.ink, resize: "none" }} />
                     <div style={{ fontSize: 12, color: C.sub, marginTop: 6, textAlign: "right" }}>
                       วางมาแล้ว: <b style={{ color: (backup.text || "").length ? C.accent : C.sub }}>{fmtLen((backup.text || "").length)}</b> ตัวอักษร — ต้องเท่ากับตอนสำรอง</div>
                     <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "stretch" }}>
                       <button onClick={() => runRestore(backup.text, "merge")}
-                        style={{ flex: 1, background: C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "13px", fontSize: 14.5, fontWeight: 700 }}>
+                        style={{ flex: 1, background: C.accent, color: C.inkOn, border: "none", borderRadius: 11, padding: "13px", fontSize: 14.5, fontWeight: 700 }}>
                         ＋ รวมข้อมูล (แนะนำ)
                       </button>
                       <button onClick={() => { if (!backup.text || !backup.text.trim()) { setBackup(b => ({ ...b, msg: "ยังไม่มีโค้ด/ไฟล์ให้กู้คืน" })); return; } setConfirmOverwrite(true); }}
                         title="เขียนทับทั้งหมด"
-                        style={{ flexShrink: 0, width: 92, background: "#fff", color: C.red, border: `1.5px solid ${C.red}55`, borderRadius: 11, padding: "8px 6px", fontSize: 12.5, fontWeight: 600, lineHeight: 1.25 }}>
+                        style={{ flexShrink: 0, width: 92, background: C.card, color: C.red, border: `1.5px solid ${C.red}55`, borderRadius: 11, padding: "8px 6px", fontSize: 12.5, fontWeight: 600, lineHeight: 1.25 }}>
                         ⚠️<br />เขียนทับ
                       </button>
                     </div>
@@ -4575,7 +4708,7 @@ function App() {
                   <div style={{ fontSize: 13.5, color: C.sub, lineHeight: 1.6, marginBottom: 10 }}>
                     <b>แนะนำ:</b> เลือกไฟล์ <code>.json</code> ที่เคยบันทึกไว้ — จะ <b>รวมข้อมูล</b> (เก็บ progress เดิม + เพิ่มของใหม่)
                   </div>
-                  <label style={{ display: "block", width: "100%", background: C.accent, color: "#fff", borderRadius: 11, padding: "13px", fontSize: 15, fontWeight: 700, textAlign: "center", marginBottom: 12, cursor: "pointer" }}>
+                  <label style={{ display: "block", width: "100%", background: C.accent, color: C.inkOn, borderRadius: 11, padding: "13px", fontSize: 15, fontWeight: 700, textAlign: "center", marginBottom: 12, cursor: "pointer" }}>
                     📂 เลือกไฟล์แล้วรวมข้อมูล (.json)
                     <input type="file" accept=".json,application/json,text/plain" style={{ display: "none" }}
                       onChange={async (e) => {
@@ -4589,22 +4722,22 @@ function App() {
                     หรือวางโค้ดข้อความที่เคยสำรองไว้ (กดปุ่มวางอัตโนมัติเลี่ยง limit):
                   </div>
                   <button onClick={pasteFromClipboard}
-                    style={{ width: "100%", background: "#efe7d7", color: C.ink, border: `1px solid ${C.line}`, borderRadius: 11, padding: "11px", fontSize: 14, fontWeight: 700, marginBottom: 8 }}>
+                    style={{ width: "100%", background: C.track, color: C.ink, border: `1px solid ${C.line}`, borderRadius: 11, padding: "11px", fontSize: 14, fontWeight: 700, marginBottom: 8 }}>
                     📋 วางจากคลิปบอร์ดอัตโนมัติ
                   </button>
                   <textarea value={backup.text} onChange={e => setBackup(b => ({ ...b, text: e.target.value, msg: null }))}
                     placeholder="…หรือแตะที่นี่แล้ววางเอง"
-                    style={{ width: "100%", flex: 1, minHeight: 80, fontSize: 12, fontFamily: "monospace", padding: 10, borderRadius: 10, border: `1px solid ${C.line}`, background: "#fff", color: C.ink, resize: "none" }} />
+                    style={{ width: "100%", flex: 1, minHeight: 80, fontSize: 12, fontFamily: "monospace", padding: 10, borderRadius: 10, border: `1px solid ${C.line}`, background: C.card, color: C.ink, resize: "none" }} />
                   <div style={{ fontSize: 12, color: C.sub, marginTop: 6, textAlign: "right" }}>
                     วางมาแล้ว: <b style={{ color: (backup.text || "").length ? C.accent : C.sub }}>{fmtLen((backup.text || "").length)}</b> ตัวอักษร</div>
                   <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "stretch" }}>
                     <button onClick={() => runRestore(backup.text, "merge")}
-                      style={{ flex: 1, background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "11px", fontSize: 14, fontWeight: 700 }}>
+                      style={{ flex: 1, background: C.card, color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "11px", fontSize: 14, fontWeight: 700 }}>
                       ＋ รวมข้อมูลจากข้อความ
                     </button>
                     <button onClick={() => { if (!backup.text || !backup.text.trim()) { setBackup(b => ({ ...b, msg: "ยังไม่มีโค้ด/ไฟล์ให้กู้คืน" })); return; } setConfirmOverwrite(true); }}
                       title="เขียนทับทั้งหมด"
-                      style={{ flexShrink: 0, width: 92, background: "#fff", color: C.red, border: `1.5px solid ${C.red}55`, borderRadius: 11, padding: "8px 6px", fontSize: 12.5, fontWeight: 600, lineHeight: 1.25 }}>
+                      style={{ flexShrink: 0, width: 92, background: C.card, color: C.red, border: `1.5px solid ${C.red}55`, borderRadius: 11, padding: "8px 6px", fontSize: 12.5, fontWeight: 600, lineHeight: 1.25 }}>
                       ⚠️<br />เขียนทับ
                     </button>
                   </div>
@@ -4632,11 +4765,11 @@ function App() {
                 ถ้าไม่แน่ใจ แนะนำกด "ยกเลิก" แล้วใช้ "รวมข้อมูล" แทน
               </div>
               <button onClick={() => setConfirmOverwrite(false)}
-                style={{ width: "100%", background: C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "13px", fontSize: 14.5, fontWeight: 700, marginBottom: 9 }}>
+                style={{ width: "100%", background: C.accent, color: C.inkOn, border: "none", borderRadius: 11, padding: "13px", fontSize: 14.5, fontWeight: 700, marginBottom: 9 }}>
                 ยกเลิก (เก็บข้อมูลเดิมไว้)
               </button>
               <button onClick={async () => { setConfirmOverwrite(false); await runRestore(backup.text, "overwrite"); }}
-                style={{ width: "100%", background: "#fff", color: C.red, border: `1.5px solid ${C.red}55`, borderRadius: 11, padding: "11px", fontSize: 13.5, fontWeight: 700 }}>
+                style={{ width: "100%", background: C.card, color: C.red, border: `1.5px solid ${C.red}55`, borderRadius: 11, padding: "11px", fontSize: 13.5, fontWeight: 700 }}>
                 ⚠️ ใช่ เขียนทับทั้งหมดเลย
               </button>
             </div>
@@ -4654,12 +4787,12 @@ function App() {
                 ก๊อปข้อความนี้ไปวางถาม Coach ในแชตได้เลย (ถ้าก๊อปอัตโนมัติไม่ได้ ให้แตะค้างในกล่องแล้วเลือกทั้งหมด)
               </div>
               <textarea readOnly value={copyBox.text} onFocus={e => e.target.select()}
-                style={{ width: "100%", height: 150, fontSize: 12.5, fontFamily: "monospace", padding: 10, borderRadius: 10, border: `1px solid ${C.line}`, background: "#fbf6ec", color: C.ink, resize: "none", lineHeight: 1.5 }} />
+                style={{ width: "100%", height: 150, fontSize: 12.5, fontFamily: "monospace", padding: 10, borderRadius: 10, border: `1px solid ${C.line}`, background: C.soft, color: C.ink, resize: "none", lineHeight: 1.5 }} />
               <button onClick={async () => {
                   try { await navigator.clipboard.writeText(copyBox.text); setCopyBox(b => ({ ...b, msg: "ก๊อปแล้ว ✓" })); }
                   catch (e) { setCopyBox(b => ({ ...b, msg: "ก๊อปอัตโนมัติไม่ได้ — แตะในกล่องแล้วก๊อปเองนะครับ" })); }
                 }}
-                style={{ marginTop: 10, width: "100%", background: C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>
+                style={{ marginTop: 10, width: "100%", background: C.accent, color: C.inkOn, border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>
                 ก๊อปข้อความ
               </button>
               {copyBox.msg && <div style={{ marginTop: 10, fontSize: 13, fontWeight: 600, color: copyBox.msg.includes("✓") ? C.green : C.amber, textAlign: "center" }}>{copyBox.msg}</div>}
@@ -4698,13 +4831,13 @@ function App() {
                   ลบ{mode === "vocab" ? "คำศัพท์" : mode === "listening" ? "บทเรียน/ข้อฝึก" : "ข้อสอบ"} + สถานะ + จำนวนชุด ของโหมดนี้ <b style={{ color: C.red }}>ทั้งหมด</b> (โหมดอื่นยังอยู่ครบ) · <b style={{ color: C.red }}>กู้คืนไม่ได้</b>
                 </div>
                 <button onClick={doReset}
-                  style={{ width: "100%", background: "#fff", color: C.red, border: `1.5px solid ${C.red}55`, borderRadius: 11, padding: "11px", fontSize: 14, fontWeight: 700 }}>
+                  style={{ width: "100%", background: C.card, color: C.red, border: `1.5px solid ${C.red}55`, borderRadius: 11, padding: "11px", fontSize: 14, fontWeight: 700 }}>
                   ⚠️ ล้างทั้งหมดของโหมดนี้
                 </button>
               </div>
 
               <button onClick={() => setConfirmReset(false)}
-                style={{ width: "100%", background: "#fff", color: C.ink, border: `1.5px solid ${C.line}`, borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ยกเลิก</button>
+                style={{ width: "100%", background: C.card, color: C.ink, border: `1.5px solid ${C.line}`, borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ยกเลิก</button>
             </div>
           </div>
         )}
@@ -4730,7 +4863,7 @@ function App() {
           const sessions = fSess.slice(-14);
           const recent = fSess.slice(-20);
           const avgPct = recent.length ? Math.round(recent.reduce((a, s) => a + (s.c / s.n) * 100, 0) / recent.length) : null;
-          const sColor = { vocab: C.accent, grammar: "#3f7d3a", listening: "#1a73e8", audio: "#7c3aed" };
+          const sColor = { vocab: C.accent, grammar: C.green, listening: C.blue, audio: C.purple };
           const sLabel = { vocab: "Vocab", grammar: "Grammar", listening: "Reading", audio: "Listening" };
           const daysStudied = dates.length;
           return (
@@ -4746,8 +4879,8 @@ function App() {
                 {/* top stat row */}
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
                   <Stat label="ต่อเนื่อง (วัน)" value={`🔥 ${streak.streak}`} color={C.amber} bg={C.amberBg} />
-                  <Stat label="สูงสุด (วัน)" value={streak.best} color={C.ink} bg="#efe7d7" />
-                  <Stat label="วันที่เรียน" value={daysStudied} color={C.ink} bg="#efe7d7" />
+                  <Stat label="สูงสุด (วัน)" value={streak.best} color={C.ink} bg={C.track} />
+                  <Stat label="วันที่เรียน" value={daysStudied} color={C.ink} bg={C.track} />
                   <Stat label="แม่นแล้วรวม" value={totalKnown} color={C.green} bg={C.greenBg} />
                 </div>
 
@@ -4760,7 +4893,7 @@ function App() {
                     const active = f === m;
                     return (
                       <button key={m} onClick={() => setStatsFilter(active ? null : m)}
-                        style={{ flex: 1, minWidth: 0, background: active ? "#fff6f0" : "#fff", border: active ? `2px solid ${C.accent}` : `1px solid ${C.line}`, borderRadius: 11, padding: "10px 4px", textAlign: "center", opacity: f && !active ? 0.45 : 1, cursor: "pointer" }}>
+                        style={{ flex: 1, minWidth: 0, background: active ? C.accentBg : C.card, border: active ? `2px solid ${C.accent}` : `1px solid ${C.line}`, borderRadius: 11, padding: "10px 4px", textAlign: "center", opacity: f && !active ? 0.45 : 1, cursor: "pointer" }}>
                         <div style={{ fontSize: 10.5, color: sColor[m], fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sLabel[m]}</div>
                         <div style={{ fontSize: 17, fontWeight: 700, color: C.ink, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>{k}<span style={{ fontSize: 11, color: C.sub }}>/{t}</span></div>
                       </button>
@@ -4779,7 +4912,7 @@ function App() {
                 {masterySeries.length >= 2 ? (
                   <MiniLineChart series={masterySeries} color={C.accent} />
                 ) : (
-                  <div style={{ fontSize: 12.5, color: C.sub, background: "#fff", border: `1px dashed ${C.line}`, borderRadius: 11, padding: "16px 12px", textAlign: "center", lineHeight: 1.6 }}>
+                  <div style={{ fontSize: 12.5, color: C.sub, background: C.card, border: `1px dashed ${C.line}`, borderRadius: 11, padding: "16px 12px", textAlign: "center", lineHeight: 1.6 }}>
                     ยังมีข้อมูลไม่พอวาดกราฟ — เรียนสัก 2 วันขึ้นไปแล้วกลับมาดูแนวโน้มได้ครับ
                   </div>
                 )}
@@ -4800,7 +4933,7 @@ function App() {
                     </div>
                   </>
                 ) : (
-                  <div style={{ fontSize: 12.5, color: C.sub, background: "#fff", border: `1px dashed ${C.line}`, borderRadius: 11, padding: "16px 12px", textAlign: "center", lineHeight: 1.6 }}>
+                  <div style={{ fontSize: 12.5, color: C.sub, background: C.card, border: `1px dashed ${C.line}`, borderRadius: 11, padding: "16px 12px", textAlign: "center", lineHeight: 1.6 }}>
                     {f ? `ยังไม่มีรอบ ${sLabel[f]} ที่ทำเสร็จ — ทำชุด ${sLabel[f]} ให้จบสักรอบ แล้วคะแนนจะมาโชว์ที่นี่` : "ยังไม่มีรอบที่ทำเสร็จ — ไปทำชุดข้อสอบ (Vocab quiz / Grammar / Reading / Listening) ให้จบสักรอบ แล้วคะแนนจะมาโชว์ที่นี่"}
                   </div>
                 )}
@@ -4821,7 +4954,7 @@ function App() {
                   return (
                     <div style={{ marginTop: 18 }}>
                       <div style={{ fontSize: 12.5, color: C.sub, fontWeight: 600, marginBottom: 8 }}>📊 ความแม่นรายพาร์ท (จากรอบที่ทำจบ) · เน้นซ้อมพาร์ทที่ % ต่ำ</div>
-                      <div style={{ display: "grid", gap: 8, background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 12px" }}>
+                      <div style={{ display: "grid", gap: 8, background: C.card, border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 12px" }}>
                         {rows.map((r, i) => {
                           const pct = Math.round((r.c / r.n) * 100);
                           const barColor = pct >= 80 ? C.green : pct >= 60 ? C.amber : C.red;
@@ -4833,7 +4966,7 @@ function App() {
                                   {pct}% <span style={{ color: C.sub, fontWeight: 400 }}>· {r.c}/{r.n} ข้อ · {r.rounds} รอบ</span>
                                 </span>
                               </div>
-                              <div style={{ height: 7, borderRadius: 4, background: "#efe7d7", overflow: "hidden" }}>
+                              <div style={{ height: 7, borderRadius: 4, background: C.track, overflow: "hidden" }}>
                                 <div style={{ height: "100%", width: `${pct}%`, background: barColor }} />
                               </div>
                             </div>
@@ -4871,20 +5004,20 @@ function App() {
                 )}
 
                 <button onClick={() => setShowStats(false)}
-                  style={{ marginTop: 16, width: "100%", background: C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ปิด</button>
+                  style={{ marginTop: 16, width: "100%", background: C.accent, color: C.inkOn, border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ปิด</button>
               </div>
             </div>
           );
         })()}
 
         {/* MODE SWITCHER */}
-        <div style={{ display: "flex", background: "#efe7d7", borderRadius: 13, padding: 4, gap: 4, margin: "12px 0 14px" }}>
+        <div style={{ display: "flex", background: C.track, borderRadius: 13, padding: 4, gap: 4, margin: "12px 0 14px" }}>
           {[["vocab", "📕 Vocab"], ["grammar", "✏️ Grammar"], ["listening", "📖 Reading"], ["audio", "🎧 Listening"], ["exam", "📝 Exam"]].map(([id, lbl]) => {
             const on = mode === id;
             return (
               <button key={id} onClick={() => { setMode(id); }}
                 style={{ flex: 1, minWidth: 0, border: "none", borderRadius: 10, padding: "10px 1px", fontSize: 10.5, fontWeight: on ? 700 : 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                  background: on ? "#fffdf8" : "transparent", color: on ? C.accent : "#7a7062",
+                  background: on ? C.panel : "transparent", color: on ? C.accent : C.sub2,
                   boxShadow: on ? "0 2px 7px -3px rgba(40,30,20,.4)" : "none", transition: "all .15s" }}>
                 {lbl}
               </button>
@@ -4898,7 +5031,7 @@ function App() {
           {!showDiff ? (
             <button onClick={() => setShowDiff(true)}
               style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
-                background: "#fff", border: `1.5px solid ${C.line}`, borderRadius: 11, padding: "10px 13px", cursor: "pointer" }}>
+                background: C.card, border: `1.5px solid ${C.line}`, borderRadius: 11, padding: "10px 13px", cursor: "pointer" }}>
               <span style={{ fontSize: 13, color: C.ink, fontWeight: 600, textAlign: "left" }}>
                 🎯 ระดับ: <span style={{ color: C.accent, fontWeight: 700 }}>{diffById(difficulty).icon} {diffById(difficulty).label}</span>
                 <span style={{ color: C.sub, fontWeight: 400 }}> · {diffById(difficulty).band}</span>
@@ -4919,11 +5052,11 @@ function App() {
                   return (
                     <button key={d.id} onClick={() => { applyDifficulty(d.id); setShowDiff(false); }}
                       style={{ textAlign: "left", border: on ? `2px solid ${C.accent}` : `1.5px solid ${C.line}`,
-                        background: on ? "#fff6f0" : "#fff", borderRadius: 11, padding: "9px 10px", cursor: "pointer", lineHeight: 1.3 }}>
+                        background: on ? C.accentBg : C.card, borderRadius: 11, padding: "9px 10px", cursor: "pointer", lineHeight: 1.3 }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: on ? C.accent : C.ink }}>{d.icon} {d.label}</div>
                       <div style={{ fontSize: 10.5, color: C.sub, marginTop: 3 }}>{d.blurb}</div>
                       {recLabel && (
-                        <div style={{ fontSize: 10, color: on ? C.accent : "#9a8f7f", marginTop: 4, fontWeight: 600 }}>→ {recLabel}</div>
+                        <div style={{ fontSize: 10, color: on ? C.accent : C.sub3, marginTop: 4, fontWeight: 600 }}>→ {recLabel}</div>
                       )}
                     </button>
                   );
@@ -4939,13 +5072,13 @@ function App() {
 
         {/* GRAMMAR SUB-SWITCHER: lesson vs drill */}
         {mode === "grammar" && (
-          <div style={{ display: "flex", background: "#f0e7d5", borderRadius: 11, padding: 3, gap: 3, marginBottom: 14 }}>
+          <div style={{ display: "flex", background: C.track2, borderRadius: 11, padding: 3, gap: 3, marginBottom: 14 }}>
             {[["lesson", "📖 เรียน (บทเรียน)"], ["drill", "📝 ทำโจทย์"]].map(([id, lbl]) => {
               const on = gSection === id;
               return (
                 <button key={id} onClick={() => setGSection(id)}
                   style={{ flex: 1, border: "none", borderRadius: 9, padding: "9px 6px", fontSize: 13.5, fontWeight: 600,
-                    background: on ? "#fffdf8" : "transparent", color: on ? C.ink : "#8a7f70",
+                    background: on ? C.panel : "transparent", color: on ? C.ink : C.subDim,
                     boxShadow: on ? "0 2px 6px -3px rgba(40,30,20,.5)" : "none" }}>{lbl}</button>
               );
             })}
@@ -4954,13 +5087,13 @@ function App() {
 
         {/* VOCAB SUB-SWITCHER: cards vs quiz */}
         {mode === "vocab" && (
-          <div style={{ display: "flex", background: "#f0e7d5", borderRadius: 11, padding: 3, gap: 3, marginBottom: 14 }}>
+          <div style={{ display: "flex", background: C.track2, borderRadius: 11, padding: 3, gap: 3, marginBottom: 14 }}>
             {[["cards", "📇 เรียน (การ์ด)"], ["quiz", "📝 ทำโจทย์"]].map(([id, lbl]) => {
               const on = vSection === id;
               return (
                 <button key={id} onClick={() => setVSection(id)}
                   style={{ flex: 1, border: "none", borderRadius: 9, padding: "9px 6px", fontSize: 13.5, fontWeight: 600,
-                    background: on ? "#fffdf8" : "transparent", color: on ? C.ink : "#8a7f70",
+                    background: on ? C.panel : "transparent", color: on ? C.ink : C.subDim,
                     boxShadow: on ? "0 2px 6px -3px rgba(40,30,20,.5)" : "none" }}>{lbl}</button>
               );
             })}
@@ -4969,13 +5102,13 @@ function App() {
 
         {/* LISTENING SUB-SWITCHER: strategy vs practice */}
         {mode === "listening" && (
-          <div style={{ display: "flex", background: "#f0e7d5", borderRadius: 11, padding: 3, gap: 3, marginBottom: 14 }}>
+          <div style={{ display: "flex", background: C.track2, borderRadius: 11, padding: 3, gap: 3, marginBottom: 14 }}>
             {[["strategy", "🧭 Strategy (เทคนิค)"], ["practice", "📝 ฝึกอ่าน (Part 6-7)"]].map(([id, lbl]) => {
               const on = lSection === id;
               return (
                 <button key={id} onClick={() => setLSection(id)}
                   style={{ flex: 1, border: "none", borderRadius: 9, padding: "9px 6px", fontSize: 13, fontWeight: 600,
-                    background: on ? "#fffdf8" : "transparent", color: on ? C.ink : "#8a7f70",
+                    background: on ? C.panel : "transparent", color: on ? C.ink : C.subDim,
                     boxShadow: on ? "0 2px 6px -3px rgba(40,30,20,.5)" : "none" }}>{lbl}</button>
               );
             })}
@@ -5018,14 +5151,14 @@ function App() {
                 {/* model picker for quiz */}
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
                   <span style={{ fontSize: 12.5, color: C.sub, flex: "0 0 auto" }}>รุ่น AI:</span>
-                  <div style={{ display: "flex", flex: 1, background: "#efe7d7", borderRadius: 10, padding: 3, gap: 3 }}>
+                  <div style={{ display: "flex", flex: 1, background: C.track, borderRadius: 10, padding: 3, gap: 3 }}>
                     {MODELS.map(mm => {
                       const on = models.vocab === mm.id;
                       const rec = RECOMMENDED.vocab === mm.id;
                       return (
                         <button key={mm.id} onClick={() => chooseModel(mm.id)}
                           style={{ flex: 1, border: "none", borderRadius: 8, padding: "7px 4px", fontSize: 12, fontWeight: 600, lineHeight: 1.25,
-                            background: on ? "#fffdf8" : "transparent", color: on ? C.ink : "#8a7f70",
+                            background: on ? C.panel : "transparent", color: on ? C.ink : C.subDim,
                             boxShadow: on ? "0 2px 6px -3px rgba(40,30,20,.5)" : "none" }}>
                           {mm.label}<br /><span style={{ fontSize: 10, fontWeight: 400, opacity: .75 }}>{rec ? "★ แนะนำ" : mm.note}</span>
                         </button>
@@ -5048,8 +5181,8 @@ function App() {
                           const on = quizLevel === id;
                           return (
                             <button key={id} onClick={() => setQuizLevel(id)}
-                              style={{ border: `1px solid ${on ? C.accent : C.line}`, background: on ? C.accent : "#fff",
-                                color: on ? "#fff" : C.sub, borderRadius: 20, padding: "6px 12px", fontSize: 12, fontWeight: 700 }}>
+                              style={{ border: `1px solid ${on ? C.accent : C.line}`, background: on ? C.accent : C.card,
+                                color: on ? C.inkOn : C.sub, borderRadius: 20, padding: "6px 12px", fontSize: 12, fontWeight: 700 }}>
                               {lbl} <span style={{ fontWeight: 500, opacity: 0.8 }}>{quizLevelCounts[id] || 0}</span>
                             </button>
                           );
@@ -5057,12 +5190,12 @@ function App() {
                     </div>
                     <div style={{ display: "flex", gap: 8, alignItems: "stretch", marginBottom: 14 }}>
                       <button onClick={buildVocabQuiz} disabled={!quizReady}
-                        style={{ flex: missCount > 0 ? 1.35 : 1, background: quizReady ? C.accent : "#cfc6b6", color: "#fff", border: "none", borderRadius: 13, padding: "13px 10px", fontSize: 14.5, fontWeight: 600, boxShadow: quizReady ? "0 8px 20px -10px rgba(191,77,40,.9)" : "none", lineHeight: 1.3, cursor: quizReady ? "pointer" : "not-allowed" }}>
+                        style={{ flex: missCount > 0 ? 1.35 : 1, background: quizReady ? C.accent : C.disabled2, color: C.inkOn, border: "none", borderRadius: 13, padding: "13px 10px", fontSize: 14.5, fontWeight: 600, boxShadow: quizReady ? "0 8px 20px -10px rgba(191,77,40,.9)" : "none", lineHeight: 1.3, cursor: quizReady ? "pointer" : "not-allowed" }}>
                         ▶ เริ่มทำโจทย์ ({Math.min(vocabQuizN(), quizTargetCount)} ข้อ)
                       </button>
                       {missCount > 0 && (
                         <button onClick={buildMissedQuiz}
-                          style={{ flex: 1, background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 13, padding: "13px 8px", fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>
+                          style={{ flex: 1, background: C.card, color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 13, padding: "13px 8px", fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>
                           🔁 ทวนที่พลาด ({missCount})
                         </button>
                       )}
@@ -5091,7 +5224,7 @@ function App() {
                     </div>
                     {missCount > missShow && (
                       <button onClick={() => setMissShow(n => n + 60)}
-                        style={{ width: "100%", marginTop: 8, background: "#fff", color: C.accent, border: `1.5px solid ${C.line}`, borderRadius: 11, padding: "10px", fontSize: 13, fontWeight: 600 }}>
+                        style={{ width: "100%", marginTop: 8, background: C.card, color: C.accent, border: `1.5px solid ${C.line}`, borderRadius: 11, padding: "10px", fontSize: 13, fontWeight: 600 }}>
                         โหลดเพิ่ม ({missCount - missShow} ข้อที่เหลือ)
                       </button>
                     )}
@@ -5134,7 +5267,7 @@ function App() {
                     {["A", "B", "C", "D"].map(k => {
                       const isAns = k === item.answer;
                       const isPicked = k === picked;
-                      let bg = "#fff", bd = C.line, fg = C.ink;
+                      let bg = C.card, bd = C.line, fg = C.ink;
                       if (revealed) { if (isAns) { bg = C.greenBg; bd = C.green; } else if (isPicked) { bg = C.redBg; bd = C.red; } }
                       return (
                         <button key={k} className="opt" onClick={() => {
@@ -5144,7 +5277,7 @@ function App() {
                           style={{ textAlign: "left", display: "flex", gap: 12, alignItems: "center", background: bg, border: `1.5px solid ${bd}`, color: fg, borderRadius: 11, padding: "12px 14px", fontSize: 15.5, lineHeight: 1.4 }}>
                           <span style={{ flex: "0 0 auto", width: 26, height: 26, borderRadius: 7,
                             background: revealed && isAns ? C.green : revealed && isPicked ? C.red : C.accentSoft,
-                            color: revealed && (isAns || isPicked) ? "#fff" : C.accent, fontWeight: 700, fontSize: 13, display: "grid", placeItems: "center" }}>{k}</span>
+                            color: revealed && (isAns || isPicked) ? C.inkOn : C.accent, fontWeight: 700, fontSize: 13, display: "grid", placeItems: "center" }}>{k}</span>
                           <span>{item.options[k]}</span>
                           {revealed && isAns && <span style={{ marginLeft: "auto", color: C.green }}>✓</span>}
                           {revealed && isPicked && !isAns && <span style={{ marginLeft: "auto", color: C.red }}>✕</span>}
@@ -5163,7 +5296,7 @@ function App() {
                             <ConfirmBtn onConfirm={() => removeMissed(item.word)} idleLabel="✓ จำได้" style={{ borderRadius: 10, padding: "10px 12px", fontSize: 13 }} />
                           )}
                           <button onClick={nextQuiz}
-                            style={{ background: C.accent, color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontSize: 15, fontWeight: 700, boxShadow: "0 6px 16px -8px rgba(191,77,40,.8)" }}>
+                            style={{ background: C.accent, color: C.inkOn, border: "none", borderRadius: 10, padding: "10px 18px", fontSize: 15, fontWeight: 700, boxShadow: "0 6px 16px -8px rgba(191,77,40,.8)" }}>
                             {v.pos + 1 >= v.deck.length ? "จบ" : "→"}
                           </button>
                         </div>
@@ -5191,8 +5324,8 @@ function App() {
               <div style={{ display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap", margin: "16px 0 4px" }}>
                 <Stat label="ถูก" value={correct} color={C.green} bg={C.greenBg} />
                 <Stat label="ผิด" value={n - correct} color={C.red} bg={C.redBg} />
-                <Stat label="เวลารวม" value={fmtTime(totalMs)} color={C.ink} bg="#efe7d7" />
-                <Stat label="เฉลี่ย/ข้อ" value={`${(totalMs / 1000 / n).toFixed(1)}s`} color={C.ink} bg="#efe7d7" />
+                <Stat label="เวลารวม" value={fmtTime(totalMs)} color={C.ink} bg={C.track} />
+                <Stat label="เฉลี่ย/ข้อ" value={`${(totalMs / 1000 / n).toFixed(1)}s`} color={C.ink} bg={C.track} />
               </div>
               {missedWords.length > 0 ? (
                 <div style={{ margin: "14px auto 0", maxWidth: 420, background: C.redBg, borderRadius: 12, padding: "12px 14px", textAlign: "left" }}>
@@ -5204,11 +5337,11 @@ function App() {
               )}
               <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
                 <button onClick={buildVocabQuiz}
-                  style={{ flex: 1, background: C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>
+                  style={{ flex: 1, background: C.accent, color: C.inkOn, border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>
                   ทำชุดใหม่
                 </button>
                 <button onClick={() => setVquiz(null)}
-                  style={{ flex: 1, background: "#fff", color: C.sub, border: `1.5px solid ${C.line}`, borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>
+                  style={{ flex: 1, background: C.card, color: C.sub, border: `1.5px solid ${C.line}`, borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>
                   ออก
                 </button>
               </div>
@@ -5231,7 +5364,7 @@ function App() {
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "4px 0 12px" }}>
               {[["all", `ทั้งหมด ${items.length}`], ["forgot", `ยังไม่เข้าใจ ${cnt.forgot}`], ["sort", `พอเข้าใจ ${cnt.sort}`], ["known", `เข้าใจ ${cnt.known}`]].map(([id, lbl]) => (
                 <button key={id} onClick={() => setGLessonFilter(id)}
-                  style={{ border: `1px solid ${gLessonFilter === id ? C.accent : C.line}`, background: gLessonFilter === id ? C.accentSoft : "#fff",
+                  style={{ border: `1px solid ${gLessonFilter === id ? C.accent : C.line}`, background: gLessonFilter === id ? C.accentSoft : C.card,
                     color: gLessonFilter === id ? C.accent : C.sub, borderRadius: 20, padding: "6px 12px", fontSize: 12, fontWeight: 600 }}>{lbl}</button>
               ))}
             </div>
@@ -5251,7 +5384,7 @@ function App() {
                       <div className="rise" style={{ padding: "0 15px 16px 15px" }}>
                         <div style={{ fontSize: 13.5, color: C.accent, fontWeight: 600, marginBottom: 8 }}>👉 {ls.point}</div>
                         <div style={{ fontSize: 14, color: C.ink, lineHeight: 1.65, marginBottom: 12 }}>{ls.body}</div>
-                        <div style={{ background: "#fbf6ec", border: `1px solid ${C.line}`, borderRadius: 10, padding: "11px 13px", marginBottom: 10 }}>
+                        <div style={{ background: C.soft, border: `1px solid ${C.line}`, borderRadius: 10, padding: "11px 13px", marginBottom: 10 }}>
                           <div style={{ fontSize: 11.5, color: C.sub, fontWeight: 600, marginBottom: 6, textTransform: "uppercase", letterSpacing: .5 }}>ตัวอย่าง</div>
                           {ls.examples.map((ex, j) => (
                             <div key={j} style={{ fontSize: 14, color: C.ink, lineHeight: 1.5, marginBottom: j < ls.examples.length - 1 ? 5 : 0 }}>• {ex}</div>
@@ -5270,7 +5403,7 @@ function App() {
               {shown.length === 0 && <Centered>ไม่มีบทเรียนในหมวดนี้</Centered>}
             </div>
             <button onClick={() => setGSection("drill")}
-              style={{ width: "100%", marginTop: 16, background: C.accent, color: "#fff", border: "none", borderRadius: 13, padding: "13px", fontSize: 15, fontWeight: 600, boxShadow: "0 8px 20px -10px rgba(191,77,40,.9)" }}>
+              style={{ width: "100%", marginTop: 16, background: C.accent, color: C.inkOn, border: "none", borderRadius: 13, padding: "13px", fontSize: 15, fontWeight: 600, boxShadow: "0 8px 20px -10px rgba(191,77,40,.9)" }}>
               📝 ไปลองทำโจทย์ →
             </button>
           </div>
@@ -5291,7 +5424,7 @@ function App() {
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "4px 0 12px" }}>
                 {[["all", `ทั้งหมด ${items.length}`], ["forgot", `ยังไม่เข้าใจ ${cnt.forgot}`], ["sort", `พอเข้าใจ ${cnt.sort}`], ["known", `เข้าใจ ${cnt.known}`]].map(([id, lbl]) => (
                   <button key={id} onClick={() => setLFilter(id)}
-                    style={{ border: `1px solid ${lFilter === id ? C.accent : C.line}`, background: lFilter === id ? C.accentSoft : "#fff",
+                    style={{ border: `1px solid ${lFilter === id ? C.accent : C.line}`, background: lFilter === id ? C.accentSoft : C.card,
                       color: lFilter === id ? C.accent : C.sub, borderRadius: 20, padding: "6px 12px", fontSize: 12, fontWeight: 600 }}>{lbl}</button>
                 ))}
               </div>
@@ -5312,7 +5445,7 @@ function App() {
                           <div style={{ fontSize: 13, color: C.accent, fontWeight: 600, marginBottom: 8 }}>{ls.point}</div>
                           <div style={{ fontSize: 14, color: C.ink, lineHeight: 1.7, marginBottom: 10 }}>{ls.body}</div>
                           {ls.examples && ls.examples.length > 0 && (
-                            <div style={{ background: "#fbf6ec", border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", marginBottom: 10 }}>
+                            <div style={{ background: C.soft, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", marginBottom: 10 }}>
                               {ls.examples.map((ex, j) => (
                                 <div key={j} style={{ fontSize: 13.5, color: C.ink, lineHeight: 1.6, marginBottom: j < ls.examples.length - 1 ? 4 : 0 }}>• {ex}</div>
                               ))}
@@ -5350,13 +5483,13 @@ function App() {
                 {/* Part 6 / 7 / mix selector */}
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ fontSize: 12.5, color: C.sub, marginBottom: 6 }}>เลือกแนวข้อสอบ</div>
-                  <div style={{ display: "flex", background: "#efe7d7", borderRadius: 10, padding: 3, gap: 3 }}>
+                  <div style={{ display: "flex", background: C.track, borderRadius: 10, padding: 3, gap: 3 }}>
                     {[["part7", "Part 7", "จับใจความ"], ["part6", "Part 6", "เติมย่อหน้า"], ["mix", "รวม", "สลับ 6/7"]].map(([id, lbl, sub]) => {
                       const on = readType === id;
                       return (
                         <button key={id} onClick={() => chooseReadType(id)} disabled={st.generating}
                           style={{ flex: 1, border: "none", borderRadius: 8, padding: "8px 4px", fontSize: 12.5, fontWeight: 600, lineHeight: 1.25,
-                            background: on ? "#fffdf8" : "transparent", color: on ? C.ink : "#8a7f70", boxShadow: on ? "0 2px 6px -3px rgba(40,30,20,.5)" : "none" }}>
+                            background: on ? C.panel : "transparent", color: on ? C.ink : C.subDim, boxShadow: on ? "0 2px 6px -3px rgba(40,30,20,.5)" : "none" }}>
                           {lbl}<br /><span style={{ fontSize: 10, fontWeight: 400, opacity: .75 }}>{sub}</span>
                         </button>
                       );
@@ -5365,13 +5498,13 @@ function App() {
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                   <span style={{ fontSize: 12.5, color: C.sub, flex: "0 0 auto" }}>รุ่น AI:</span>
-                  <div style={{ display: "flex", flex: 1, background: "#efe7d7", borderRadius: 10, padding: 3, gap: 3 }}>
+                  <div style={{ display: "flex", flex: 1, background: C.track, borderRadius: 10, padding: 3, gap: 3 }}>
                     {MODELS.map(mm => {
                       const on = models.listening === mm.id; const rec = RECOMMENDED.listening === mm.id;
                       return (
                         <button key={mm.id} onClick={() => chooseModel(mm.id)} disabled={st.generating}
                           style={{ flex: 1, border: "none", borderRadius: 8, padding: "7px 4px", fontSize: 12, fontWeight: 600, lineHeight: 1.25,
-                            background: on ? "#fffdf8" : "transparent", color: on ? C.ink : "#8a7f70", boxShadow: on ? "0 2px 6px -3px rgba(40,30,20,.5)" : "none" }}>
+                            background: on ? C.panel : "transparent", color: on ? C.ink : C.subDim, boxShadow: on ? "0 2px 6px -3px rgba(40,30,20,.5)" : "none" }}>
                           {mm.label}<br /><span style={{ fontSize: 10, fontWeight: 400, opacity: .75 }}>{rec ? "★ แนะนำ" : mm.note}</span>
                         </button>
                       );
@@ -5380,11 +5513,11 @@ function App() {
                 </div>
 
                 <button onClick={genPractice} disabled={st.generating}
-                  style={{ width: "100%", background: st.generating ? "#d9a892" : (needsKey && !hasKey) ? "#b9b1a3" : C.accent, color: "#fff", border: "none", borderRadius: 13,
+                  style={{ width: "100%", background: st.generating ? C.accentDim : (needsKey && !hasKey) ? C.disabled : C.accent, color: C.inkOn, border: "none", borderRadius: 13,
                     padding: "14px", fontSize: 15.5, fontWeight: 600, boxShadow: (needsKey && !hasKey) ? "none" : "0 8px 20px -10px rgba(191,77,40,.9)",
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 9, marginBottom: 10 }}>
                   {st.generating
-                    ? <><span className="spin" style={{ width: 16, height: 16, border: "2px solid #fff", borderTopColor: "transparent", borderRadius: "50%", display: "inline-block" }} /> กำลังสร้างชุดฝึก…</>
+                    ? <><span className="spin" style={{ width: 16, height: 16, border: `2px solid ${C.inkOn}`, borderTopColor: "transparent", borderRadius: "50%", display: "inline-block" }} /> กำลังสร้างชุดฝึก…</>
                     : (needsKey && !hasKey)
                     ? <>🔒 สร้างชุดใหม่ต้องใส่ API key</>
                     : <>✨ สร้างชุดฝึกอ่านใหม่ ({readType === "part6" ? "Part 6" : readType === "mix" ? "รวม 6/7" : "Part 7"})</>}
@@ -5470,7 +5603,7 @@ function App() {
                 </div>
                 <Progress pos={v.pos} len={v.deck.length} />
                 {tx && (
-                  <div style={{ background: "#fbf6ec", border: `1px solid ${C.line}`, borderRadius: 12, padding: "13px 15px", marginBottom: 12 }}>
+                  <div style={{ background: C.soft, border: `1px solid ${C.line}`, borderRadius: 12, padding: "13px 15px", marginBottom: 12 }}>
                     <div style={{ fontSize: 10.5, letterSpacing: 1, textTransform: "uppercase", color: C.accent, fontWeight: 600, marginBottom: 6 }}>Passage (เนื้อเรื่องสำหรับอ่าน)</div>
                     <div style={{ fontSize: 14.5, color: C.ink, lineHeight: 1.7, whiteSpace: "pre-line" }}>{tx}</div>
                   </div>
@@ -5481,14 +5614,14 @@ function App() {
                     {["A", "B", "C", "D"].map(k => {
                       if (!item.options[k]) return null;
                       const isAns = k === item.answer; const isPicked = k === picked;
-                      let bg = "#fff", bd = C.line, fg = C.ink;
+                      let bg = C.card, bd = C.line, fg = C.ink;
                       if (revealed) { if (isAns) { bg = C.greenBg; bd = C.green; } else if (isPicked) { bg = C.redBg; bd = C.red; } }
                       return (
                         <button key={k} className="opt" onClick={() => { chooseLQ(item.id, k, item.answer); }} disabled={revealed}
                           style={{ textAlign: "left", display: "flex", gap: 12, alignItems: "center", background: bg, border: `1.5px solid ${bd}`, color: fg, borderRadius: 11, padding: "12px 14px", fontSize: 15, lineHeight: 1.4 }}>
                           <span style={{ flex: "0 0 auto", width: 26, height: 26, borderRadius: 7,
                             background: revealed && isAns ? C.green : revealed && isPicked ? C.red : C.accentSoft,
-                            color: revealed && (isAns || isPicked) ? "#fff" : C.accent, fontWeight: 700, fontSize: 13, display: "grid", placeItems: "center" }}>{k}</span>
+                            color: revealed && (isAns || isPicked) ? C.inkOn : C.accent, fontWeight: 700, fontSize: 13, display: "grid", placeItems: "center" }}>{k}</span>
                           <span>{item.options[k]}</span>
                           {revealed && isAns && <span style={{ marginLeft: "auto", color: C.green }}>✓</span>}
                           {revealed && isPicked && !isAns && <span style={{ marginLeft: "auto", color: C.red }}>✕</span>}
@@ -5508,11 +5641,11 @@ function App() {
                           <RatingRow mode="listening" current={st.ratings[item.id]} onRate={s => rateReading(item.id, s)} small />
                         </div>
                         <button onClick={nextLQ}
-                          style={{ flex: "0 0 auto", background: C.accent, color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontSize: 15, fontWeight: 700, boxShadow: "0 6px 16px -8px rgba(191,77,40,.8)" }}>
+                          style={{ flex: "0 0 auto", background: C.accent, color: C.inkOn, border: "none", borderRadius: 10, padding: "10px 18px", fontSize: 15, fontWeight: 700, boxShadow: "0 6px 16px -8px rgba(191,77,40,.8)" }}>
                           {v.pos + 1 >= v.deck.length ? "จบ" : "→"}
                         </button>
                       </div>
-                      <div style={{ background: "#fbf6ec", border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", fontSize: 14, lineHeight: 1.65 }}>
+                      <div style={{ background: C.soft, border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", fontSize: 14, lineHeight: 1.65 }}>
                         <b style={{ color: C.accent }}>อธิบาย:</b> {item.explain}
                       </div>
                     </div>
@@ -5535,16 +5668,16 @@ function App() {
               <div style={{ display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap", margin: "16px 0 4px" }}>
                 <Stat label="ถูก" value={correct} color={C.green} bg={C.greenBg} />
                 <Stat label="ผิด" value={n - correct} color={C.red} bg={C.redBg} />
-                <Stat label="เวลารวม" value={fmtTime(totalMs)} color={C.ink} bg="#efe7d7" />
+                <Stat label="เวลารวม" value={fmtTime(totalMs)} color={C.ink} bg={C.track} />
               </div>
               {correct < n
                 ? <div style={{ margin: "14px auto 0", maxWidth: 420, fontSize: 13, color: C.red, fontWeight: 600 }}>ข้อที่พลาดถูกเก็บเข้าคลังทวนแล้ว ✓</div>
                 : <div style={{ margin: "14px auto 0", fontSize: 13.5, color: C.green, fontWeight: 600 }}>ถูกหมดเลย! 🌟</div>}
               <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
                 <button onClick={() => { setLquiz(null); genPractice(); }} disabled={st.generating}
-                  style={{ flex: 1, background: (needsKey && !hasKey) ? "#b9b1a3" : C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>{(needsKey && !hasKey) ? "🔒 ชุดใหม่" : "ชุดใหม่"}</button>
+                  style={{ flex: 1, background: (needsKey && !hasKey) ? C.disabled : C.accent, color: C.inkOn, border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>{(needsKey && !hasKey) ? "🔒 ชุดใหม่" : "ชุดใหม่"}</button>
                 <button onClick={() => setLquiz(null)}
-                  style={{ flex: 1, background: "#fff", color: C.sub, border: `1.5px solid ${C.line}`, borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ออก</button>
+                  style={{ flex: 1, background: C.card, color: C.sub, border: `1.5px solid ${C.line}`, borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ออก</button>
               </div>
             </div>
           );
@@ -5552,13 +5685,13 @@ function App() {
 
         {/* LISTENING(AUDIO) SUB-SWITCHER: strategy vs practice */}
         {mode === "audio" && (
-          <div style={{ display: "flex", background: "#f0e7d5", borderRadius: 11, padding: 3, gap: 3, marginBottom: 14 }}>
+          <div style={{ display: "flex", background: C.track2, borderRadius: 11, padding: 3, gap: 3, marginBottom: 14 }}>
             {[["strategy", "🧭 Strategy (เทคนิค)"], ["practice", "🎧 ฝึกฟัง (Part 2-4)"]].map(([id, lbl]) => {
               const on = aSection === id;
               return (
                 <button key={id} onClick={() => setASection(id)}
                   style={{ flex: 1, border: "none", borderRadius: 9, padding: "9px 6px", fontSize: 13, fontWeight: 600,
-                    background: on ? "#fffdf8" : "transparent", color: on ? C.ink : "#8a7f70",
+                    background: on ? C.panel : "transparent", color: on ? C.ink : C.subDim,
                     boxShadow: on ? "0 2px 6px -3px rgba(40,30,20,.5)" : "none" }}>{lbl}</button>
               );
             })}
@@ -5581,7 +5714,7 @@ function App() {
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "4px 0 12px" }}>
                 {[["all", `ทั้งหมด ${items.length}`], ["forgot", `ยังไม่เข้าใจ ${cnt.forgot}`], ["sort", `พอเข้าใจ ${cnt.sort}`], ["known", `เข้าใจ ${cnt.known}`]].map(([id, lbl]) => (
                   <button key={id} onClick={() => setAFilter(id)}
-                    style={{ border: `1px solid ${aFilter === id ? C.accent : C.line}`, background: aFilter === id ? C.accentSoft : "#fff",
+                    style={{ border: `1px solid ${aFilter === id ? C.accent : C.line}`, background: aFilter === id ? C.accentSoft : C.card,
                       color: aFilter === id ? C.accent : C.sub, borderRadius: 20, padding: "6px 12px", fontSize: 12, fontWeight: 600 }}>{lbl}</button>
                 ))}
               </div>
@@ -5602,7 +5735,7 @@ function App() {
                           <div style={{ fontSize: 13, color: C.accent, fontWeight: 600, marginBottom: 8 }}>{ls.point}</div>
                           <div style={{ fontSize: 14, color: C.ink, lineHeight: 1.7, marginBottom: 10 }}>{ls.body}</div>
                           {ls.examples && ls.examples.length > 0 && (
-                            <div style={{ background: "#fbf6ec", border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", marginBottom: 10 }}>
+                            <div style={{ background: C.soft, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", marginBottom: 10 }}>
                               {ls.examples.map((ex, j) => (
                                 <div key={j} style={{ fontSize: 13.5, color: C.ink, lineHeight: 1.6, marginBottom: j < ls.examples.length - 1 ? 4 : 0 }}>• {ex}</div>
                               ))}
@@ -5639,13 +5772,13 @@ function App() {
                 {/* Part 2 / 3 / 4 / mix selector */}
                 <div style={{ marginBottom: 12 }}>
                   <div style={{ fontSize: 12.5, color: C.sub, marginBottom: 6 }}>เลือกแนวข้อสอบ</div>
-                  <div style={{ display: "flex", background: "#efe7d7", borderRadius: 10, padding: 3, gap: 3 }}>
+                  <div style={{ display: "flex", background: C.track, borderRadius: 10, padding: 3, gap: 3 }}>
                     {[["part2", "Part 2", "ถาม-ตอบ"], ["part3", "Part 3", "บทสนทนา"], ["part4", "Part 4", "บทพูด"], ["mix", "รวม", "3/4"]].map(([id, lbl, sub]) => {
                       const on = audioType === id;
                       return (
                         <button key={id} onClick={() => chooseAudioType(id)} disabled={st.generating}
                           style={{ flex: 1, minWidth: 0, border: "none", borderRadius: 8, padding: "8px 2px", fontSize: 12, fontWeight: 600, lineHeight: 1.25,
-                            background: on ? "#fffdf8" : "transparent", color: on ? C.ink : "#8a7f70", boxShadow: on ? "0 2px 6px -3px rgba(40,30,20,.5)" : "none" }}>
+                            background: on ? C.panel : "transparent", color: on ? C.ink : C.subDim, boxShadow: on ? "0 2px 6px -3px rgba(40,30,20,.5)" : "none" }}>
                           {lbl}<br /><span style={{ fontSize: 9.5, fontWeight: 400, opacity: .75 }}>{sub}</span>
                         </button>
                       );
@@ -5654,13 +5787,13 @@ function App() {
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                   <span style={{ fontSize: 12.5, color: C.sub, flex: "0 0 auto" }}>รุ่น AI:</span>
-                  <div style={{ display: "flex", flex: 1, background: "#efe7d7", borderRadius: 10, padding: 3, gap: 3 }}>
+                  <div style={{ display: "flex", flex: 1, background: C.track, borderRadius: 10, padding: 3, gap: 3 }}>
                     {MODELS.map(mm => {
                       const on = models.audio === mm.id; const rec = RECOMMENDED.audio === mm.id;
                       return (
                         <button key={mm.id} onClick={() => chooseModel(mm.id)} disabled={st.generating}
                           style={{ flex: 1, border: "none", borderRadius: 8, padding: "7px 4px", fontSize: 12, fontWeight: 600, lineHeight: 1.25,
-                            background: on ? "#fffdf8" : "transparent", color: on ? C.ink : "#8a7f70", boxShadow: on ? "0 2px 6px -3px rgba(40,30,20,.5)" : "none" }}>
+                            background: on ? C.panel : "transparent", color: on ? C.ink : C.subDim, boxShadow: on ? "0 2px 6px -3px rgba(40,30,20,.5)" : "none" }}>
                           {mm.label}<br /><span style={{ fontSize: 10, fontWeight: 400, opacity: .75 }}>{rec ? "★ แนะนำ" : mm.note}</span>
                         </button>
                       );
@@ -5669,16 +5802,16 @@ function App() {
                 </div>
 
                 <button onClick={genAudio} disabled={st.generating}
-                  style={{ width: "100%", background: st.generating ? "#d9a892" : (needsKey && !hasKey) ? "#b9b1a3" : C.accent, color: "#fff", border: "none", borderRadius: 13,
+                  style={{ width: "100%", background: st.generating ? C.accentDim : (needsKey && !hasKey) ? C.disabled : C.accent, color: C.inkOn, border: "none", borderRadius: 13,
                     padding: "14px", fontSize: 15.5, fontWeight: 600, boxShadow: (needsKey && !hasKey) ? "none" : "0 8px 20px -10px rgba(191,77,40,.9)",
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 9, marginBottom: 10 }}>
                   {st.generating
-                    ? <><span className="spin" style={{ width: 16, height: 16, border: "2px solid #fff", borderTopColor: "transparent", borderRadius: "50%", display: "inline-block" }} /> กำลังสร้างชุดฝึก…</>
+                    ? <><span className="spin" style={{ width: 16, height: 16, border: `2px solid ${C.inkOn}`, borderTopColor: "transparent", borderRadius: "50%", display: "inline-block" }} /> กำลังสร้างชุดฝึก…</>
                     : (needsKey && !hasKey)
                     ? <>🔒 สร้างชุดใหม่ต้องใส่ API key</>
                     : <>✨ สร้างชุดฝึกฟังใหม่ ({audioType === "part2" ? "Part 2" : audioType === "part4" ? "Part 4" : audioType === "mix" ? "รวม 3/4" : "Part 3"})</>}
                 </button>
-                {!TTS_OK && <div style={{ fontSize: 11.5, color: C.sub, background: "#fcf8f0", border: `1px solid ${C.line}`, borderRadius: 9, padding: "8px 10px", marginBottom: 10, lineHeight: 1.5 }}>ℹ️ โหมดนี้เล่นเสียงไม่ได้ (เปิดบนหน้าเว็บจริงถึงจะมีเสียง) — ระหว่างนี้กด "ดูสคริปต์" เพื่ออ่านบทแทนได้</div>}
+                {!TTS_OK && <div style={{ fontSize: 11.5, color: C.sub, background: C.soft2, border: `1px solid ${C.line}`, borderRadius: 9, padding: "8px 10px", marginBottom: 10, lineHeight: 1.5 }}>ℹ️ โหมดนี้เล่นเสียงไม่ได้ (เปิดบนหน้าเว็บจริงถึงจะมีเสียง) — ระหว่างนี้กด "ดูสคริปต์" เพื่ออ่านบทแทนได้</div>}
                 {st.genErr && <GenError err={st.genErr} raw={st.genErrRaw} />}
                 {/* unified review zone (Listening): SRS-due primary, all-weak fallback — scope-aware */}
                 {(() => {
@@ -5769,12 +5902,12 @@ function App() {
                 </div>
                 <Progress pos={v.pos} len={v.deck.length} />
                 {tx && (
-                  <div style={{ background: "#fbf6ec", border: `1px solid ${C.line}`, borderRadius: 12, padding: "13px 15px", marginBottom: 12 }}>
+                  <div style={{ background: C.soft, border: `1px solid ${C.line}`, borderRadius: 12, padding: "13px 15px", marginBottom: 12 }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                       <span style={{ fontSize: 10.5, letterSpacing: 1, textTransform: "uppercase", color: C.accent, fontWeight: 600 }}>🎧 ฟังแล้วตอบ</span>
                       {TTS_OK
                         ? <button onClick={(e) => speak(tx, e)}
-                            style={{ background: C.accent, color: "#fff", border: "none", borderRadius: 20, padding: "8px 16px", fontSize: 13.5, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            style={{ background: C.accent, color: C.inkOn, border: "none", borderRadius: 20, padding: "8px 16px", fontSize: 13.5, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 6 }}>
                             🔊 เล่นเสียง
                           </button>
                         : <span style={{ fontSize: 11, color: C.sub }}>ℹ️ ฟังได้บนหน้าเว็บจริง</span>}
@@ -5794,14 +5927,14 @@ function App() {
                     {["A", "B", "C", "D"].map(k => {
                       if (!item.options[k]) return null;
                       const isAns = k === item.answer; const isPicked = k === picked;
-                      let bg = "#fff", bd = C.line, fg = C.ink;
+                      let bg = C.card, bd = C.line, fg = C.ink;
                       if (revealed) { if (isAns) { bg = C.greenBg; bd = C.green; } else if (isPicked) { bg = C.redBg; bd = C.red; } }
                       return (
                         <button key={k} className="opt" onClick={() => { chooseAQ(item.id, k, item.answer); }} disabled={revealed}
                           style={{ textAlign: "left", display: "flex", gap: 12, alignItems: "center", background: bg, border: `1.5px solid ${bd}`, color: fg, borderRadius: 11, padding: "12px 14px", fontSize: 15, lineHeight: 1.4 }}>
                           <span style={{ flex: "0 0 auto", width: 26, height: 26, borderRadius: 7,
                             background: revealed && isAns ? C.green : revealed && isPicked ? C.red : C.accentSoft,
-                            color: revealed && (isAns || isPicked) ? "#fff" : C.accent, fontWeight: 700, fontSize: 13, display: "grid", placeItems: "center" }}>{k}</span>
+                            color: revealed && (isAns || isPicked) ? C.inkOn : C.accent, fontWeight: 700, fontSize: 13, display: "grid", placeItems: "center" }}>{k}</span>
                           {/* Part 2: hide response text until revealed (the point is to LISTEN); show a placeholder dot row */}
                           <span>{isP2 && !revealed ? <span style={{ color: C.sub, fontStyle: "italic" }}>ตัวเลือก {k}</span> : item.options[k]}</span>
                           {revealed && isAns && <span style={{ marginLeft: "auto", color: C.green }}>✓</span>}
@@ -5821,11 +5954,11 @@ function App() {
                           <RatingRow mode="audio" current={st.ratings[item.id]} onRate={s => rateAudio(item.id, s)} small />
                         </div>
                         <button onClick={nextAQ}
-                          style={{ flex: "0 0 auto", background: C.accent, color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontSize: 15, fontWeight: 700, boxShadow: "0 6px 16px -8px rgba(191,77,40,.8)" }}>
+                          style={{ flex: "0 0 auto", background: C.accent, color: C.inkOn, border: "none", borderRadius: 10, padding: "10px 18px", fontSize: 15, fontWeight: 700, boxShadow: "0 6px 16px -8px rgba(191,77,40,.8)" }}>
                           {v.pos + 1 >= v.deck.length ? "จบ" : "→"}
                         </button>
                       </div>
-                      <div style={{ background: "#fbf6ec", border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", fontSize: 14, lineHeight: 1.65 }}>
+                      <div style={{ background: C.soft, border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", fontSize: 14, lineHeight: 1.65 }}>
                         <b style={{ color: C.accent }}>อธิบาย:</b> {item.explain}
                       </div>
                     </div>
@@ -5848,16 +5981,16 @@ function App() {
               <div style={{ display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap", margin: "16px 0 4px" }}>
                 <Stat label="ถูก" value={correct} color={C.green} bg={C.greenBg} />
                 <Stat label="ผิด" value={n - correct} color={C.red} bg={C.redBg} />
-                <Stat label="เวลารวม" value={fmtTime(totalMs)} color={C.ink} bg="#efe7d7" />
+                <Stat label="เวลารวม" value={fmtTime(totalMs)} color={C.ink} bg={C.track} />
               </div>
               {correct < n
                 ? <div style={{ margin: "14px auto 0", maxWidth: 420, fontSize: 13, color: C.red, fontWeight: 600 }}>ข้อที่พลาดถูกเก็บเข้าคลังทวนแล้ว ✓</div>
                 : <div style={{ margin: "14px auto 0", fontSize: 13.5, color: C.green, fontWeight: 600 }}>ถูกหมดเลย! 🌟</div>}
               <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
                 <button onClick={() => { setAquiz(null); genAudio(); }} disabled={st.generating}
-                  style={{ flex: 1, background: (needsKey && !hasKey) ? "#b9b1a3" : C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>{(needsKey && !hasKey) ? "🔒 ชุดใหม่" : "ชุดใหม่"}</button>
+                  style={{ flex: 1, background: (needsKey && !hasKey) ? C.disabled : C.accent, color: C.inkOn, border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>{(needsKey && !hasKey) ? "🔒 ชุดใหม่" : "ชุดใหม่"}</button>
                 <button onClick={() => setAquiz(null)}
-                  style={{ flex: 1, background: "#fff", color: C.sub, border: `1.5px solid ${C.line}`, borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ออก</button>
+                  style={{ flex: 1, background: C.card, color: C.sub, border: `1.5px solid ${C.line}`, borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ออก</button>
               </div>
             </div>
           );
@@ -5881,11 +6014,11 @@ function App() {
                     const on = examScope === p;
                     return (
                       <button key={p} onClick={() => setExamScope(p)}
-                        style={{ border: on ? `2px solid ${C.accent}` : `1.5px solid ${C.line}`, background: on ? "#fff6f0" : "#fff", borderRadius: 10, padding: "10px 4px", fontSize: 13, fontWeight: 700, color: on ? C.accent : C.ink }}>{p}</button>
+                        style={{ border: on ? `2px solid ${C.accent}` : `1.5px solid ${C.line}`, background: on ? C.accentBg : C.card, borderRadius: 10, padding: "10px 4px", fontSize: 13, fontWeight: 700, color: on ? C.accent : C.ink }}>{p}</button>
                     );
                   })}
                 </div>
-                <div style={{ fontSize: 11, color: C.sub, lineHeight: 1.5, marginBottom: 12, background: "#fbf6ec", border: `1px solid ${C.line}`, borderRadius: 8, padding: "7px 10px" }}>
+                <div style={{ fontSize: 11, color: C.sub, lineHeight: 1.5, marginBottom: 12, background: C.soft, border: `1px solid ${C.line}`, borderRadius: 8, padding: "7px 10px" }}>
                   ℹ️ ไม่มี Part 1 (Photographs) เพราะต้องใช้รูปภาพประกอบ ซึ่งแอปนี้สร้างเป็นข้อสอบจริงไม่ได้ — โฟกัส Part 2-7 ที่เป็นข้อความ/เสียงล้วน
                 </div>
                 <div style={{ fontSize: 12.5, color: C.sub, fontWeight: 600, marginBottom: 6 }}>หรือชุดรวม</div>
@@ -5894,20 +6027,20 @@ function App() {
                     const on = examScope === id;
                     return (
                       <button key={id} onClick={() => setExamScope(id)}
-                        style={{ textAlign: "left", border: on ? `2px solid ${C.accent}` : `1.5px solid ${C.line}`, background: on ? "#fff6f0" : "#fff", borderRadius: 11, padding: "10px 12px", lineHeight: 1.3 }}>
+                        style={{ textAlign: "left", border: on ? `2px solid ${C.accent}` : `1.5px solid ${C.line}`, background: on ? C.accentBg : C.card, borderRadius: 11, padding: "10px 12px", lineHeight: 1.3 }}>
                         <div style={{ fontSize: 13.5, fontWeight: 700, color: on ? C.accent : C.ink }}>{lbl}</div>
                         <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>{sub}</div>
                       </button>
                     );
                   })}
                 </div>
-                <div style={{ background: "#fbf6ec", border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 14px", marginBottom: 14, fontSize: 13, color: C.ink, lineHeight: 1.6 }}>
+                <div style={{ background: C.soft, border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 14px", marginBottom: 14, fontSize: 13, color: C.ink, lineHeight: 1.6 }}>
                   ชุดนี้: <b>{plan.totalQ} ข้อ</b> · เวลา <b>{mins} นาที</b> · {plan.parts.join(" + ")}
                   <div style={{ fontSize: 11.5, color: C.sub, marginTop: 4 }}>ใช้รุ่น AI ของโหมด Listening ({mdlAudioLabel()}) · ระดับ {diffById(difficulty).label}</div>
                 </div>
                 {needsKey && !hasKey && <div style={{ fontSize: 12, color: C.red, background: C.redBg, border: `1px solid ${C.red}`, borderRadius: 9, padding: "8px 10px", marginBottom: 10 }}>🔒 ต้องใส่ API key ก่อนจึงจะสร้างชุดสอบได้</div>}
                 <button onClick={genExam} disabled={needsKey && !hasKey}
-                  style={{ width: "100%", background: (needsKey && !hasKey) ? "#b9b1a3" : C.accent, color: "#fff", border: "none", borderRadius: 13, padding: "15px", fontSize: 16, fontWeight: 700, boxShadow: (needsKey && !hasKey) ? "none" : "0 8px 20px -10px rgba(191,77,40,.9)" }}>
+                  style={{ width: "100%", background: (needsKey && !hasKey) ? C.disabled : C.accent, color: C.inkOn, border: "none", borderRadius: 13, padding: "15px", fontSize: 16, fontWeight: 700, boxShadow: (needsKey && !hasKey) ? "none" : "0 8px 20px -10px rgba(191,77,40,.9)" }}>
                   ▶︎ เริ่มสอบ
                 </button>
                 <div style={{ fontSize: 11, color: C.sub, marginTop: 10, lineHeight: 1.5, textAlign: "center" }}>
@@ -5953,7 +6086,7 @@ function App() {
                 <div style={{ fontWeight: 700, fontSize: 16, color: C.ink }}>กำลังสร้างชุดสอบ…</div>
                 {examGen && <div style={{ fontSize: 13, color: C.sub, marginTop: 6 }}>ชุดที่ {examGen.current}/{examGen.total}</div>}
                 <div style={{ fontSize: 11.5, color: C.sub, marginTop: 10, lineHeight: 1.5 }}>สร้างหลายพาร์ทอาจใช้เวลาสักครู่ — รอสักนิดนะครับ</div>
-                <button onClick={quitExam} style={{ marginTop: 16, background: "#fff", color: C.sub, border: `1.5px solid ${C.line}`, borderRadius: 11, padding: "10px 18px", fontSize: 13.5, fontWeight: 600 }}>ยกเลิก</button>
+                <button onClick={quitExam} style={{ marginTop: 16, background: C.card, color: C.sub, border: `1.5px solid ${C.line}`, borderRadius: 11, padding: "10px 18px", fontSize: 13.5, fontWeight: 600 }}>ยกเลิก</button>
               </div>
             );
           }
@@ -5963,8 +6096,8 @@ function App() {
               <div className="rise" style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 16, padding: "22px 18px" }}>
                 <div style={{ color: C.red, fontSize: 13.5, lineHeight: 1.6, background: C.redBg, border: `1px solid ${C.red}`, borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>{exam.genErr}</div>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={genExam} style={{ flex: 1, background: C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ลองใหม่</button>
-                  <button onClick={quitExam} style={{ flex: 1, background: "#fff", color: C.sub, border: `1.5px solid ${C.line}`, borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ออก</button>
+                  <button onClick={genExam} style={{ flex: 1, background: C.accent, color: C.inkOn, border: "none", borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ลองใหม่</button>
+                  <button onClick={quitExam} style={{ flex: 1, background: C.card, color: C.sub, border: `1.5px solid ${C.line}`, borderRadius: 11, padding: "12px", fontSize: 14.5, fontWeight: 600 }}>ออก</button>
                 </div>
               </div>
             );
@@ -5995,7 +6128,7 @@ function App() {
                 {rows.length > 1 && (
                   <div style={{ marginBottom: 14 }}>
                     <div style={{ fontSize: 12.5, color: C.sub, fontWeight: 600, marginBottom: 8 }}>คะแนนรายพาร์ท</div>
-                    <div style={{ display: "grid", gap: 8, background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px" }}>
+                    <div style={{ display: "grid", gap: 8, background: C.card, border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px" }}>
                       {rows.map((r, i) => {
                         const p = Math.round((r.c / r.n) * 100);
                         const col = p >= 80 ? C.green : p >= 60 ? C.amber : C.red;
@@ -6005,7 +6138,7 @@ function App() {
                               <span style={{ color: C.ink, fontWeight: 600 }}>{r.part}</span>
                               <span style={{ color: col, fontWeight: 700 }}>{p}% <span style={{ color: C.sub, fontWeight: 400 }}>· {r.c}/{r.n}</span></span>
                             </div>
-                            <div style={{ height: 7, borderRadius: 4, background: "#efe7d7", overflow: "hidden" }}><div style={{ height: "100%", width: `${p}%`, background: col }} /></div>
+                            <div style={{ height: 7, borderRadius: 4, background: C.track, overflow: "hidden" }}><div style={{ height: "100%", width: `${p}%`, background: col }} /></div>
                           </div>
                         );
                       })}
@@ -6024,7 +6157,7 @@ function App() {
                           <span style={{ fontSize: 11, color: C.accent, fontWeight: 700 }}>ข้อ {i + 1} · {it._ptype}</span>
                           <span style={{ fontSize: 12, fontWeight: 700, color: ok ? C.green : C.red }}>{ok ? "ถูก ✓" : picked ? "ผิด ✕" : "ไม่ได้ตอบ"}</span>
                         </div>
-                        {it.transcript ? <div style={{ fontSize: 12.5, color: C.sub, lineHeight: 1.6, whiteSpace: "pre-line", marginBottom: 6, maxHeight: 120, overflow: "auto", background: "#fbf6ec", borderRadius: 8, padding: "8px 10px" }}>{it.transcript}</div> : null}
+                        {it.transcript ? <div style={{ fontSize: 12.5, color: C.sub, lineHeight: 1.6, whiteSpace: "pre-line", marginBottom: 6, maxHeight: 120, overflow: "auto", background: C.soft, borderRadius: 8, padding: "8px 10px" }}>{it.transcript}</div> : null}
                         <div style={{ fontSize: 14, fontWeight: 600, color: C.ink, marginBottom: 6 }}>{it._ptype === "Part 2" ? "เลือกคำตอบที่เหมาะที่สุด" : it.q}</div>
                         <div style={{ display: "grid", gap: 5 }}>
                           {["A", "B", "C", "D"].map(k => {
@@ -6039,13 +6172,13 @@ function App() {
                             );
                           })}
                         </div>
-                        {it.explain && <div style={{ fontSize: 12.5, color: C.sub, lineHeight: 1.55, marginTop: 8, background: "#fbf6ec", borderRadius: 8, padding: "8px 10px" }}><b style={{ color: C.accent }}>อธิบาย:</b> {it.explain}</div>}
+                        {it.explain && <div style={{ fontSize: 12.5, color: C.sub, lineHeight: 1.55, marginTop: 8, background: C.soft, borderRadius: 8, padding: "8px 10px" }}><b style={{ color: C.accent }}>อธิบาย:</b> {it.explain}</div>}
                       </div>
                     );
                   })}
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={quitExam} style={{ flex: 1, background: C.accent, color: "#fff", border: "none", borderRadius: 11, padding: "13px", fontSize: 15, fontWeight: 700 }}>สอบชุดใหม่</button>
+                  <button onClick={quitExam} style={{ flex: 1, background: C.accent, color: C.inkOn, border: "none", borderRadius: 11, padding: "13px", fontSize: 15, fontWeight: 700 }}>สอบชุดใหม่</button>
                 </div>
               </div>
             );
@@ -6081,18 +6214,18 @@ function App() {
                     <button key={d.id} onClick={() => examGoto(i)}
                       style={{ width: 26, height: 26, borderRadius: 7, fontSize: 11, fontWeight: 700,
                         border: cur ? `2px solid ${C.accent}` : `1px solid ${C.line}`,
-                        background: ans ? C.accentSoft : "#fff", color: ans ? C.accent : C.sub }}>{i + 1}</button>
+                        background: ans ? C.accentSoft : C.card, color: ans ? C.accent : C.sub }}>{i + 1}</button>
                   );
                 })}
               </div>
 
               {(showTx || p2text) && (
-                <div style={{ background: "#fbf6ec", border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 14px", marginBottom: 12 }}>
+                <div style={{ background: C.soft, border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 14px", marginBottom: 12 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                     <span style={{ fontSize: 10.5, letterSpacing: 1, textTransform: "uppercase", color: C.accent, fontWeight: 600 }}>{EXAM_PARTS[it._ptype] && EXAM_PARTS[it._ptype].skill === "listening" ? "🎧 ฟังแล้วตอบ" : "📖 อ่านแล้วตอบ"}</span>
                     {EXAM_PARTS[it._ptype] && EXAM_PARTS[it._ptype].skill === "listening" && TTS_OK && (
                       <button onClick={(e) => speak(p2text ? [it.q, ...["A","B","C"].map(k => it.options[k] ? `${k}. ${it.options[k]}` : null).filter(Boolean)].join("\n") : it.transcript, e)}
-                        style={{ background: C.accent, color: "#fff", border: "none", borderRadius: 20, padding: "7px 14px", fontSize: 13, fontWeight: 700 }}>🔊 เล่นเสียง</button>
+                        style={{ background: C.accent, color: C.inkOn, border: "none", borderRadius: 20, padding: "7px 14px", fontSize: 13, fontWeight: 700 }}>🔊 เล่นเสียง</button>
                     )}
                   </div>
                   <button onClick={() => examToggleReveal(it.id)} style={{ background: "none", border: "none", color: C.sub, fontSize: 12, marginTop: 8, textDecoration: "underline", padding: 0 }}>
@@ -6111,8 +6244,8 @@ function App() {
                     const sel = k === picked;
                     return (
                       <button key={k} className="opt" onClick={() => pickExam(it.id, k)}
-                        style={{ textAlign: "left", display: "flex", gap: 11, alignItems: "center", background: sel ? "#fff6f0" : "#fff", border: `1.5px solid ${sel ? C.accent : C.line}`, color: C.ink, borderRadius: 11, padding: "11px 13px", fontSize: 14.5, lineHeight: 1.4 }}>
-                        <span style={{ flex: "0 0 auto", width: 25, height: 25, borderRadius: 7, background: sel ? C.accent : C.accentSoft, color: sel ? "#fff" : C.accent, fontWeight: 700, fontSize: 12.5, display: "grid", placeItems: "center" }}>{k}</span>
+                        style={{ textAlign: "left", display: "flex", gap: 11, alignItems: "center", background: sel ? C.accentBg : C.card, border: `1.5px solid ${sel ? C.accent : C.line}`, color: C.ink, borderRadius: 11, padding: "11px 13px", fontSize: 14.5, lineHeight: 1.4 }}>
+                        <span style={{ flex: "0 0 auto", width: 25, height: 25, borderRadius: 7, background: sel ? C.accent : C.accentSoft, color: sel ? C.inkOn : C.accent, fontWeight: 700, fontSize: 12.5, display: "grid", placeItems: "center" }}>{k}</span>
                         <span>{p2text && !exam.reveal[it.id] ? <span style={{ color: C.sub, fontStyle: "italic" }}>ตัวเลือก {k}</span> : it.options[k]}</span>
                       </button>
                     );
@@ -6123,13 +6256,13 @@ function App() {
               {/* nav + submit */}
               <div style={{ display: "flex", gap: 8, marginTop: 14, alignItems: "center" }}>
                 <button onClick={() => examGoto(exam.pos - 1)} disabled={exam.pos === 0}
-                  style={{ background: "#fff", color: exam.pos === 0 ? C.line : C.sub, border: `1.5px solid ${C.line}`, borderRadius: 10, padding: "11px 16px", fontSize: 14, fontWeight: 600 }}>← ก่อนหน้า</button>
+                  style={{ background: C.card, color: exam.pos === 0 ? C.line : C.sub, border: `1.5px solid ${C.line}`, borderRadius: 10, padding: "11px 16px", fontSize: 14, fontWeight: 600 }}>← ก่อนหน้า</button>
                 {exam.pos + 1 < exam.deck.length
-                  ? <button onClick={() => examGoto(exam.pos + 1)} style={{ flex: 1, background: C.accent, color: "#fff", border: "none", borderRadius: 10, padding: "11px", fontSize: 14.5, fontWeight: 700 }}>ถัดไป →</button>
+                  ? <button onClick={() => examGoto(exam.pos + 1)} style={{ flex: 1, background: C.accent, color: C.inkOn, border: "none", borderRadius: 10, padding: "11px", fontSize: 14.5, fontWeight: 700 }}>ถัดไป →</button>
                   : <span style={{ flex: 1 }} />}
               </div>
               <ConfirmBtn onConfirm={submitExam} idleLabel={`📤 ส่งคำตอบ (ตอบแล้ว ${answered}/${exam.deck.length})`} confirmLabel="ยืนยันส่ง? กดอีกครั้ง"
-                style={{ width: "100%", marginTop: 10, background: C.green, color: "#fff", border: "none", borderRadius: 12, padding: "13px", fontSize: 15, fontWeight: 700 }} />
+                style={{ width: "100%", marginTop: 10, background: C.green, color: C.inkOn, border: "none", borderRadius: 12, padding: "13px", fontSize: 15, fontWeight: 700 }} />
               <button onClick={quitExam} style={{ width: "100%", marginTop: 8, background: "none", color: C.sub, border: "none", fontSize: 12.5, textDecoration: "underline" }}>ออกจากข้อสอบ (ไม่บันทึก)</button>
             </div>
           );
@@ -6147,14 +6280,14 @@ function App() {
         {/* model picker (per mode, remembers choice) — always expanded so picking is one tap */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
           <span style={{ fontSize: 12.5, color: C.sub, flex: "0 0 auto" }}>รุ่น AI:</span>
-          <div style={{ display: "flex", flex: 1, background: "#efe7d7", borderRadius: 10, padding: 3, gap: 3 }}>
+          <div style={{ display: "flex", flex: 1, background: C.track, borderRadius: 10, padding: 3, gap: 3 }}>
             {MODELS.map(mm => {
               const on = models[mode] === mm.id;
               const rec = RECOMMENDED[mode] === mm.id;
               return (
                 <button key={mm.id} onClick={() => chooseModel(mm.id)} disabled={st.generating}
                   style={{ position: "relative", flex: 1, border: "none", borderRadius: 8, padding: "7px 4px", fontSize: 12, fontWeight: 600, lineHeight: 1.25,
-                    background: on ? "#fffdf8" : "transparent", color: on ? C.ink : "#8a7f70",
+                    background: on ? C.panel : "transparent", color: on ? C.ink : C.subDim,
                     boxShadow: on ? "0 2px 6px -3px rgba(40,30,20,.5)" : "none" }}>
                   {mm.label}<br /><span style={{ fontSize: 10, fontWeight: 400, opacity: .75 }}>{rec ? "★ แนะนำ" : mm.note}</span>
                 </button>
@@ -6165,11 +6298,11 @@ function App() {
 
         {/* generate */}
         <button onClick={generate} disabled={st.generating}
-          style={{ width: "100%", background: st.generating ? "#d9a892" : (needsKey && !hasKey) ? "#b9b1a3" : C.accent, color: "#fff", border: "none", borderRadius: 13,
+          style={{ width: "100%", background: st.generating ? C.accentDim : (needsKey && !hasKey) ? C.disabled : C.accent, color: C.inkOn, border: "none", borderRadius: 13,
             padding: "14px 18px", fontSize: 15.5, fontWeight: 600, boxShadow: (needsKey && !hasKey) ? "none" : "0 8px 20px -10px rgba(191,77,40,.9)",
             display: "flex", alignItems: "center", justifyContent: "center", gap: 9, marginBottom: 10 }}>
           {st.generating ? (
-            <><span className="spin" style={{ width: 16, height: 16, border: "2px solid #fff", borderTopColor: "transparent", borderRadius: "50%", display: "inline-block" }} /> กำลังสร้าง{mode === "vocab" ? "คำ" : "ข้อ"}ใหม่…</>
+            <><span className="spin" style={{ width: 16, height: 16, border: `2px solid ${C.inkOn}`, borderTopColor: "transparent", borderRadius: "50%", display: "inline-block" }} /> กำลังสร้าง{mode === "vocab" ? "คำ" : "ข้อ"}ใหม่…</>
           ) : (needsKey && !hasKey) ? (
             <>🔒 สร้างชุดใหม่ต้องใส่ API key</>
           ) : (
@@ -6178,7 +6311,7 @@ function App() {
         </button>
         {/* VOCAB: study the curated static bank by level — no AI/key needed */}
         {mode === "vocab" && !st.generating && (
-          <div style={{ border: `1px solid ${C.line}`, borderRadius: 13, padding: "12px 12px 13px", marginBottom: 12, background: "#fff" }}>
+          <div style={{ border: `1px solid ${C.line}`, borderRadius: 13, padding: "12px 12px 13px", marginBottom: 12, background: C.card }}>
             <div style={{ fontSize: 12, color: C.sub, fontWeight: 700, marginBottom: 3 }}>📚 คลังคำตามระดับ <span style={{ fontWeight: 400, fontSize: 11 }}>· คำคัดมาแล้ว ไม่ต้องใช้ AI</span></div>
             <div style={{ fontSize: 11, color: C.sub, marginBottom: 9, lineHeight: 1.5 }}>หยิบทีละ 10 คำ — คำใหม่ก่อน หมดแล้วทวนคำที่ยังไม่แม่น สุดท้ายค่อยรีคำที่จำได้</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
@@ -6190,7 +6323,7 @@ function App() {
                 const tierColor = stt.kind === "weak" ? C.amber : stt.kind === "known" ? C.green : C.accent;
                 return (
                   <button key={d.id} onClick={() => buildBankLevelDeck(d.id)} disabled={empty}
-                    style={{ textAlign: "left", border: `1.5px solid ${empty ? C.line : tierColor}`, background: empty ? "#f3eee4" : "#fbf6ec", borderRadius: 10, padding: "9px 11px", lineHeight: 1.3, opacity: empty ? 0.6 : 1 }}>
+                    style={{ textAlign: "left", border: `1.5px solid ${empty ? C.line : tierColor}`, background: empty ? C.soft3 : C.soft, borderRadius: 10, padding: "9px 11px", lineHeight: 1.3, opacity: empty ? 0.6 : 1 }}>
                     <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink }}>
                       {d.icon} {d.label}
                       {d.cefr && <span style={{ fontSize: 9.5, fontWeight: 700, color: C.accent, background: C.accentSoft, padding: "1px 6px", borderRadius: 8, marginLeft: 6, letterSpacing: .2, verticalAlign: "middle" }}>{d.cefr}</span>}
@@ -6230,11 +6363,11 @@ function App() {
         </div>
 
         {/* tabs */}
-        <div style={{ display: "inline-flex", background: "#efe7d7", borderRadius: 11, padding: 3, gap: 3, marginBottom: 16 }}>
+        <div style={{ display: "inline-flex", background: C.track, borderRadius: 11, padding: 3, gap: 3, marginBottom: 16 }}>
           {[["study", mode === "vocab" ? "เรียน (การ์ด)" : "ฝึกทำ (ข้อสอบ)"], ["bank", mode === "vocab" ? "คลังคำศัพท์" : "คลังข้อสอบ"]].map(([id, lbl]) => (
             <button key={id} onClick={() => setTab(id)}
               style={{ border: "none", borderRadius: 9, padding: "8px 16px", fontSize: 13.5, fontWeight: 600,
-                background: st.tab === id ? "#fffdf8" : "transparent", color: st.tab === id ? C.ink : "#7a7062",
+                background: st.tab === id ? C.panel : "transparent", color: st.tab === id ? C.ink : C.sub2,
                 boxShadow: st.tab === id ? "0 2px 6px -3px rgba(40,30,20,.5)" : "none" }}>{lbl}</button>
           ))}
         </div>
@@ -6273,14 +6406,14 @@ function App() {
                     <button onClick={(e) => { e.stopPropagation(); openCopy("ถาม Coach เรื่องคำนี้",
                         `ช่วยอธิบายคำว่า "${card.w}" (${card.pos}${card.cefr ? ", " + card.cefr : ""}) ให้หน่อย\nความหมาย: ${card.def}\nตัวอย่าง: ${card.ex}\n\nอยากรู้: ออกเสียงยังไง, ใช้ในบริบทไหนได้บ้าง, คำที่ความหมายใกล้เคียงต่างกันยังไง`); }}
                       title="ก๊อปไปถาม Coach" aria-label="ก๊อปไปถาม Coach"
-                      style={{ flex: "0 0 auto", width: 26, height: 26, borderRadius: "50%", border: `1.5px solid ${C.accentSoft}`, background: "#fff",
+                      style={{ flex: "0 0 auto", width: 26, height: 26, borderRadius: "50%", border: `1.5px solid ${C.accentSoft}`, background: C.card,
                         color: C.accent, fontSize: 13, display: "grid", placeItems: "center", lineHeight: 1, padding: 0 }}>💬</button>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, margin: "14px 0 8px" }}>
                     <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 38, lineHeight: 1.1, textAlign: "center" }}>{card.w}</div>
                     {TTS_OK && (
                       <button onClick={(e) => speak(card.w, e)} title="ฟังเสียงอ่าน" aria-label="ฟังเสียงอ่าน"
-                        style={{ flex: "0 0 auto", width: 38, height: 38, borderRadius: "50%", border: `1.5px solid ${C.accentSoft}`, background: "#fff",
+                        style={{ flex: "0 0 auto", width: 38, height: 38, borderRadius: "50%", border: `1.5px solid ${C.accentSoft}`, background: C.card,
                           color: C.accent, fontSize: 18, display: "grid", placeItems: "center", lineHeight: 1 }}>🔊</button>
                     )}
                   </div>
@@ -6319,7 +6452,7 @@ function App() {
                     <div style={{ fontSize: 14, color: C.sub, fontStyle: "italic", lineHeight: 1.5, textAlign: "center" }}>“{card.ex}”</div>
                     {TTS_OK && card.ex && (
                       <button onClick={(e) => speak(card.ex, e)} title="ฟังประโยคตัวอย่าง" aria-label="ฟังประโยคตัวอย่าง"
-                        style={{ flex: "0 0 auto", width: 30, height: 30, borderRadius: "50%", border: `1.5px solid ${C.accentSoft}`, background: "#fff",
+                        style={{ flex: "0 0 auto", width: 30, height: 30, borderRadius: "50%", border: `1.5px solid ${C.accentSoft}`, background: C.card,
                           color: C.accent, fontSize: 14, display: "grid", placeItems: "center", lineHeight: 1, marginTop: 1 }}>🔊</button>
                     )}
                   </div>
@@ -6357,14 +6490,14 @@ function App() {
                   if (!card.options[k]) return null;
                   const isAns = k === card.answer;
                   const isPicked = k === picked;
-                  let bg = "#fff", bd = C.line, fg = C.ink;
+                  let bg = C.card, bd = C.line, fg = C.ink;
                   if (revealed) { if (isAns) { bg = C.greenBg; bd = C.green; } else if (isPicked) { bg = C.redBg; bd = C.red; } }
                   return (
                     <button key={k} className="opt" onClick={() => choose(card.id, k, card.answer)} disabled={revealed}
                       style={{ textAlign: "left", display: "flex", gap: 12, alignItems: "center", background: bg, border: `1.5px solid ${bd}`, color: fg, borderRadius: 11, padding: "12px 14px", fontSize: 15.5, lineHeight: 1.4 }}>
                       <span style={{ flex: "0 0 auto", width: 26, height: 26, borderRadius: 7,
                         background: revealed && isAns ? C.green : revealed && isPicked ? C.red : C.accentSoft,
-                        color: revealed && (isAns || isPicked) ? "#fff" : C.accent, fontWeight: 700, fontSize: 13, display: "grid", placeItems: "center" }}>{k}</span>
+                        color: revealed && (isAns || isPicked) ? C.inkOn : C.accent, fontWeight: 700, fontSize: 13, display: "grid", placeItems: "center" }}>{k}</span>
                       <span>{card.options[k]}</span>
                       {revealed && isAns && <span style={{ marginLeft: "auto", color: C.green }}>✓</span>}
                       {revealed && isPicked && !isAns && <span style={{ marginLeft: "auto", color: C.red }}>✕</span>}
@@ -6385,20 +6518,20 @@ function App() {
                       const SS = STATUS.grammar[s];
                       return (
                         <button key={s} onClick={() => rate(card.id, s, false)}
-                          style={{ flex: 1, border: `1.5px solid ${on ? SS.color : C.line}`, background: on ? SS.bg : "#fff",
+                          style={{ flex: 1, border: `1.5px solid ${on ? SS.color : C.line}`, background: on ? SS.bg : C.card,
                             color: on ? SS.color : C.ink, borderRadius: 10, padding: "11px 4px", fontSize: 12.5, fontWeight: 600, lineHeight: 1.2 }}>
                           {lbl}
                         </button>
                       );
                     })}
                     <button onClick={() => setPos(p => Math.min(p + 1, st.deck.length))}
-                      style={{ flex: "0 0 auto", minWidth: 58, background: C.accent, color: "#fff", border: "none", borderRadius: 10,
+                      style={{ flex: "0 0 auto", minWidth: 58, background: C.accent, color: C.inkOn, border: "none", borderRadius: 10,
                         padding: "11px 14px", fontSize: 17, fontWeight: 700, boxShadow: "0 6px 16px -8px rgba(191,77,40,.8)" }}>
                       {st.pos + 1 >= st.deck.length ? "จบ" : "→"}
                     </button>
                   </div>
 
-                  <div style={{ background: "#fbf6ec", border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", fontSize: 14.5, lineHeight: 1.65 }}>
+                  <div style={{ background: C.soft, border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", fontSize: 14.5, lineHeight: 1.65 }}>
                     <b style={{ color: C.accent }}>อธิบาย:</b> {card.explain}
                   </div>
                 </div>
@@ -6436,8 +6569,8 @@ function App() {
                   <div style={{ display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap", margin: "16px 0 4px" }}>
                     <Stat label="ถูก" value={correct} color={C.green} bg={C.greenBg} />
                     <Stat label="ผิด" value={wrong} color={C.red} bg={C.redBg} />
-                    <Stat label="เวลารวม" value={fmtTime(totalMs)} color={C.ink} bg="#efe7d7" />
-                    <Stat label="เฉลี่ย/ข้อ" value={`${(avg / 1000).toFixed(1)}s`} color={C.ink} bg="#efe7d7" />
+                    <Stat label="เวลารวม" value={fmtTime(totalMs)} color={C.ink} bg={C.track} />
+                    <Stat label="เฉลี่ย/ข้อ" value={`${(avg / 1000).toFixed(1)}s`} color={C.ink} bg={C.track} />
                   </div>
                   <div style={{ fontSize: 12.5, color: C.sub, maxWidth: 360, margin: "10px auto 0", lineHeight: 1.6 }}>
                     เป้าความเร็ว Part 5 จริง ≈ <b>20–30 วินาที/ข้อ</b> · ตอบไป {answered}/{n} ข้อ
@@ -6465,14 +6598,14 @@ function App() {
                   if (batches <= 1) {
                     return (
                       <button onClick={() => copyUnleveledVocab(0, 0)}
-                        style={{ width: "100%", background: "#fff", color: C.accent, border: `1.5px dashed ${C.accent}`, borderRadius: 12, padding: "11px", fontSize: 13.5, fontWeight: 700, marginBottom: 12, lineHeight: 1.4 }}>
+                        style={{ width: "100%", background: C.card, color: C.accent, border: `1.5px dashed ${C.accent}`, borderRadius: 12, padding: "11px", fontSize: 13.5, fontWeight: 700, marginBottom: 12, lineHeight: 1.4 }}>
                         🏷️ ก๊อปคำที่ยังไม่จัดระดับ ({unleveledCount} คำ) ไปให้ Coach
                         <span style={{ display: "block", fontSize: 11, fontWeight: 400, color: C.sub, marginTop: 2 }}>ส่งให้ Coach จัดระดับ → เพิ่มเข้าคลังถาวร → คำเดิมได้ระดับเองตอนเปิดรอบหน้า</span>
                       </button>
                     );
                   }
                   return (
-                    <div style={{ border: `1.5px dashed ${C.accent}`, borderRadius: 12, padding: "11px 12px 12px", marginBottom: 12, background: "#fff" }}>
+                    <div style={{ border: `1.5px dashed ${C.accent}`, borderRadius: 12, padding: "11px 12px 12px", marginBottom: 12, background: C.card }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: C.accent }}>🏷️ คำที่ยังไม่จัดระดับ ({unleveledCount} คำ) — แบ่ง {batches} ชุด</div>
                       <div style={{ fontSize: 11, color: C.sub, margin: "2px 0 9px", lineHeight: 1.5 }}>แตะทีละชุด → ก๊อป → ส่งให้ Coach (แบ่งชุดกันข้อความยาวเกินถูกตัด) · ส่งครบทุกชุด Coach จะจัดระดับให้ทีเดียว</div>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(96px, 1fr))", gap: 6 }}>
@@ -6496,7 +6629,7 @@ function App() {
                         onKeyDown={e => { if (e.key === "Enter") { commitVocabSearch(vocabSearch); e.target.blur(); } }}
                         placeholder="ค้นหาคำ (อังกฤษ หรือ คำแปลไทย)…"
                         style={{ width: "100%", boxSizing: "border-box", padding: "11px 36px 11px 14px", fontSize: 14, borderRadius: 11,
-                          border: `1.5px solid ${C.line}`, background: "#fff", color: C.ink, outline: "none", fontFamily: "inherit" }} />
+                          border: `1.5px solid ${C.line}`, background: C.card, color: C.ink, outline: "none", fontFamily: "inherit" }} />
                       {vocabSearch ? (
                         <button onClick={() => setVocabSearch("")} aria-label="ล้างคำค้น"
                           style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", border: "none", background: "none", color: C.sub, fontSize: 18, lineHeight: 1, padding: 4 }}>×</button>
@@ -6507,7 +6640,7 @@ function App() {
                           filter chips never get pushed down. Shows only when focused AND empty. */}
                       {vSearchFocus && !(vocabSearch || "").trim() && vSearchHist.length > 0 && (
                         <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 30,
-                          background: "#fff", border: `1.5px solid ${C.line}`, borderRadius: 12, padding: "6px 0",
+                          background: C.card, border: `1.5px solid ${C.line}`, borderRadius: 12, padding: "6px 0",
                           boxShadow: "0 8px 24px rgba(0,0,0,0.12)", maxHeight: 280, overflowY: "auto" }}>
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "2px 14px 6px" }}>
                             <span style={{ fontSize: 11.5, color: C.sub, fontWeight: 600 }}>ค้นหาล่าสุด</span>
@@ -6531,7 +6664,7 @@ function App() {
                     {reviewable > 0 && (
                       <button onClick={copyUnmasteredVocab} title={`ก๊อปคำที่ยังไม่แม่นไปถาม Coach (${reviewable} คำ)`} aria-label="ก๊อปคำที่ยังไม่แม่นไปถาม Coach"
                         style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1,
-                          width: 52, background: "#fff", color: C.accent, border: `1.5px solid ${C.line}`, borderRadius: 11, fontFamily: "inherit", padding: "0 4px" }}>
+                          width: 52, background: C.card, color: C.accent, border: `1.5px solid ${C.line}`, borderRadius: 11, fontFamily: "inherit", padding: "0 4px" }}>
                         <span style={{ fontSize: 17, lineHeight: 1 }}>💬</span>
                         <span style={{ fontSize: 10, fontWeight: 700, lineHeight: 1 }}>{reviewable}</span>
                       </button>
@@ -6544,7 +6677,7 @@ function App() {
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: mode === "vocab" ? 14 : 12 }}>
                   {[["all", "ทั้งหมด"], ["new", "ใหม่"], ["forgot", S.forgot.short], ["sort", S.sort.short], ["known", S.known.short]].map(([id, lbl]) => (
                     <button key={id} onClick={() => setBankFilter(id)}
-                      style={{ border: `1px solid ${st.bankFilter === id ? C.accent : C.line}`, background: st.bankFilter === id ? C.accentSoft : "#fff",
+                      style={{ border: `1px solid ${st.bankFilter === id ? C.accent : C.line}`, background: st.bankFilter === id ? C.accentSoft : C.card,
                         color: st.bankFilter === id ? C.accent : C.sub, borderRadius: 20, padding: "6px 13px", fontSize: 12.5, fontWeight: 600 }}>{lbl}</button>
                   ))}
                 </div>
@@ -6560,8 +6693,8 @@ function App() {
                           const on = bankLevel === id;
                           return (
                             <button key={id} onClick={() => { setBankLevel(id); setBankShow(60); }}
-                              style={{ border: `1px solid ${on ? C.accent : C.line}`, background: on ? C.accent : "#fff",
-                                color: on ? "#fff" : C.sub, borderRadius: 20, padding: "6px 12px", fontSize: 12, fontWeight: 700 }}>
+                              style={{ border: `1px solid ${on ? C.accent : C.line}`, background: on ? C.accent : C.card,
+                                color: on ? C.inkOn : C.sub, borderRadius: 20, padding: "6px 12px", fontSize: 12, fontWeight: 700 }}>
                               {lbl} <span style={{ fontWeight: 500, opacity: 0.8 }}>{vocabLevelCounts[id] || 0}</span>
                             </button>
                           );
@@ -6581,12 +6714,12 @@ function App() {
                             <span style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 18 }}>{x.w}</span>
                             {TTS_OK && (
                               <button onClick={(e) => speak(x.w, e)} title="ฟังเสียงอ่าน" aria-label="ฟังเสียงอ่าน"
-                                style={{ flex: "0 0 auto", width: 28, height: 28, borderRadius: "50%", border: `1.5px solid ${C.accentSoft}`, background: "#fff", color: C.accent, fontSize: 13, display: "grid", placeItems: "center", lineHeight: 1, padding: 0 }}>🔊</button>
+                                style={{ flex: "0 0 auto", width: 28, height: 28, borderRadius: "50%", border: `1.5px solid ${C.accentSoft}`, background: C.card, color: C.accent, fontSize: 13, display: "grid", placeItems: "center", lineHeight: 1, padding: 0 }}>🔊</button>
                             )}
                             <button onClick={(e) => { e.stopPropagation(); openCopy("ถาม Coach เรื่องคำนี้",
                                 `ช่วยอธิบายคำว่า "${x.w}" (${x.pos}${x.cefr ? ", " + x.cefr : ""}) ให้หน่อย\nความหมาย: ${x.def}\nตัวอย่าง: ${x.ex}\n\nอยากรู้: ออกเสียงยังไง, ใช้ในบริบทไหนได้บ้าง, คำที่ความหมายใกล้เคียงต่างกันยังไง`); }}
                               title="ก๊อปไปถาม Coach" aria-label="ก๊อปไปถาม Coach"
-                              style={{ flex: "0 0 auto", width: 28, height: 28, borderRadius: "50%", border: `1.5px solid ${C.accentSoft}`, background: "#fff", color: C.accent, fontSize: 13, display: "grid", placeItems: "center", lineHeight: 1, padding: 0 }}>💬</button>
+                              style={{ flex: "0 0 auto", width: 28, height: 28, borderRadius: "50%", border: `1.5px solid ${C.accentSoft}`, background: C.card, color: C.accent, fontSize: 13, display: "grid", placeItems: "center", lineHeight: 1, padding: 0 }}>💬</button>
                           </div>
                           <div style={{ display: "flex", gap: 6, alignItems: "center", flex: "0 0 auto" }}>
                             {x.cefr ? <span style={{ fontSize: 10, color: C.accent, background: C.accentSoft, padding: "2px 7px", borderRadius: 10, fontWeight: 700 }}>{x.cefr}</span> : null}
@@ -6614,7 +6747,7 @@ function App() {
                         <div style={{ fontSize: 13.5, color: C.green, fontWeight: 600, marginTop: 6 }}>เฉลย: {x.answer}. {x.options?.[x.answer]}</div>
                         <div style={{ fontSize: 13, color: C.sub, marginTop: 3, lineHeight: 1.5 }}>{x.explain}</div>
                         <button onClick={() => copyGrammarItem(x)}
-                          style={{ marginTop: 8, background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 9, padding: "7px 12px", fontSize: 12.5, fontWeight: 600 }}>
+                          style={{ marginTop: 8, background: C.card, color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 9, padding: "7px 12px", fontSize: 12.5, fontWeight: 600 }}>
                           📋 ก๊อปข้อนี้ไปถาม Coach
                         </button>
                         <RatingRow mode={mode} current={st.ratings[x.id]} onRate={s => rate(x.id, s, false)} small />
@@ -6623,7 +6756,7 @@ function App() {
                 </div>
                 {bankItems.length > bankShow && (
                   <button onClick={() => setBankShow(s => s + 80)}
-                    style={{ width: "100%", marginTop: 12, background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "11px", fontSize: 13.5, fontWeight: 700 }}>
+                    style={{ width: "100%", marginTop: 12, background: C.card, color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "11px", fontSize: 13.5, fontWeight: 700 }}>
                     ดูเพิ่ม · เหลืออีก {bankItems.length - bankShow} {mode === "vocab" ? "คำ" : "ข้อ"}
                   </button>
                 )}
@@ -6643,7 +6776,7 @@ function App() {
           {" "}· สถานะบันทึกอัตโนมัติ แยกของแต่ละโหมด
         </p>
         <div style={{ textAlign: "center", marginTop: 6, marginBottom: 4 }}>
-          <span style={{ fontSize: 10.5, color: C.sub, background: "#efe7d7", border: `1px solid ${C.line}`, borderRadius: 20, padding: "2px 10px", fontVariantNumeric: "tabular-nums", letterSpacing: .3 }}>
+          <span style={{ fontSize: 10.5, color: C.sub, background: C.track, border: `1px solid ${C.line}`, borderRadius: 20, padding: "2px 10px", fontVariantNumeric: "tabular-nums", letterSpacing: .3 }}>
             v{VERSION}{IS_ARTIFACT ? " · artifact" : ""}
           </span>
         </div>
@@ -6681,7 +6814,7 @@ function MiniLineChart({ series, color }) {
   // label a few x positions only, to avoid clutter
   const labelEvery = Math.max(1, Math.ceil(n / 6));
   return (
-    <div style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, padding: "8px 6px 4px" }}>
+    <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 12, padding: "8px 6px 4px" }}>
       <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }}>
         {ticks.map((t, i) => (
           <g key={i}>
@@ -6710,7 +6843,7 @@ function WeaknessCard({ title, items, hint }) {
   return (
     <div style={{ marginTop: 18 }}>
       <div style={{ fontSize: 12.5, color: C.sub, fontWeight: 600, marginBottom: 8 }}>{title}</div>
-      <div style={{ display: "grid", gap: 8, background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 12px" }}>
+      <div style={{ display: "grid", gap: 8, background: C.card, border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 12px" }}>
         {top.map((t, i) => {
           const pctKnown = Math.round((t.known / t.total) * 100);
           return (
@@ -6737,7 +6870,7 @@ function WeaknessCard({ title, items, hint }) {
 function MiniBars({ items }) {
   const H = 110;
   return (
-    <div style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 10px 8px" }}>
+    <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 10px 8px" }}>
       <div style={{ position: "relative", height: H }}>
         {/* 80% reference line — a common "good" threshold for TOEIC practice */}
         <div style={{ position: "absolute", left: 0, right: 0, bottom: "80%", borderTop: `1px dashed ${C.green}`, opacity: 0.55 }}>
@@ -6764,7 +6897,7 @@ function RatingRow({ mode, current, onRate, big, small }) {
         const on = current === s;
         return (
           <button key={s} onClick={() => onRate(s)}
-            style={{ border: `1.5px solid ${on ? S[s].color : C.line}`, background: on ? S[s].bg : "#fff",
+            style={{ border: `1.5px solid ${on ? S[s].color : C.line}`, background: on ? S[s].bg : C.card,
               color: on ? S[s].color : (small ? C.sub : C.ink), borderRadius: small ? 9 : 11,
               padding: small ? "8px 4px" : (big ? "11px 6px" : "10px 6px"), fontSize: small ? 12.5 : 13.5, fontWeight: 600 }}>
             {small ? S[s].short : S[s].label}
@@ -6818,7 +6951,7 @@ function Centered({ children }) {
 function ReviewBox({ due, weak, sub, dueLabel, weakLabel, weakAllLabel, onDue, onWeak, margin }) {
   if (!weak && !due) return null;
   return (
-    <div style={{ border: `1px solid ${C.line}`, borderRadius: 13, padding: "12px 12px 13px", margin: margin || "4px 0 14px", background: "#fcf8f0" }}>
+    <div style={{ border: `1px solid ${C.line}`, borderRadius: 13, padding: "12px 12px 13px", margin: margin || "4px 0 14px", background: C.soft2 }}>
       <div style={{ fontSize: 12, color: C.sub, fontWeight: 700, marginBottom: 9 }}>
         🔁 ทบทวน <span style={{ fontWeight: 400, fontSize: 11 }}>· {sub}</span>
         {due === 0 && <span style={{ fontWeight: 700, fontSize: 11, color: C.green }}> · ครบแล้ววันนี้</span>}
@@ -6832,7 +6965,7 @@ function ReviewBox({ due, weak, sub, dueLabel, weakLabel, weakAllLabel, onDue, o
           </button>
           {weak > 0 && (
             <button onClick={onWeak}
-              style={{ flex: 1, background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "12px 8px",
+              style={{ flex: 1, background: C.card, color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "12px 8px",
                 fontSize: 13, fontWeight: 600, lineHeight: 1.3 }}>
               {weakLabel}
             </button>
@@ -6841,7 +6974,7 @@ function ReviewBox({ due, weak, sub, dueLabel, weakLabel, weakAllLabel, onDue, o
       ) : (
         weak > 0 && (
           <button onClick={onWeak}
-            style={{ width: "100%", background: "#fff", color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "12px 8px",
+            style={{ width: "100%", background: C.card, color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 11, padding: "12px 8px",
               fontSize: 13.5, fontWeight: 600, lineHeight: 1.3 }}>
             {weakAllLabel}
           </button>
@@ -6852,7 +6985,7 @@ function ReviewBox({ due, weak, sub, dueLabel, weakLabel, weakAllLabel, onDue, o
 }
 // v0.54.0: −/value/+ stepper used by the learning group in Settings (mockup v5 layout)
 function SettingStepper({ value, lo, hi, onChange }) {
-  const btn = { width: 26, height: 26, borderRadius: 8, border: `1px solid ${C.line}`, background: "#fff",
+  const btn = { width: 26, height: 26, borderRadius: 8, border: `1px solid ${C.line}`, background: C.card,
     color: C.ink, fontSize: 15, fontWeight: 600, cursor: "pointer", lineHeight: 1, padding: 0 };
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
@@ -6886,8 +7019,8 @@ function SettingGroup({ title, why, open, onToggle, first, children }) {
 function SettingPill({ on, onClick, children }) {
   return (
     <button onClick={onClick}
-      style={{ border: on ? `1.5px solid ${C.accent}` : `1px solid ${C.line}`, background: on ? C.accent : "#fff",
-        color: on ? "#fff" : C.sub, borderRadius: 20, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+      style={{ border: on ? `1.5px solid ${C.accent}` : `1px solid ${C.line}`, background: on ? C.accent : C.card,
+        color: on ? C.inkOn : C.sub, borderRadius: 20, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
       {children}
     </button>
   );
@@ -6896,9 +7029,9 @@ function SettingToggle({ on, onClick }) {
   return (
     <button onClick={onClick} aria-pressed={on}
       style={{ position: "relative", width: 46, height: 26, borderRadius: 20, border: "none", cursor: "pointer",
-        background: on ? C.green : "#d9d0bf", transition: "background .15s", flex: "none", padding: 0 }}>
+        background: on ? C.green : C.toggleOff, transition: "background .15s", flex: "none", padding: 0 }}>
       <span style={{ position: "absolute", top: 3, left: on ? 23 : 3, width: 20, height: 20, borderRadius: "50%",
-        background: "#fff", transition: "left .15s", boxShadow: "0 1px 3px rgba(0,0,0,.25)" }} />
+        background: C.card, transition: "left .15s", boxShadow: "0 1px 3px rgba(0,0,0,.25)" }} />
     </button>
   );
 }
@@ -6937,7 +7070,7 @@ function GenError({ err, raw }) {
             {copied ? "✅ คัดลอกแล้ว" : "📋 คัดลอกข้อมูลดิบ"}
           </button>
           {show && (
-            <pre style={{ marginTop: 6, maxHeight: 240, overflow: "auto", background: "#2b2622", color: "#e8dfd0", fontSize: 11, lineHeight: 1.45, padding: "10px 12px", borderRadius: 9, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{raw}</pre>
+            <pre style={{ marginTop: 6, maxHeight: 240, overflow: "auto", background: C.debugBg, color: C.debugInk, fontSize: 11, lineHeight: 1.45, padding: "10px 12px", borderRadius: 9, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{raw}</pre>
           )}
         </>
       )}
@@ -6958,7 +7091,7 @@ function ConfirmBtn({ onConfirm, idleLabel, confirmLabel, style }) {
     <button
       onClick={(e) => { e.stopPropagation(); if (armed) { setArmed(false); onConfirm(); } else { setArmed(true); } }}
       style={{ ...base,
-        background: armed ? C.red : C.greenBg, color: armed ? "#fff" : C.green,
+        background: armed ? C.red : C.greenBg, color: armed ? C.inkOn : C.green,
         borderColor: armed ? C.red : C.green, ...(style || {}) }}>
       {armed ? (confirmLabel || "แน่ใจ? ลบเลย") : (idleLabel || "✓ จำได้แล้ว")}
     </button>
