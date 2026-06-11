@@ -16,7 +16,7 @@ const { useState, useEffect, useRef } = React;
 
 // App version — bump on every release. Shown as a small badge (tap to confirm the
 // browser is running the latest build, not a stale cached one).
-const VERSION = "0.60.0";
+const VERSION = "0.62.1";
 
 // ============================================================
 //  ENVIRONMENT DETECTION
@@ -402,6 +402,8 @@ const SETTINGS_DEFAULT = {
   ttsVoice: "",      // voiceURI ของเสียงอ่านที่เลือกเอง ("" = อัตโนมัติตามสำเนียง) — คุณภาพเสียงต่างกันมากรายตัว
   // ---- v0.56.0 ----
   theme: "light",    // ธีม: light | dark | system (ตาม prefers-color-scheme)
+  // ---- v0.61.0 ----
+  bankReveal: "tap", // เฉลยในคลังข้อสอบ (Grammar): tap=แตะเผยทีละข้อ (กันสปอยล์ตอนไล่ทำเอง) | show=โชว์ทันที
 };
 let SETTINGS = { ...SETTINGS_DEFAULT };
 
@@ -825,6 +827,56 @@ async function aiCompleteJson({ engineId, model, maxTokens, prompt, validate, at
   throw lastErr;
 }
 
+// ---- v0.62.0: grammar-point taxonomy --------------------------------------------------
+// AI writes `point` as free text, so the bank's point chips exploded into near-duplicates
+// ("คำบุพบท (preposition)" vs "(Preposition)"). Fold every point into the same lesson
+// taxonomy the Strategy tab teaches, via keyword matching — FIRST MATCH WINS, ordered
+// specific → general (Present Perfect before Tense, Comparison before Articles, Conjunction
+// before Conditionals). Unknowns land in "อื่นๆ". Pure + module-level for toolkit tests.
+const GRAMMAR_POINT_GROUPS = [
+  { label: "Present Perfect", re: /present\s*perfect/i },
+  { label: "Tense (กาล)", re: /tense|กาล|past|future|progressive|inversion|by the time/i },
+  { label: "S-V Agreement", re: /agreement|สอดคล้อง|ประธาน/i },
+  { label: "Preposition (บุพบท)", re: /preposition|บุพบท/i },
+  { label: "Conjunction (คำเชื่อม)", re: /conjunction|คำเชื่อม|correlative|transition/i },
+  { label: "Conditionals (if)", re: /conditional|เงื่อนไข/i },
+  { label: "Comparison (เปรียบเทียบ)", re: /comparat|superlat|เปรียบเทียบ|ขั้นกว่า|ขั้นสุด|as\s*\.+\s*as/i },
+  { label: "Word Form (รูปคำ)", re: /word\s*form|รูปคำ|suffix/i },
+  { label: "Relative Clause", re: /relative|อนุประโยค/i },
+  { label: "Gerund/Infinitive", re: /gerund|infinitive|v-?ing/i },
+  { label: "Passive Voice", re: /passive/i },
+  { label: "Articles (a/an/the)", re: /article|a\/an/i },
+  { label: "Quantifiers", re: /quantifier|much\/many|few\/little/i },
+  { label: "Pronouns (สรรพนาม)", re: /pronoun|สรรพนาม/i },
+  { label: "Vocabulary/สำนวน", re: /vocab|nuance|ความหมาย|สำนวน|idiom/i },
+];
+function grammarPointGroup(point) {
+  const p = String(point || "").trim();
+  if (!p) return "อื่นๆ";
+  for (const g of GRAMMAR_POINT_GROUPS) if (g.re.test(p)) return g.label;
+  return "อื่นๆ";
+}
+
+// v0.62.0: prompt for the 🤖 last-resort repair — the OLD explanation drifted beyond what
+// quote-matching can heal, so ask the AI to REWRITE it from the actual question + options
+// + stored key, quoting option TEXT (letters/positions banned). The AI also sanity-checks
+// the key: callers must NOT write anything when key_ok is false.
+function rewriteExplainPrompt(q, transcript) {
+  const opts = Object.keys(q.options || {}).map(k => `${k}: ${q.options[k]}`).join("\n");
+  return `You are repairing a corrupted explanation in a TOEIC practice item. The old explanation referred to choices by letters that no longer match the current order, so it must be REWRITTEN from scratch.
+
+${transcript ? `PASSAGE/TRANSCRIPT:\n${transcript}\n\n` : ""}QUESTION: ${q.q}
+CHOICES:
+${opts}
+ANSWER KEY: ${q.answer}
+
+Step 1 — verify the answer key against the passage/question yourself.
+Step 2 — respond with ONLY a JSON object (no markdown fences):
+{"key_ok": true or false, "suggested_answer": "A/B/C/D — only when key_ok is false", "explain": "..."}
+
+Rules for "explain": THAI language, 1-3 sentences: why the correct choice is right and why 1-2 distractors are wrong. NEVER refer to choices by letter (A/B/C/D) or by position ("the first option", "ข้อแรก") — ALWAYS point at a choice by quoting a short piece of its English TEXT in single quotes. If key_ok is false, write the explanation for YOUR suggested answer instead.`;
+}
+
 // ---- curated Grammar lessons (fixed, high-yield TOEIC points) ----
 const LESSONS = [
   {
@@ -1138,7 +1190,7 @@ For EACH question provide:
 - "options": object with keys "A","B","C","D"
 - "answer": the correct key ("A"|"B"|"C"|"D")
 - "point": the grammar point in THAI, short (e.g. "กาล (tense)", "คำบุพบท", "รูปคำ", "คำเชื่อม")
-- "explain": a THAI explanation, 1-3 sentences, why the answer is correct AND why one key distractor is wrong IMPORTANT: before output, re-read each item and VERIFY that "answer" is the same option your "explain" argues for — if they disagree, fix "answer" to match the correct grammar/clue. In "explain", NEVER refer to options by letter (A/B/C/D) — options are RESHUFFLED after generation so letters become wrong; refer to the option TEXT instead.
+- "explain": a THAI explanation, 1-3 sentences, why the answer is correct AND why one key distractor is wrong IMPORTANT: before output, re-read each item and VERIFY that "answer" is the same option your "explain" argues for — if they disagree, fix "answer" to match the correct grammar/clue. In "explain", NEVER refer to options by letter (A/B/C/D) — options are RESHUFFLED after generation so letters become wrong; refer to the option TEXT instead. Do NOT refer by position either ("the first option", "ข้อแรก", "ข้อที่สอง") — positions change too; ALWAYS point at an option by quoting its TEXT.
 IMPORTANT: vary the position of the correct answer across A/B/C/D — do NOT always put it at "A". Spread the correct keys roughly evenly across the 5 questions.
 Respond with ONLY a valid minified JSON array of 5 objects, no markdown, no backticks, no preamble.
 Shape: [{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"C","point":"...","explain":"..."}]`;
@@ -1161,7 +1213,7 @@ For EACH question provide:
 - "q": the blank label in Thai, e.g. "ช่องที่ (1)"
 - "options": object with keys "A","B","C","D" (English; for the sentence-insertion blank, options are full sentences)
 - "answer": the correct key ("A"|"B"|"C"|"D")
-- "explain": a THAI explanation, 1-2 sentences: why the answer fits and which clue/grammar rule proves it IMPORTANT: before output, re-read each item and VERIFY that "answer" is the same option your "explain" argues for — if they disagree, fix "answer" to match the correct grammar/clue. In "explain", NEVER refer to options by letter (A/B/C/D) — options are RESHUFFLED after generation so letters become wrong; refer to the option TEXT instead.
+- "explain": a THAI explanation, 1-2 sentences: why the answer fits and which clue/grammar rule proves it IMPORTANT: before output, re-read each item and VERIFY that "answer" is the same option your "explain" argues for — if they disagree, fix "answer" to match the correct grammar/clue. In "explain", NEVER refer to options by letter (A/B/C/D) — options are RESHUFFLED after generation so letters become wrong; refer to the option TEXT instead. Do NOT refer by position either ("the first option", "ข้อแรก", "ข้อที่สอง") — positions change too; ALWAYS point at an option by quoting its TEXT.
 IMPORTANT: vary the position of the correct answer across A/B/C/D — do NOT always put it at "A".
 Each question object is closed by EXACTLY ONE "}"; separate questions with "},{" (never "}},{"), and close the whole response with "}]}" — do not add extra closing braces.\nRespond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
 Shape: {"ptype":"Part 6","transcript":"...(passage with (1) ______ ... (4) ______; use \\n for line breaks)...","questions":[{"q":"ช่องที่ (1)","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"C","explain":"..."}]}`;
@@ -1185,7 +1237,7 @@ For EACH question provide:
 - "q": the question in English
 - "options": object with keys "A","B","C","D" (English, plausible distractors)
 - "answer": the correct key ("A"|"B"|"C"|"D")
-- "explain": a THAI explanation, 1-2 sentences: why the answer is right and which clue in the passage proves it IMPORTANT: before output, re-read each item and VERIFY that "answer" is the same option your "explain" argues for — if they disagree, fix "answer" to match the correct grammar/clue. In "explain", NEVER refer to options by letter (A/B/C/D) — options are RESHUFFLED after generation so letters become wrong; refer to the option TEXT instead.
+- "explain": a THAI explanation, 1-2 sentences: why the answer is right and which clue in the passage proves it IMPORTANT: before output, re-read each item and VERIFY that "answer" is the same option your "explain" argues for — if they disagree, fix "answer" to match the correct grammar/clue. In "explain", NEVER refer to options by letter (A/B/C/D) — options are RESHUFFLED after generation so letters become wrong; refer to the option TEXT instead. Do NOT refer by position either ("the first option", "ข้อแรก", "ข้อที่สอง") — positions change too; ALWAYS point at an option by quoting its TEXT.
 IMPORTANT: vary the position of the correct answer across A/B/C/D — do NOT always put it at "A".
 Each question object is closed by EXACTLY ONE "}"; separate questions with "},{" (never "}},{"), and close the whole response with "}]}" — do not add extra closing braces.\nRespond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
 Shape: {"ptype":"Part 7","transcript":"...(the full passage; use \\n for line breaks)...","questions":[{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"C","explain":"..."}]}`;
@@ -1203,7 +1255,7 @@ For EACH question provide:
 - "q": the question in English
 - "options": object with keys "A","B","C","D" (English, plausible distractors)
 - "answer": the correct key ("A"|"B"|"C"|"D")
-- "explain": a THAI explanation, 1-2 sentences: why it is right and which spoken clue proves it IMPORTANT: before output, re-read each item and VERIFY that "answer" is the same option your "explain" argues for — if they disagree, fix "answer" to match the correct grammar/clue. In "explain", NEVER refer to options by letter (A/B/C/D) — options are RESHUFFLED after generation so letters become wrong; refer to the option TEXT instead.
+- "explain": a THAI explanation, 1-2 sentences: why it is right and which spoken clue proves it IMPORTANT: before output, re-read each item and VERIFY that "answer" is the same option your "explain" argues for — if they disagree, fix "answer" to match the correct grammar/clue. In "explain", NEVER refer to options by letter (A/B/C/D) — options are RESHUFFLED after generation so letters become wrong; refer to the option TEXT instead. Do NOT refer by position either ("the first option", "ข้อแรก", "ข้อที่สอง") — positions change too; ALWAYS point at an option by quoting its TEXT.
 IMPORTANT: vary the position of the correct answer across A/B/C/D — do NOT always put it at "A".
 Each question object is closed by EXACTLY ONE "}"; separate questions with "},{" (never "}},{"), and close the whole response with "}]}" — do not add extra closing braces.\nRespond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
 Shape: {"ptype":"Part 3","transcript":"Man: ...\\nWoman: ...\\nMan: ...","questions":[{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"C","explain":"..."}]}`;
@@ -1226,7 +1278,7 @@ For EACH question provide:
 - "q": the question in English
 - "options": object with keys "A","B","C","D" (English, plausible distractors)
 - "answer": the correct key ("A"|"B"|"C"|"D")
-- "explain": a THAI explanation, 1-2 sentences: why it is right and which spoken clue proves it IMPORTANT: before output, re-read each item and VERIFY that "answer" is the same option your "explain" argues for — if they disagree, fix "answer" to match the correct grammar/clue. In "explain", NEVER refer to options by letter (A/B/C/D) — options are RESHUFFLED after generation so letters become wrong; refer to the option TEXT instead.
+- "explain": a THAI explanation, 1-2 sentences: why it is right and which spoken clue proves it IMPORTANT: before output, re-read each item and VERIFY that "answer" is the same option your "explain" argues for — if they disagree, fix "answer" to match the correct grammar/clue. In "explain", NEVER refer to options by letter (A/B/C/D) — options are RESHUFFLED after generation so letters become wrong; refer to the option TEXT instead. Do NOT refer by position either ("the first option", "ข้อแรก", "ข้อที่สอง") — positions change too; ALWAYS point at an option by quoting its TEXT.
 IMPORTANT: vary the position of the correct answer across A/B/C/D — do NOT always put it at "A".
 Each question object is closed by EXACTLY ONE "}"; separate questions with "},{" (never "}},{"), and close the whole response with "}]}" — do not add extra closing braces.\nRespond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
 Shape: {"ptype":"Part 4","transcript":"...the talk as one speaker; use \\n for paragraph breaks...","questions":[{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"C","explain":"..."}]}`;
@@ -1242,7 +1294,7 @@ For EACH item provide:
 - "q": the spoken prompt (the question or statement that is read first)
 - "options": object with keys "A","B","C" (each a short spoken response; NO key "D")
 - "answer": the correct key ("A"|"B"|"C")
-- "explain": a THAI explanation, 1-2 sentences: why the answer fits and why the trap options are wrong (name the trap type if useful, e.g. คำพ้องเสียง / ตอบผิดประเภทคำถาม) IMPORTANT: before output, re-read each item and VERIFY that "answer" is the same option your "explain" argues for — if they disagree, fix "answer" to match the correct grammar/clue. In "explain", NEVER refer to options by letter (A/B/C/D) — options are RESHUFFLED after generation so letters become wrong; refer to the option TEXT instead.
+- "explain": a THAI explanation, 1-2 sentences: why the answer fits and why the trap options are wrong (name the trap type if useful, e.g. คำพ้องเสียง / ตอบผิดประเภทคำถาม) IMPORTANT: before output, re-read each item and VERIFY that "answer" is the same option your "explain" argues for — if they disagree, fix "answer" to match the correct grammar/clue. In "explain", NEVER refer to options by letter (A/B/C/D) — options are RESHUFFLED after generation so letters become wrong; refer to the option TEXT instead. Do NOT refer by position either ("the first option", "ข้อแรก", "ข้อที่สอง") — positions change too; ALWAYS point at an option by quoting its TEXT.
 IMPORTANT: vary the position of the correct answer across A/B/C — do NOT always put it at "A". Spread the correct keys roughly evenly across the 6 items.
 Each question object is closed by EXACTLY ONE "}"; separate questions with "},{" (never "}},{"), and close the whole response with "}]}" — do not add extra closing braces.\nRespond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
 Shape: {"ptype":"Part 2","transcript":"","questions":[{"q":"Where did you put the report?","options":{"A":"It was a great report.","B":"On your desk.","C":"At three o'clock."},"answer":"B","explain":"..."}]}`;
@@ -2846,8 +2898,14 @@ function vocabLoadData(s) {
 // words from it. For every letter the explain mentions, collect that segment's quoted
 // phrases + standalone English words (3+ letters), find which option's text uniquely
 // contains them, and map mention→real letter. Only if EVERY mentioned letter resolves
-// uniquely AND the mapping has no collisions do we rewrite (one pass, cycle-safe);
-// anything incomplete or ambiguous → return null and leave the warning for a human.
+// uniquely AND the mapping has no collisions do we rewrite (one pass, cycle-safe).
+// v0.60.1: if ALL option letters are mentioned and exactly one lacks evidence, it is
+// pigeonholed into the single free slot (drift is a permutation — the move is forced).
+// v0.60.2: a word-evidence clash resolves to the clearly more specific token; near-ties
+// just leave that letter unknown. More than one unknown, partial letter coverage, or any
+// mapping collision → return null and leave it to a human. The stored answer key is
+// deliberately NOT used as a constraint: if the key itself is wrong, the repaired explain
+// will still disagree with it, so the audit keeps flagging instead of hiding the error.
 // Pure + module-level so the toolkit can unit-test it. Returns { explain, map } | null.
 function repairExplainLetters(item) {
   try {
@@ -2882,6 +2940,7 @@ function repairExplainLetters(item) {
     const optNorm = {};
     for (const k of optKeys) optNorm[k] = norm(item.options[k] || "");
     const map = {};
+    const unresolved = [];
     for (const L of Object.keys(segs)) {
       const seg = segs[L];
       const quoted = [];
@@ -2892,30 +2951,74 @@ function repairExplainLetters(item) {
       const WRE = /[A-Za-z][A-Za-z'’-]{2,}/g;
       let wm;
       while ((wm = WRE.exec(seg))) words.push(wm[0]);
-      const voteOf = list => {
-        const v = new Set();
+      // Tiered resolution per letter (v0.60.2):
+      //   T1 quoted phrases — the author's own pointer. One unique hit decides; quotes
+      //      pointing at two different options = murky attribution → unknown.
+      //   T2 plain English words — one unique hit decides; on a clash the clearly more
+      //      specific token wins (longest normalized form with a ≥2-char margin:
+      //      'shipping' beats 'time' snagged from "lead time"); near-ties stay unknown.
+      //   Unknown letters are NOT fatal here — the pigeonhole stage below may force them.
+      const voteMap = list => {
+        const v = new Map(); // option -> longest evidence (normalized) that uniquely hit it
         for (const e of list) {
           const en = norm(e);
           if (!en) continue;
           const hits = optKeys.filter(k => optNorm[k] && containsWord(optNorm[k], en));
-          if (hits.length === 1) v.add(hits[0]); // ambiguous/zero-match evidence carries no vote
+          if (hits.length === 1) v.set(hits[0], Math.max(v.get(hits[0]) || 0, en.length));
         }
         return v;
       };
-      // quoted phrases are the author's own pointer — when present and decisive, they
-      // outrank loose word matches (which can snag grammar terms like "past")
-      let votes = voteOf(quoted);
-      if (votes.size !== 1) votes = voteOf(quoted.concat(words));
-      if (votes.size !== 1) return null;            // no usable evidence, or conflict → don't touch
-      map[L] = [...votes][0];
+      let resolved = null;
+      const qv = voteMap(quoted);
+      if (qv.size === 1) resolved = qv.keys().next().value;
+      else if (qv.size === 0) {
+        const wv = voteMap(words);
+        const cands = [...wv.keys()].sort((a, b) => wv.get(b) - wv.get(a));
+        if (cands.length === 1) resolved = cands[0];
+        else if (cands.length > 1 && wv.get(cands[0]) >= wv.get(cands[1]) + 2) resolved = cands[0];
+      }
+      if (resolved) map[L] = resolved;
+      else unresolved.push(L); // unknown — pigeonhole may close it below
     }
     // 4) two mentions must never land on the same option
     const targets = Object.values(map);
     if (new Set(targets).size !== targets.length) return null;
+    // v0.60.1) pigeonhole completion: drift comes from a PERMUTATION, so when the explain
+    // mentions EVERY option letter and exactly ONE of them lacks evidence, that letter is
+    // FORCED into the single remaining slot — logic, not guesswork. (Real field case: the
+    // correct choice described in Thai only, every trap pinned by English quotes/words.)
+    // Two or more evidence-free letters, or partial letter coverage, still abort.
+    if (unresolved.length === 1) {
+      const mentionedAll = optKeys.every(k => segs[k] !== undefined);
+      const left = optKeys.filter(k => !targets.includes(k));
+      if (!mentionedAll || left.length !== 1) return null;
+      map[unresolved[0]] = left[0];
+    } else if (unresolved.length > 0) return null;
     // 5) identity → already consistent, nothing to repair
     if (Object.keys(map).every(L => map[L] === L)) return null;
     return { explain: remapExplainLetters(ex, map), map };
   } catch (e) { return null; }
+}
+
+// v0.61.0: 🩺 bank-wide health check. Classify every stored question by what the audit
+// finds and whether the explain repair can fix it automatically — powers the sweep panel
+// so legacy letter-drift can be cleared in one sitting instead of ambushing mid-quiz.
+// Pure + module-level for toolkit tests. Groups:
+//   repairable — letter drift the quote-matching repair solves (batch-confirm once)
+//   keyfix     — the explain TEXT names a different correct option (S2) → fix the key
+//   manual     — flagged but undecidable automatically → human judgement / delete
+function sweepQuestions(qs) {
+  const repairable = [], keyfix = [], manual = [];
+  for (const q of qs || []) {
+    if (!q) continue;
+    const hit = auditAnswerExplain(q);
+    if (!hit) continue;
+    if (hit.suggest) { keyfix.push({ q, hit }); continue; }
+    const rep = repairExplainLetters(q);
+    if (rep) repairable.push({ q, hit, rep });
+    else manual.push({ q, hit });
+  }
+  return { repairable, keyfix, manual, total: repairable.length + keyfix.length + manual.length };
 }
 
 function auditAnswerExplain(item) {
@@ -3071,6 +3174,12 @@ function App() {
     return () => { if (synth.onvoiceschanged === load) synth.onvoiceschanged = null; };
   }, []);
   const [settings, setSettingsState] = useState(SETTINGS_DEFAULT); // user settings (toeic_settings_v1)
+  // ---- v0.61.0: bank overhaul UI state ----
+  const [gSearch, setGSearch] = useState("");   // grammar bank: text search (โจทย์/ช้อยส์/คำอธิบาย/หมวด)
+  const [gPoint, setGPoint] = useState("all");  // grammar bank: filter by grammar point chip
+  const [psFilter, setPsFilter] = useState({}); // reading/audio bank: { [mode]: { q, cat } }
+  const [bankOpen, setBankOpen] = useState({}); // grammar bank: per-card answer reveal (bankReveal="tap")
+  const [sweep, setSweep] = useState(null);     // 🩺 result: { mode, res: sweepQuestions(...) }
   // update settings: keep React state, module mirror, and storage in sync.
   // applySettings takes a patch object so multi-key updates (reset button) write storage ONCE.
   function applySettings(patch) {
@@ -3492,7 +3601,7 @@ function App() {
     // v0.60.0: grammar decks are per-round SHUFFLED COPIES (fresh option order every
     // encounter — answer positions can't be memorised); vocab cards have no options.
     st.deck = mode === "grammar" ? built.map(shuffleForRound) : built;
-    st.pos = 0; st.flipped = false; st.pickedMap = {}; st.tab = "study";
+    st.pos = 0; st.flipped = false; st.pickedMap = {}; st.tab = "study"; st.tryOne = false;
     if (mode === "grammar") { st.startTime = Date.now(); st.endTime = null; st.logged = false; }
     rerender(); scrollToCards();
   }
@@ -3553,16 +3662,18 @@ function App() {
   function chooseReadType(t) { setReadType(t); STORAGE.set(READTYPE_KEY, JSON.stringify(t)); }
   function chooseAudioType(t) { setAudioType(t); STORAGE.set(AUDIOTYPE_KEY, JSON.stringify(t)); }
 
-  // weakness-by-topic for grammar: group RATED drill questions by their (normalized) grammar point,
-  // count weak (forgot+sort) vs known, sorted weakest-first. Uses data already stored — no new logging.
+  // weakness-by-topic for grammar: group RATED drill questions by grammar point,
+  // count weak (forgot+sort) vs known, sorted weakest-first. Uses data already stored.
+  // v0.62.1: groups via grammarPointGroup — the SAME lesson taxonomy as the bank chips,
+  // so a weak topic here is literally the chip to tap in the bank (one grouping brain;
+  // the old strip-parentheses normalizer fragmented mixed/English-only points).
   function grammarWeakness() {
     const g = M.current.grammar;
-    const norm = p => (p || "").replace(/\s*\(.*?\)\s*/g, " ").replace(/\s+/g, " ").trim() || "อื่น ๆ";
     const map = {};
     for (const it of Object.values(g.data || {})) {
       const r = g.ratings[it.id];
       if (!r) continue; // only count questions the user has rated
-      const key = norm(it.point);
+      const key = grammarPointGroup(it.point);
       if (!map[key]) map[key] = { topic: key, total: 0, weak: 0, known: 0 };
       map[key].total++;
       if (r === "known") map[key].known++; else map[key].weak++;
@@ -3663,7 +3774,7 @@ function App() {
       }
       st.data = nextData; st.genCount = newGen;
       st.deck = m === "grammar" ? shuffle(fresh).map(shuffleForRound) : shuffle(fresh);
-      st.pos = 0; st.flipped = false; st.pickedMap = {};
+      st.pos = 0; st.flipped = false; st.pickedMap = {}; st.tryOne = false;
       st.tab = "study"; st.lastAdded = fresh.length; st.lastCategory = category;
       if (m === "grammar") { st.startTime = Date.now(); st.endTime = null; st.logged = false; }
       await persist(m);
@@ -3686,7 +3797,7 @@ function App() {
     const sort = all.filter(x => st.ratings[idOf(x)] === "sort");
     const built = shuffle([...forgot, ...sort]).slice(0, reviewCap(mode));
     st.deck = mode === "grammar" ? built.map(shuffleForRound) : built; // v0.60.0: fresh option order per round
-    st.pos = 0; st.flipped = false; st.pickedMap = {}; st.tab = "study";
+    st.pos = 0; st.flipped = false; st.pickedMap = {}; st.tab = "study"; st.tryOne = false;
     if (mode === "grammar") { st.startTime = Date.now(); st.endTime = null; st.logged = false; }
     rerender();
     scrollToCards();
@@ -3749,6 +3860,8 @@ function App() {
     touchStreak(); updateHistory();
     if (mode === "vocab") bumpDaily(); // vocab card: the rating IS the interaction (grammar counts via choose())
     if (advance) { st.flipped = false; st.pos = Math.min(st.pos + 1, st.deck.length); }
+    // v0.61.0: ▶ one-question try-out from the bank — go straight back to the bank when done
+    if (advance && st.tryOne && st.pos >= st.deck.length) { st.tab = "bank"; st.deck = []; st.pos = 0; st.tryOne = false; }
     rerender();
   }
 
@@ -3944,21 +4057,114 @@ function App() {
     else if (modeKey === "grammar") { const st = M.current.grammar; st.deck = (st.deck || []).map(it => (it.id === qid ? { ...it, answer: shownAnswer } : it)); }
     rerender();
   }
+  // re-derive every live quiz copy of qid from a freshly repaired canonical explain,
+  // each through its own round permutation, so what's on screen updates instantly
+  function applyExplainToLiveDecks(modeKey, qid, explain) {
+    const derive = it => ({ ...it, explain: it._perm ? remapExplainLetters(explain, it._perm) : explain });
+    const patchDeck = v => (v ? { ...v, deck: v.deck.map(it => (it.id === qid ? derive(it) : it)) } : v);
+    if (modeKey === "listening") setLquiz(patchDeck);
+    else if (modeKey === "audio") setAquiz(patchDeck);
+    else if (modeKey === "grammar") { const st = M.current.grammar; st.deck = (st.deck || []).map(it => (it.id === qid ? derive(it) : it)); }
+  }
   // v0.60.0: heal letter drift in the stored explanation (quote-matching, see
-  // repairExplainLetters). Repairs the CANONICAL text, persists, then re-derives every
-  // live copy through its own round permutation so what's on screen matches instantly.
+  // repairExplainLetters). Repairs the CANONICAL text, persists, patches live copies.
   async function repairExplain(modeKey, qid) {
     const can = canonicalQ(modeKey, qid);
     const rep = can && repairExplainLetters(can);
     if (!rep) return;
     patchCanonicalQ(modeKey, qid, { explain: rep.explain });
     try { await persist(modeKey); } catch (e) {}
-    const derive = it => ({ ...it, explain: it._perm ? remapExplainLetters(rep.explain, it._perm) : rep.explain });
-    const patchDeck = v => (v ? { ...v, deck: v.deck.map(it => (it.id === qid ? derive(it) : it)) } : v);
-    if (modeKey === "listening") setLquiz(patchDeck);
-    else if (modeKey === "audio") setAquiz(patchDeck);
-    else if (modeKey === "grammar") { const st = M.current.grammar; st.deck = (st.deck || []).map(it => (it.id === qid ? derive(it) : it)); }
+    applyExplainToLiveDecks(modeKey, qid, rep.explain);
     rerender();
+  }
+  // v0.61.0: ▶ from the bank — a one-question round through the normal quiz UI (fresh
+  // per-round option order), then straight back to the bank after rating. Replaces any
+  // unfinished round deck, exactly like starting a new review round would.
+  function tryOneGrammar(qid) {
+    const st = M.current.grammar;
+    const q = st.data[qid];
+    if (!q) return;
+    st.deck = [shuffleForRound(q)];
+    st.pos = 0; st.flipped = false; st.pickedMap = {}; st.tab = "study"; st.tryOne = true;
+    rerender();
+  }
+  // v0.61.0: 🩺 ตรวจทั้งคลัง — collect every canonical question of a mode (grammar: flat;
+  // listening/audio: inside passages) and classify with sweepQuestions.
+  function runSweep(modeKey) {
+    const st = M.current[modeKey];
+    const qs = [];
+    for (const v of Object.values(st.data || {})) {
+      if (v && Array.isArray(v.questions)) { for (const q of v.questions) if (q) qs.push(q); }
+      else if (v && v.options) qs.push(v);
+    }
+    setSweep({ mode: modeKey, res: sweepQuestions(qs) });
+  }
+  // batch-confirm: repair every auto-repairable explain in one tap (single persist),
+  // then re-run the sweep so the report reflects the now-clean bank.
+  async function sweepRepairAll() {
+    if (!sweep) return;
+    const mk = sweep.mode;
+    for (const r of sweep.res.repairable) {
+      patchCanonicalQ(mk, r.q.id, { explain: r.rep.explain });
+      applyExplainToLiveDecks(mk, r.q.id, r.rep.explain);
+    }
+    try { await persist(mk); } catch (e) {}
+    runSweep(mk);
+  }
+  // v0.62.0: 🤖 last-resort repair for "manual" items — ask the AI to rewrite the Thai
+  // explanation from the actual question + options + stored key (rewriteExplainPrompt).
+  // Trust model preserved: if the AI disagrees with the stored key (key_ok=false) NOTHING
+  // is written — we hand its suggestion back for the human to confirm explicitly.
+  async function aiRewriteExplain(modeKey, qid) {
+    if (needsKey && !hasKey) { openSettings("ai"); return { err: "ยังไม่ได้ใส่ API key — เปิดหน้าตั้งค่าให้แล้วครับ" }; }
+    const can = canonicalQ(modeKey, qid);
+    if (!can) return { err: "ไม่พบข้อนี้ในคลังแล้ว" };
+    let transcript = "";
+    const stm = M.current[modeKey];
+    for (const p of Object.values(stm.data || {})) {
+      if (p && Array.isArray(p.questions) && p.questions.some(q => q && q.id === qid)) { transcript = p.transcript || ""; break; }
+    }
+    const mdl = MODELS.find(x => x.id === models[modeKey]) || MODELS[0];
+    try {
+      const o = await aiCompleteJson({
+        engineId: engine, model: mdl.str, maxTokens: Math.min(genMaxTokens(mdl), 4000),
+        prompt: rewriteExplainPrompt(can, transcript),
+        validate: r => r && typeof r === "object" && typeof r.key_ok === "boolean" && typeof r.explain === "string" && r.explain.length > 10,
+      });
+      if (!o.key_ok) {
+        const sug = ["A", "B", "C", "D"].includes(o.suggested_answer) ? o.suggested_answer : null;
+        return { keyWrong: true, suggest: sug, explain: o.explain };
+      }
+      patchCanonicalQ(modeKey, qid, { explain: o.explain });
+      try { await persist(modeKey); } catch (e) {}
+      applyExplainToLiveDecks(modeKey, qid, o.explain);
+      rerender();
+      return { ok: true };
+    } catch (e) {
+      return { err: String((e && e.message) || e) };
+    }
+  }
+  // human confirmed the AI's verdict: fix the key AND install the freshly written explain
+  async function aiApplyKeyAndExplain(modeKey, qid, L, explain) {
+    await fixAnswerKey(modeKey, qid, L);
+    if (explain) {
+      patchCanonicalQ(modeKey, qid, { explain });
+      try { await persist(modeKey); } catch (e) {}
+      applyExplainToLiveDecks(modeKey, qid, explain);
+    }
+    rerender();
+  }
+  function sweepPanel(mk) {
+    if (!sweep || sweep.mode !== mk) return null;
+    return (
+      <BankSweep res={sweep.res}
+        onRepairAll={sweepRepairAll}
+        onFix={async (id, L) => { await fixAnswerKey(mk, id, L); runSweep(mk); }}
+        onDelete={async (id) => { await deleteQuestion(mk, id); runSweep(mk); }}
+        onAi={(id) => aiRewriteExplain(mk, id)}
+        onAiApply={(id, L, ex) => aiApplyKeyAndExplain(mk, id, L, ex)}
+        onClose={() => setSweep(null)} />
+    );
   }
   async function deleteQuestion(modeKey, qid) {
     const st = M.current[modeKey];
@@ -4523,8 +4729,19 @@ function App() {
       const q = (vocabSearch || "").trim().toLowerCase();
       if (q && !((x.w || "").toLowerCase().includes(q) || (x.th || "").toLowerCase().includes(q) || (x.def || "").toLowerCase().includes(q))) return false;
     }
+    if (mode === "grammar") {
+      // v0.61.0: text search over question + options + explain + grammar point
+      const q = (gSearch || "").trim().toLowerCase();
+      if (q && !(`${x.q || ""} ${Object.values(x.options || {}).join(" ")} ${x.explain || ""} ${x.point || ""}`).toLowerCase().includes(q)) return false;
+    }
     return true;
   });
+  // v0.61.0: grammar point chips count off the status+search base (level-chip pattern)
+  const gPointCounts = mode === "grammar" ? (() => {
+    const byPoint = {};
+    for (const x of bankBase) { const k = grammarPointGroup(x.point); byPoint[k] = (byPoint[k] || 0) + 1; } // v0.62.0: fold into lesson taxonomy
+    return { all: bankBase.length, byPoint };
+  })() : null;
   const vocabLevelCounts = mode === "vocab" ? (() => {
     const c = { all: bankBase.length, A1: 0, A2: 0, B1: 0, B2: 0, C1: 0, C2: 0, none: 0 };
     for (const x of bankBase) { if (x.cefr && c[x.cefr] != null) c[x.cefr]++; else if (!x.cefr) c.none++; }
@@ -4537,6 +4754,7 @@ function App() {
       // plain string compare (ASCII lowercase) — far faster than localeCompare on ~1k words
       items = items.slice().sort((a, b) => { const wa = a.w || "", wb = b.w || ""; return wa < wb ? -1 : wa > wb ? 1 : 0; });
     } else {
+      if (mode === "grammar" && gPoint !== "all") items = items.filter(x => grammarPointGroup(x.point) === gPoint); // v0.61.0/v0.62.0
       items = items.slice().sort((a, b) => (b.gen || 0) - (a.gen || 0));
     }
     return items;
@@ -4759,6 +4977,14 @@ function App() {
                     <SettingPill on={settings.cardReveal === "hard"} onClick={() => updateSetting("cardReveal", "hard")}>ซ่อนไทย+นิยามอังกฤษ</SettingPill>
                   </div>
                   <div style={{ fontSize: 11, color: C.sub, marginTop: 6, lineHeight: 1.5 }}>โหมดซ่อนหมด: พลิกแล้วเห็นแค่ประโยคตัวอย่างเป็นใบ้ — แตะอีกทีถึงเผยความหมาย</div>
+                </div>
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 500 }}>เฉลยในคลังข้อสอบ (Grammar)</div>
+                  <div style={{ fontSize: 11, color: C.sub, marginTop: 1, lineHeight: 1.5 }}>ซ่อนเฉลยไว้ก่อน = เปิดคลังมาไล่ลองทำเองได้โดยไม่โดนสปอยล์</div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 7 }}>
+                    <SettingPill on={settings.bankReveal === "tap"} onClick={() => updateSetting("bankReveal", "tap")}>แตะเผยเฉลยทีละข้อ</SettingPill>
+                    <SettingPill on={settings.bankReveal === "show"} onClick={() => updateSetting("bankReveal", "show")}>โชว์เฉลยทันที</SettingPill>
+                  </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
                   <span>
@@ -5821,17 +6047,42 @@ function App() {
                   if (wantPart) passages = passages.filter(p => (p.ptype || "Part 7") === wantPart);
                   if (!passages.length) return null;
                   const scopeLbl = wantPart ? wantPart : "ทุกพาร์ท";
+                  // v0.61.0: text search + category chips over the saved sets
+                  const f = psFilter[mode] || { q: "", cat: "all" };
+                  const setPs = patch => setPsFilter(s => ({ ...s, [mode]: { ...(s[mode] || { q: "", cat: "all" }), ...patch } }));
+                  const ql = (f.q || "").trim().toLowerCase();
+                  let shown = !ql ? passages : passages.filter(p =>
+                    (`${p.transcript || ""} ${p.category || ""} ${(p.questions || []).map(q => `${q.q || ""} ${Object.values(q.options || {}).join(" ")} ${q.explain || ""}`).join(" ")}`).toLowerCase().includes(ql));
+                  const catCounts = {}; for (const p of shown) { const k = p.category || "อื่นๆ"; catCounts[k] = (catCounts[k] || 0) + 1; }
+                  if (f.cat !== "all") shown = shown.filter(p => (p.category || "อื่นๆ") === f.cat);
                   return (
                     <div style={{ marginTop: 4 }}>
                       <div style={{ fontSize: 12.5, color: C.sub, fontWeight: 600, marginBottom: 8 }}>
                         📚 คลังข้อสอบที่เคยสร้าง · {scopeLbl} ({passages.length} ชุด) — แตะเพื่อทำซ้ำ
                       </div>
+                      <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                        <input value={f.q || ""} onChange={e => setPs({ q: e.target.value })} placeholder="ค้นหา (เนื้อเรื่อง/โจทย์/เฉลย/หมวด)…"
+                          style={{ flex: 1, minWidth: 0, boxSizing: "border-box", padding: "9px 12px", fontSize: 13, borderRadius: 10, border: `1.5px solid ${C.line}`, background: C.card, color: C.ink, outline: "none", fontFamily: "inherit" }} />
+                        <button onClick={() => runSweep(mode)} title="🩺 ตรวจเฉลยทั้งคลัง (จับ+ซ่อมข้อที่เฉลยขัดคำอธิบาย)" aria-label="ตรวจเฉลยทั้งคลัง"
+                          style={{ flexShrink: 0, width: 42, borderRadius: 10, border: `1.5px solid ${C.line}`, background: C.card, fontSize: 16 }}>🩺</button>
+                      </div>
+                      {Object.keys(catCounts).length > 1 && (
+                        <div style={{ display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 4, marginBottom: 8 }}>
+                          {[["all", `ทั้งหมด ${Object.values(catCounts).reduce((a, b) => a + b, 0)}`]].concat(Object.entries(catCounts).sort((a, b) => b[1] - a[1]).map(([k, n]) => [k, `${k} ${n}`])).map(([id, lbl]) => (
+                            <button key={id} onClick={() => setPs({ cat: id })}
+                              style={{ flexShrink: 0, whiteSpace: "nowrap", border: `1px solid ${f.cat === id ? C.accent : C.line}`, background: f.cat === id ? C.accentSoft : C.card, color: f.cat === id ? C.accent : C.sub, borderRadius: 20, padding: "5px 11px", fontSize: 12, fontWeight: 600 }}>{lbl}</button>
+                          ))}
+                        </div>
+                      )}
+                      {sweepPanel(mode)}
+                      {shown.length === 0 && <div style={{ textAlign: "center", color: C.sub, fontSize: 13, padding: "18px 12px", border: `1px dashed ${C.line}`, borderRadius: 12 }}>ไม่พบชุดที่ตรงกับตัวกรองครับ</div>}
                       <div style={{ display: "grid", gap: 8 }}>
-                        {passages.map(p => {
+                        {shown.map(p => {
                           const preview = (p.transcript || "").replace(/\n/g, " ").slice(0, 70);
                           const nq = (p.questions || []).length;
                           let ok = 0; for (const q of (p.questions || [])) if (st.ratings[q.id] === "known") ok++;
                           const setStatus = passageSetStatus(p, st);
+                          const bad = (p.questions || []).reduce((n, q) => n + (auditAnswerExplain(q) ? 1 : 0), 0); // v0.61.0
                           return (
                             <div key={p.id} style={{ display: "flex", alignItems: "stretch", gap: 8, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 11, overflow: "hidden" }}>
                               <button onClick={() => playSavedReading(p.id)}
@@ -5839,6 +6090,7 @@ function App() {
                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 4 }}>
                                   <span style={{ fontSize: 12, color: C.accent, fontWeight: 600 }}>{p.ptype || "Part 7"} · {nq} ข้อ{ok > 0 ? ` · เข้าใจ ${ok}/${nq}` : ""}</span>
                                   <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                    {bad > 0 ? <span title={`เฉลยอาจมีปัญหา ${bad} ข้อ — กด 🩺 เพื่อตรวจ/ซ่อม`} style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10, color: C.red, background: C.redBg }}>⚠️ {bad}</span> : null}
                                     {(() => { const db = diffBadge(p.difficulty); return <span title={db.label} style={{ fontSize: 11, fontWeight: 700, padding: "2px 7px", borderRadius: 10, color: db.known ? C.ink : C.sub, background: db.known ? C.amberBg : C.line }}>{db.icon}</span>; })()}
                                     <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 10, color: setStatus.color, background: setStatus.bg }}>{setStatus.label}</span>
                                     {p.model ? <span style={{ fontSize: 10, color: C.accent, background: C.accentSoft, padding: "2px 8px", borderRadius: 10, fontWeight: 600 }}>{p.model}</span> : null}
@@ -6113,13 +6365,37 @@ function App() {
                   if (wantPart) clips = clips.filter(p => (p.ptype || "Part 3") === wantPart);
                   if (!clips.length) return null;
                   const scopeLbl = wantPart ? wantPart : "ทุกพาร์ท";
+                  // v0.61.0: text search + category chips over the saved clips (mirrors Reading)
+                  const f = psFilter[mode] || { q: "", cat: "all" };
+                  const setPs = patch => setPsFilter(s => ({ ...s, [mode]: { ...(s[mode] || { q: "", cat: "all" }), ...patch } }));
+                  const ql = (f.q || "").trim().toLowerCase();
+                  let shown = !ql ? clips : clips.filter(p =>
+                    (`${p.transcript || ""} ${p.category || ""} ${(p.questions || []).map(q => `${q.q || ""} ${Object.values(q.options || {}).join(" ")} ${q.explain || ""}`).join(" ")}`).toLowerCase().includes(ql));
+                  const catCounts = {}; for (const p of shown) { const k = p.category || "อื่นๆ"; catCounts[k] = (catCounts[k] || 0) + 1; }
+                  if (f.cat !== "all") shown = shown.filter(p => (p.category || "อื่นๆ") === f.cat);
                   return (
                     <div style={{ marginTop: 4 }}>
                       <div style={{ fontSize: 12.5, color: C.sub, fontWeight: 600, marginBottom: 8 }}>
                         📚 คลังบทฟังที่เคยสร้าง · {scopeLbl} ({clips.length} ชุด) — แตะเพื่อฟังซ้ำ
                       </div>
+                      <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                        <input value={f.q || ""} onChange={e => setPs({ q: e.target.value })} placeholder="ค้นหา (สคริปต์/โจทย์/เฉลย/หมวด)…"
+                          style={{ flex: 1, minWidth: 0, boxSizing: "border-box", padding: "9px 12px", fontSize: 13, borderRadius: 10, border: `1.5px solid ${C.line}`, background: C.card, color: C.ink, outline: "none", fontFamily: "inherit" }} />
+                        <button onClick={() => runSweep(mode)} title="🩺 ตรวจเฉลยทั้งคลัง (จับ+ซ่อมข้อที่เฉลยขัดคำอธิบาย)" aria-label="ตรวจเฉลยทั้งคลัง"
+                          style={{ flexShrink: 0, width: 42, borderRadius: 10, border: `1.5px solid ${C.line}`, background: C.card, fontSize: 16 }}>🩺</button>
+                      </div>
+                      {Object.keys(catCounts).length > 1 && (
+                        <div style={{ display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 4, marginBottom: 8 }}>
+                          {[["all", `ทั้งหมด ${Object.values(catCounts).reduce((a, b) => a + b, 0)}`]].concat(Object.entries(catCounts).sort((a, b) => b[1] - a[1]).map(([k, n]) => [k, `${k} ${n}`])).map(([id, lbl]) => (
+                            <button key={id} onClick={() => setPs({ cat: id })}
+                              style={{ flexShrink: 0, whiteSpace: "nowrap", border: `1px solid ${f.cat === id ? C.accent : C.line}`, background: f.cat === id ? C.accentSoft : C.card, color: f.cat === id ? C.accent : C.sub, borderRadius: 20, padding: "5px 11px", fontSize: 12, fontWeight: 600 }}>{lbl}</button>
+                          ))}
+                        </div>
+                      )}
+                      {sweepPanel(mode)}
+                      {shown.length === 0 && <div style={{ textAlign: "center", color: C.sub, fontSize: 13, padding: "18px 12px", border: `1px dashed ${C.line}`, borderRadius: 12 }}>ไม่พบชุดที่ตรงกับตัวกรองครับ</div>}
                       <div style={{ display: "grid", gap: 8 }}>
-                        {clips.map(p => {
+                        {shown.map(p => {
                           const isP2clip = (p.ptype === "Part 2") || !(p.transcript || "").trim();
                           const preview = isP2clip
                             ? (((p.questions || [])[0] || {}).q || "").replace(/\n/g, " ").slice(0, 70)
@@ -6127,6 +6403,7 @@ function App() {
                           const nq = (p.questions || []).length;
                           let ok = 0; for (const q of (p.questions || [])) if (st.ratings[q.id] === "known") ok++;
                           const setStatus = passageSetStatus(p, st);
+                          const bad = (p.questions || []).reduce((n, q) => n + (auditAnswerExplain(q) ? 1 : 0), 0); // v0.61.0
                           return (
                             <div key={p.id} style={{ display: "flex", alignItems: "stretch", gap: 8, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 11, overflow: "hidden" }}>
                               <button onClick={() => playSavedAudio(p.id)}
@@ -6134,6 +6411,7 @@ function App() {
                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 4 }}>
                                   <span style={{ fontSize: 12, color: C.accent, fontWeight: 600 }}>{p.ptype || "Part 3"} · {nq} ข้อ{ok > 0 ? ` · เข้าใจ ${ok}/${nq}` : ""}</span>
                                   <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                    {bad > 0 ? <span title={`เฉลยอาจมีปัญหา ${bad} ข้อ — กด 🩺 เพื่อตรวจ/ซ่อม`} style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10, color: C.red, background: C.redBg }}>⚠️ {bad}</span> : null}
                                     {(() => { const db = diffBadge(p.difficulty); return <span title={db.label} style={{ fontSize: 11, fontWeight: 700, padding: "2px 7px", borderRadius: 10, color: db.known ? C.ink : C.sub, background: db.known ? C.amberBg : C.line }}>{db.icon}</span>; })()}
                                     <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 10, color: setStatus.color, background: setStatus.bg }}>{setStatus.label}</span>
                                     {p.model ? <span style={{ fontSize: 10, color: C.accent, background: C.accentSoft, padding: "2px 8px", borderRadius: 10, fontWeight: 600 }}>{p.model}</span> : null}
@@ -6951,6 +7229,15 @@ function App() {
                     )}
                   </div>
                 )}
+                {mode === "grammar" && (
+                  <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+                    <input value={gSearch} onChange={e => { setGSearch(e.target.value); setBankShow(60); }} placeholder="ค้นหา (โจทย์/ช้อยส์/คำอธิบาย/หมวด)…"
+                      style={{ flex: 1, minWidth: 0, boxSizing: "border-box", padding: "10px 13px", fontSize: 13.5, borderRadius: 11, border: `1.5px solid ${C.line}`, background: C.card, color: C.ink, outline: "none", fontFamily: "inherit" }} />
+                    <button onClick={() => runSweep("grammar")} title="🩺 ตรวจเฉลยทั้งคลัง (จับ+ซ่อมข้อที่เฉลยขัดคำอธิบาย)" aria-label="ตรวจเฉลยทั้งคลัง"
+                      style={{ flexShrink: 0, width: 44, borderRadius: 11, border: `1.5px solid ${C.line}`, background: C.card, fontSize: 17 }}>🩺</button>
+                  </div>
+                )}
+                {mode === "grammar" && sweepPanel("grammar")}
                 {mode === "vocab" && (
                   <div style={{ fontSize: 11, color: C.sub, fontWeight: 600, marginBottom: 5, letterSpacing: 0.2 }}>สถานะความจำ</div>
                 )}
@@ -6979,6 +7266,25 @@ function App() {
                             </button>
                           );
                         })}
+                    </div>
+                  </>
+                )}
+                {/* v0.61.0 GRAMMAR: point chips — pick a grammar point to narrow the list */}
+                {mode === "grammar" && gPointCounts && Object.keys(gPointCounts.byPoint).length > 1 && (
+                  <>
+                    <div style={{ borderTop: `1px solid ${C.line}`, margin: "0 0 10px" }} />
+                    <div style={{ fontSize: 11, color: C.sub, fontWeight: 600, marginBottom: 5, letterSpacing: 0.2 }}>หมวด (Grammar point)</div>
+                    <div style={{ display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 4, marginBottom: 10 }}>
+                      {[["all", "ทั้งหมด", gPointCounts.all]].concat(Object.entries(gPointCounts.byPoint).sort((a, b) => b[1] - a[1]).map(([k, n]) => [k, k, n])).map(([id, lbl, n]) => {
+                        const on = gPoint === id;
+                        return (
+                          <button key={id} onClick={() => { setGPoint(id); setBankShow(60); }}
+                            style={{ flexShrink: 0, whiteSpace: "nowrap", border: `1px solid ${on ? C.accent : C.line}`, background: on ? C.accent : C.card,
+                              color: on ? C.inkOn : C.sub, borderRadius: 20, padding: "6px 12px", fontSize: 12, fontWeight: 700 }}>
+                            {lbl} <span style={{ fontWeight: 500, opacity: 0.8 }}>{n}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </>
                 )}
@@ -7012,11 +7318,17 @@ function App() {
                         <div style={{ fontSize: 13.5, color: C.sub, marginTop: 2, lineHeight: 1.45 }}>{x.def}</div>
                         <RatingRow mode={mode} current={st.ratings[x.w]} onRate={s => rate(x.w, s, false)} small />
                       </div>
-                    ) : (
+                    ) : (() => {
+                      // v0.61.0: bank card — answer hidden by default (👁️ setting), ▶ one-question
+                      // try-out, ⚠️ chip while hidden, full AnswerKeyWarning powers on reveal.
+                      const hit = auditAnswerExplain(x);
+                      const open = settings.bankReveal === "show" || !!bankOpen[x.id];
+                      return (
                       <div key={x.id} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: "13px 14px" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
                           <span style={{ fontSize: 11, color: C.accent, fontWeight: 600, textTransform: "uppercase", letterSpacing: .5 }}>{x.point || "Part 5"}</span>
                           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                            {hit && !open ? <span title="เฉลยข้อนี้อาจมีปัญหา — เผยเฉลยเพื่อดู/ซ่อม" style={{ fontSize: 10.5, fontWeight: 700, color: C.red, background: C.redBg, padding: "1px 7px", borderRadius: 10 }}>⚠️</span> : null}
                             {(() => { const db = diffBadge(x.difficulty); return <span title={db.label} style={{ fontSize: 11, fontWeight: 700, padding: "1px 6px", borderRadius: 10, color: db.known ? C.ink : C.sub, background: db.known ? C.amberBg : C.line }}>{db.icon}</span>; })()}
                             {x.model ? <span style={{ fontSize: 10, color: C.accent, background: C.accentSoft, padding: "1px 6px", borderRadius: 10 }}>{x.model}</span> : null}
                             {x.gen ? <span style={{ fontSize: 11, color: C.sub }}>ชุด {genIdx[x.gen] || x.gen}</span> : null}
@@ -7024,15 +7336,34 @@ function App() {
                           </div>
                         </div>
                         <div style={{ fontSize: 15, lineHeight: 1.5, fontWeight: 500 }}>{x.q}</div>
-                        <div style={{ fontSize: 13.5, color: C.green, fontWeight: 600, marginTop: 6 }}>เฉลย: {x.answer}. {x.options?.[x.answer]}</div>
-                        <div style={{ fontSize: 13, color: C.sub, marginTop: 3, lineHeight: 1.5 }}>{x.explain}</div>
-                        <button onClick={() => copyGrammarItem(x)}
-                          style={{ marginTop: 8, background: C.card, color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 9, padding: "7px 12px", fontSize: 12.5, fontWeight: 600 }}>
-                          📋 ก๊อปข้อนี้ไปถาม Coach
-                        </button>
+                        <div style={{ display: "flex", gap: 8, marginTop: 9, flexWrap: "wrap" }}>
+                          <button onClick={() => tryOneGrammar(x.id)}
+                            style={{ background: C.accent, color: C.inkOn, border: "none", borderRadius: 9, padding: "7px 13px", fontSize: 12.5, fontWeight: 700, fontFamily: "inherit" }}>
+                            ▶ ลองทำข้อนี้
+                          </button>
+                          {settings.bankReveal !== "show" && (
+                            <button onClick={() => setBankOpen(s => ({ ...s, [x.id]: !s[x.id] }))}
+                              style={{ background: C.card, color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 9, padding: "7px 13px", fontSize: 12.5, fontWeight: 600, fontFamily: "inherit" }}>
+                              {open ? "ซ่อนเฉลย" : "👁 เผยเฉลย"}
+                            </button>
+                          )}
+                        </div>
+                        {open && (<>
+                          <div style={{ fontSize: 13.5, color: C.green, fontWeight: 600, marginTop: 8 }}>เฉลย: {x.answer}. {x.options?.[x.answer]}</div>
+                          <div style={{ fontSize: 13, color: C.sub, marginTop: 3, lineHeight: 1.5 }}>{x.explain}</div>
+                          <AnswerKeyWarning item={x} canonical={x}
+                            onFix={(L) => fixAnswerKey("grammar", x.id, L)}
+                            onRepair={() => repairExplain("grammar", x.id)}
+                            onDelete={() => deleteQuestion("grammar", x.id)} />
+                          <button onClick={() => copyGrammarItem(x)}
+                            style={{ marginTop: 8, background: C.card, color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 9, padding: "7px 12px", fontSize: 12.5, fontWeight: 600 }}>
+                            📋 ก๊อปข้อนี้ไปถาม Coach
+                          </button>
+                        </>)}
                         <RatingRow mode={mode} current={st.ratings[x.id]} onRate={s => rate(x.id, s, false)} small />
                       </div>
-                    ))}
+                      );
+                    })())}
                 </div>
                 {bankItems.length > bankShow && (
                   <button onClick={() => setBankShow(s => s + 80)}
@@ -7275,6 +7606,100 @@ function SettingStepper({ value, lo, hi, onChange }) {
     </span>
   );
 }
+// v0.62.0: a "manual" sweep row with the 🤖 last-resort path. Local state machine:
+// idle → busy → done | keyWrong (AI disagrees with the stored key → human decides) | err.
+// The row stays visible after success (✅) so the user sees what got fixed; the next 🩺
+// press recounts a clean bank.
+function SweepManualRow({ q, onAi, onAiApply, onDelete }) {
+  const [st2, setSt2] = useState({ s: "idle" });
+  const row = { display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderTop: `1px solid ${C.line}`, flexWrap: "wrap" };
+  const btn = { border: `1.5px solid ${C.red}`, background: C.card, color: C.red, borderRadius: 8, padding: "5px 10px", fontSize: 12, fontWeight: 700, fontFamily: "inherit", flexShrink: 0 };
+  const snip = (((q.q || "").replace(/\s+/g, " ").slice(0, 56)) || q.id) + ((q.q || "").length > 56 ? "…" : "");
+  const run = async () => {
+    setSt2({ s: "busy" });
+    const r = (await onAi(q.id)) || {};
+    if (r.ok) setSt2({ s: "done" });
+    else if (r.keyWrong) setSt2({ s: "keyWrong", suggest: r.suggest, explain: r.explain });
+    else setSt2({ s: "err", msg: r.err || "ไม่สำเร็จ ลองอีกครั้งได้ครับ" });
+  };
+  return (
+    <div style={row}>
+      <span style={{ fontSize: 12, color: C.sub, flex: 1, minWidth: 140 }}>{snip}</span>
+      {st2.s === "idle" && (<>
+        <button onClick={run} style={{ ...btn, borderColor: C.accent, color: C.accent }}>🤖 ซ่อมด้วย AI</button>
+        <button onClick={() => onDelete(q.id)} style={btn}>🗑</button>
+      </>)}
+      {st2.s === "busy" && <span style={{ fontSize: 12, color: C.sub, flexShrink: 0 }}>⏳ กำลังถาม AI…</span>}
+      {st2.s === "done" && <span style={{ fontSize: 12, color: C.green, fontWeight: 700, flexShrink: 0 }}>✅ เขียนคำอธิบายใหม่และบันทึกแล้ว</span>}
+      {st2.s === "err" && (<>
+        <span style={{ fontSize: 11.5, color: C.red, flexBasis: "100%", lineHeight: 1.5 }}>⚠️ {st2.msg}</span>
+        <button onClick={run} style={btn}>ลองอีกครั้ง</button>
+        <button onClick={() => onDelete(q.id)} style={btn}>🗑</button>
+      </>)}
+      {st2.s === "keyWrong" && (<>
+        <span style={{ fontSize: 11.5, color: C.red, flexBasis: "100%", lineHeight: 1.5 }}>
+          🤖 AI ตรวจแล้วเห็นว่าเฉลยที่เก็บไว้อาจผิด — แนะนำข้อ {st2.suggest || "?"} (ไม่เขียนทับอัตโนมัติ ยืนยันเองครับ)
+        </span>
+        {st2.suggest && (
+          <button onClick={async () => { setSt2({ s: "busy" }); await onAiApply(q.id, st2.suggest, st2.explain); setSt2({ s: "done" }); }}
+            style={{ ...btn, borderColor: C.green, color: C.green }}>
+            🔧 แก้เฉลยเป็น {st2.suggest} + ใช้คำอธิบายใหม่
+          </button>
+        )}
+        <button onClick={() => onDelete(q.id)} style={btn}>🗑</button>
+      </>)}
+    </div>
+  );
+}
+
+// v0.61.0: 🩺 ตรวจทั้งคลัง — inline report under the sweep button. Three groups with the
+// same trust model as AnswerKeyWarning: (1) explain letter-drift the quote-matching repair
+// solves → ONE batch-confirm button (still human-confirmed, persisted permanently),
+// (2) the explain TEXT names a different correct option → per-item key fix,
+// (3) undecidable automatically → human judgement, delete only.
+function BankSweep({ res, onRepairAll, onFix, onDelete, onAi, onAiApply, onClose }) {
+  if (!res) return null;
+  const row = { display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderTop: `1px solid ${C.line}` };
+  const snip = q => (((q.q || "").replace(/\s+/g, " ").slice(0, 56)) || q.id) + ((q.q || "").length > 56 ? "…" : "");
+  const btn = { border: `1.5px solid ${C.red}`, background: C.card, color: C.red, borderRadius: 8, padding: "5px 10px", fontSize: 12, fontWeight: 700, fontFamily: "inherit", flexShrink: 0 };
+  return (
+    <div style={{ margin: "2px 0 12px", border: `1.5px solid ${C.line}`, borderRadius: 12, background: C.panel, padding: "11px 12px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontSize: 13, fontWeight: 700 }}>🩺 ผลตรวจคลัง{res.total ? ` — พบ ${res.total} ข้อที่เฉลยอาจมีปัญหา` : ""}</span>
+        <button onClick={onClose} aria-label="ปิดผลตรวจ" style={{ border: "none", background: "none", color: C.sub, fontSize: 17, lineHeight: 1, padding: 2 }}>×</button>
+      </div>
+      {res.total === 0 && <div style={{ fontSize: 13, color: C.green, fontWeight: 600, marginTop: 6 }}>✅ ไม่พบข้อที่เฉลยขัดกับคำอธิบาย — คลังสะอาดครับ</div>}
+      {res.repairable.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700 }}>🔧 ซ่อมคำอธิบายอัตโนมัติได้ · {res.repairable.length} ข้อ</div>
+          {res.repairable.map(r => <div key={r.q.id} style={row}><span style={{ fontSize: 12, color: C.sub, flex: 1, minWidth: 0 }}>{snip(r.q)}</span></div>)}
+          <button onClick={onRepairAll}
+            style={{ ...btn, borderColor: C.green, color: C.green, marginTop: 8, width: "100%", padding: "9px" }}>
+            🔧 ซ่อมทั้งหมด {res.repairable.length} ข้อ (บันทึกถาวร)
+          </button>
+        </div>
+      )}
+      {res.keyfix.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700 }}>🛠 เฉลยขัดกับข้อความ — ยืนยันทีละข้อ · {res.keyfix.length} ข้อ</div>
+          {res.keyfix.map(r => (
+            <div key={r.q.id} style={row}>
+              <span style={{ fontSize: 12, color: C.sub, flex: 1, minWidth: 0 }}>{snip(r.q)}</span>
+              <button onClick={() => onFix(r.q.id, r.hit.suggest)} style={btn}>🔧 แก้เป็น {r.hit.suggest}</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {res.manual.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700 }}>⚠️ วินิจฉัยอัตโนมัติไม่ได้ · {res.manual.length} ข้อ — ให้ 🤖 เขียนคำอธิบายใหม่จากเฉลยจริงได้</div>
+          {res.manual.map(r => <SweepManualRow key={r.q.id} q={r.q} onAi={onAi} onAiApply={onAiApply} onDelete={onDelete} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // v0.58.0/v0.58.1: shown under the explanation box when auditAnswerExplain detects that the
 // AI's answer key contradicts its own explanation. When the audit can name the letter the
 // explanation argues for (S2), a human-confirmed 🔧 button repairs the canonical store.
