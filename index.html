@@ -16,7 +16,7 @@ const { useState, useEffect, useRef } = React;
 
 // App version — bump on every release. Shown as a small badge (tap to confirm the
 // browser is running the latest build, not a stale cached one).
-const VERSION = "0.59.0";
+const VERSION = "0.60.0";
 
 // ============================================================
 //  ENVIRONMENT DETECTION
@@ -1039,33 +1039,69 @@ function shuffle(arr) {
   return a;
 }
 
-// Re-randomise the position of the correct answer for ONE multiple-choice question.
-// LLMs tend to pile the correct key on "A" (it mirrors the example shape in the prompt),
-// so after parsing we shuffle the option VALUES and remap the answer key. Works for both
-// 4-choice items (A/B/C/D — grammar/reading) and 3-choice items (A/B/C — Part 2).
-// Returns a NEW question object; leaves the input untouched. Safe to call on any shape:
-// if options/answer are missing or malformed, it returns the question unchanged.
-function shuffleQuestionOptions(q) {
-  if (!q || !q.options || !q.answer) return q;
+// ---- v0.60.0: option-letter permutation core -------------------------------------------
+// LLMs pile the correct key on "A", and a FIXED stored order lets the learner memorise
+// answer POSITIONS. So every quiz round now draws a fresh permutation of the letters.
+// Index-based (letters, not texts): questions with duplicate option texts remap correctly,
+// which the old value-search version got wrong. Works for 4-choice (A–D) and 3-choice (A–C).
+
+// Draw a random permutation {oldLetter → newLetter} for one question, or null if the
+// question isn't in a canonical letter-keyed shape (then callers leave it untouched).
+function makeOptionPerm(q) {
+  if (!q || !q.options || !q.answer) return null;
   const keys = Object.keys(q.options);
-  // only handle the canonical letter-keyed shapes
   const expected3 = ["A", "B", "C"];
   const expected4 = ["A", "B", "C", "D"];
-  const isLetters =
-    (keys.length === 3 && expected3.every(k => keys.includes(k))) ||
-    (keys.length === 4 && expected4.every(k => keys.includes(k)));
-  if (!isLetters) return q;
-  const orderedKeys = keys.length === 3 ? expected3 : expected4;
-  if (!orderedKeys.includes(q.answer)) return q; // answer not a valid key → leave as-is
-  const correctVal = q.options[q.answer];
-  const values = shuffle(orderedKeys.map(k => q.options[k]));
-  const newOptions = {};
-  let newAnswer = q.answer;
-  orderedKeys.forEach((k, i) => {
-    newOptions[k] = values[i];
-    if (values[i] === correctVal) newAnswer = k;
-  });
-  return { ...q, options: newOptions, answer: newAnswer };
+  const ordered =
+    keys.length === 3 && expected3.every(k => keys.includes(k)) ? expected3 :
+    keys.length === 4 && expected4.every(k => keys.includes(k)) ? expected4 : null;
+  if (!ordered || !ordered.includes(q.answer)) return null; // answer not a valid key → leave as-is
+  const dest = shuffle([...ordered]);
+  const perm = {};
+  ordered.forEach((k, i) => { perm[k] = dest[i]; });
+  return perm;
+}
+function invertPerm(perm) {
+  const inv = {};
+  for (const k of Object.keys(perm || {})) inv[perm[k]] = k;
+  return inv;
+}
+// Rewrite standalone option letters (A–D) in a text per `perm`, in ONE pass — so cyclic
+// swaps (A→B→C→A) can't smear into each other. Quoted spans ('...', "...", curly) are
+// linguistic content (e.g. the article 'A'), never option refs, and are left alone; a
+// single quote that touches a letter (don't, it's) can't open a span.
+const LETTER_TOKEN_RE = () => /("[^"\n]*"|“[^”\n]*”|‘[^’\n]*’)|(^|[^A-Za-z])('[^'\n]*'|[A-D])(?![A-Za-z])/g;
+function remapExplainLetters(text, perm) {
+  if (!text) return text;
+  return String(text).replace(LETTER_TOKEN_RE(), (m, dq, pre, tok) =>
+    dq !== undefined ? dq : tok.length === 1 ? pre + (perm[tok] || tok) : pre + tok);
+}
+// Apply one permutation to a question: move the option texts, remap the answer key, AND
+// remap any letters inside `explain` so the explanation keeps pointing at the right
+// choices. Assumes the stored explain matches the stored option order (true for newly
+// generated items — prompts ban letter refs — and for legacy items healed by
+// repairExplainLetters). Options are rebuilt in A→D insertion order (key order = UI lesson).
+function applyOptionPerm(q, perm) {
+  if (!perm) return q;
+  const ordered = Object.keys(q.options).length === 3 ? ["A", "B", "C"] : ["A", "B", "C", "D"];
+  const inv = invertPerm(perm);
+  const options = {};
+  for (const nk of ordered) options[nk] = q.options[inv[nk]];
+  return { ...q, options, answer: perm[q.answer], explain: q.explain ? remapExplainLetters(q.explain, perm) : q.explain };
+}
+// One-shot shuffle (kept for Exam ingest — an exam deck IS its round). Returns a NEW
+// question object; safe on any shape: malformed input is returned unchanged.
+function shuffleQuestionOptions(q) {
+  const perm = makeOptionPerm(q);
+  return perm ? applyOptionPerm(q, perm) : q;
+}
+// Per-ROUND shuffle for quiz decks built from the bank: same as above but ALWAYS returns a
+// copy (never the stored object) and carries the permutation as `_perm` (stored→shown) so
+// persist actions (🔧 fix answer key) can translate a shown letter back to the stored one.
+// Storage is never touched — the canonical item keeps its own order.
+function shuffleForRound(q) {
+  const perm = makeOptionPerm(q);
+  return perm ? { ...applyOptionPerm(q, perm), _perm: perm } : { ...q };
 }
 
 function vocabPrompt(avoidWords, category, diffPrompt) {
@@ -2803,6 +2839,85 @@ function vocabLoadData(s) {
 //   S1: explain names a LETTER as the correct answer that differs from `answer`
 //   S2: explain names exactly ONE option's full text as the correct answer and it isn't `answer`
 //   S3: explain explicitly calls the keyed letter wrong
+// v0.60.0: heal "letter drift" in a STORED explanation. Legacy ingest shuffled the options
+// AFTER the AI wrote its explanation, so letters in old explains can point at the wrong
+// choices (field reports show even 3-cycles). Strategy (quote-matching): the explanation
+// talks ABOUT each lettered choice — quoting its words ('wrapped up') or naming distinctive
+// words from it. For every letter the explain mentions, collect that segment's quoted
+// phrases + standalone English words (3+ letters), find which option's text uniquely
+// contains them, and map mention→real letter. Only if EVERY mentioned letter resolves
+// uniquely AND the mapping has no collisions do we rewrite (one pass, cycle-safe);
+// anything incomplete or ambiguous → return null and leave the warning for a human.
+// Pure + module-level so the toolkit can unit-test it. Returns { explain, map } | null.
+function repairExplainLetters(item) {
+  try {
+    if (!item || !item.explain || !item.options) return null;
+    const ex = String(item.explain);
+    const optKeys = Object.keys(item.options);
+    // 1) scan letter mentions — same token rule as remapExplainLetters (quoted spans never count)
+    const re = LETTER_TOKEN_RE();
+    const mentions = [];
+    let mm;
+    while ((mm = re.exec(ex))) {
+      if (mm[1] !== undefined) continue;            // double/curly-quoted span
+      const tok = mm[3];
+      if (tok.length !== 1) continue;               // single-quoted span
+      if (!optKeys.includes(tok)) continue;         // e.g. "D" on a 3-choice item → not a ref
+      const start = mm.index + mm[2].length;
+      mentions.push({ L: tok, start, end: start + 1 });
+    }
+    if (!mentions.length) return null;
+    // 2) segment per mention = the text AFTER the letter, up to the next letter mention
+    const segs = {};
+    mentions.forEach((m2, i) => {
+      const stop = i + 1 < mentions.length ? mentions[i + 1].start : ex.length;
+      segs[m2.L] = (segs[m2.L] || "") + " " + ex.slice(m2.end, stop);
+    });
+    // 3) evidence per letter → the one option that uniquely contains it
+    const norm = t => String(t).toLowerCase().replace(/['"“”‘’]/g, "").trim();
+    const containsWord = (hay, needle) => {
+      const esc = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return new RegExp("(^|[^a-z])" + esc + "($|[^a-z])", "i").test(hay);
+    };
+    const optNorm = {};
+    for (const k of optKeys) optNorm[k] = norm(item.options[k] || "");
+    const map = {};
+    for (const L of Object.keys(segs)) {
+      const seg = segs[L];
+      const quoted = [];
+      const QRE = /'([^'\n]{1,80})'|"([^"\n]{1,80})"|‘([^’\n]{1,80})’|“([^”\n]{1,80})”/g;
+      let qm;
+      while ((qm = QRE.exec(seg))) quoted.push(qm[1] || qm[2] || qm[3] || qm[4]);
+      const words = [];
+      const WRE = /[A-Za-z][A-Za-z'’-]{2,}/g;
+      let wm;
+      while ((wm = WRE.exec(seg))) words.push(wm[0]);
+      const voteOf = list => {
+        const v = new Set();
+        for (const e of list) {
+          const en = norm(e);
+          if (!en) continue;
+          const hits = optKeys.filter(k => optNorm[k] && containsWord(optNorm[k], en));
+          if (hits.length === 1) v.add(hits[0]); // ambiguous/zero-match evidence carries no vote
+        }
+        return v;
+      };
+      // quoted phrases are the author's own pointer — when present and decisive, they
+      // outrank loose word matches (which can snag grammar terms like "past")
+      let votes = voteOf(quoted);
+      if (votes.size !== 1) votes = voteOf(quoted.concat(words));
+      if (votes.size !== 1) return null;            // no usable evidence, or conflict → don't touch
+      map[L] = [...votes][0];
+    }
+    // 4) two mentions must never land on the same option
+    const targets = Object.values(map);
+    if (new Set(targets).size !== targets.length) return null;
+    // 5) identity → already consistent, nothing to repair
+    if (Object.keys(map).every(L => map[L] === L)) return null;
+    return { explain: remapExplainLetters(ex, map), map };
+  } catch (e) { return null; }
+}
+
 function auditAnswerExplain(item) {
   try {
     if (!item || !item.explain || !item.answer || !item.options) return null;
@@ -3374,7 +3489,10 @@ function App() {
     const tiers = { forgot: [], sort: [], known: [] };
     due.forEach(x => { const r = st.ratings[idOf(x)]; (tiers[r] || tiers.known).push(x); });
     const built = [...shuffle(tiers.forgot), ...shuffle(tiers.sort), ...shuffle(tiers.known)].slice(0, reviewCap(mode));
-    st.deck = built; st.pos = 0; st.flipped = false; st.pickedMap = {}; st.tab = "study";
+    // v0.60.0: grammar decks are per-round SHUFFLED COPIES (fresh option order every
+    // encounter — answer positions can't be memorised); vocab cards have no options.
+    st.deck = mode === "grammar" ? built.map(shuffleForRound) : built;
+    st.pos = 0; st.flipped = false; st.pickedMap = {}; st.tab = "study";
     if (mode === "grammar") { st.startTime = Date.now(); st.endTime = null; st.logged = false; }
     rerender(); scrollToCards();
   }
@@ -3405,7 +3523,9 @@ function App() {
       return take[t] <= reviewCap(t);
     });
     const deck = [];
-    for (const p of chosen) for (const q of (p.questions || [])) deck.push({ ...q, transcript: p.transcript, _transcript: p.transcript, _ptype: p.ptype });
+    // v0.60.0: each question enters the round through shuffleForRound — fresh option order
+    // every review, answer + explain letters remapped together, canonical bank untouched.
+    for (const p of chosen) for (const q of (p.questions || [])) deck.push({ ...shuffleForRound(q), transcript: p.transcript, _transcript: p.transcript, _ptype: p.ptype });
     return deck;
   }
   // sub-part scope for the current selector (null = all / mix uses the parts the app actually mixes)
@@ -3533,14 +3653,17 @@ function App() {
       } else {
         arr.forEach((it, i) => {
           if (!it || !it.q || !it.options || !it.answer) return;
-          const sq = shuffleQuestionOptions(it);
+          // v0.60.0: store AS-GENERATED (no ingest shuffle) — the stored order is the one the
+          // AI's explanation refers to, so explain letters stay aligned in the bank forever.
+          // Randomising now happens per ROUND (shuffleForRound below), fresh every encounter.
           const id = `g${newGen}-${i}-${Math.random().toString(36).slice(2, 6)}`;
-          const obj = { id, q: sq.q, options: sq.options, answer: sq.answer, point: sq.point || "", explain: sq.explain || "", gen: newGen, model: mdl.label, difficulty };
+          const obj = { id, q: it.q, options: it.options, answer: it.answer, point: it.point || "", explain: it.explain || "", gen: newGen, model: mdl.label, difficulty };
           nextData[id] = obj; fresh.push(obj);
         });
       }
       st.data = nextData; st.genCount = newGen;
-      st.deck = shuffle(fresh); st.pos = 0; st.flipped = false; st.pickedMap = {};
+      st.deck = m === "grammar" ? shuffle(fresh).map(shuffleForRound) : shuffle(fresh);
+      st.pos = 0; st.flipped = false; st.pickedMap = {};
       st.tab = "study"; st.lastAdded = fresh.length; st.lastCategory = category;
       if (m === "grammar") { st.startTime = Date.now(); st.endTime = null; st.logged = false; }
       await persist(m);
@@ -3562,7 +3685,8 @@ function App() {
     const forgot = all.filter(x => st.ratings[idOf(x)] === "forgot");
     const sort = all.filter(x => st.ratings[idOf(x)] === "sort");
     const built = shuffle([...forgot, ...sort]).slice(0, reviewCap(mode));
-    st.deck = built; st.pos = 0; st.flipped = false; st.pickedMap = {}; st.tab = "study";
+    st.deck = mode === "grammar" ? built.map(shuffleForRound) : built; // v0.60.0: fresh option order per round
+    st.pos = 0; st.flipped = false; st.pickedMap = {}; st.tab = "study";
     if (mode === "grammar") { st.startTime = Date.now(); st.endTime = null; st.logged = false; }
     rerender();
     scrollToCards();
@@ -3727,11 +3851,12 @@ function App() {
       });
       const ptype = obj.ptype || (usePart6 ? "Part 6" : "Part 7");
       const passageId = "rp" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+      // v0.60.0: store AS-GENERATED (explain letters stay aligned with the stored order);
+      // the round the user plays right now gets its own per-round shuffle at setLquiz.
       const deck = obj.questions.filter(q => q && q.q && q.options && q.answer).map((q, i) => {
-        const sq = shuffleQuestionOptions(q);
         return {
           id: passageId + "-q" + i,
-          q: sq.q, options: sq.options, answer: sq.answer, explain: sq.explain || "",
+          q: q.q, options: q.options, answer: q.answer, explain: q.explain || "",
         };
       });
       if (!deck.length) throw new Error("คำตอบจาก AI ถูกตัดกลางคัน เลยไม่มีคำถามที่สมบูรณ์ — ลองกดสร้างใหม่อีกครั้งครับ");
@@ -3741,7 +3866,7 @@ function App() {
       st.data = { ...st.data, [passageId]: { id: passageId, transcript: obj.transcript, ptype, model: mdl.label, questions: deck, gen: Date.now(), category, difficulty } };
       await persist("listening");
       touchStreak(); updateHistory();
-      setLquiz({ passageId, ptype, transcript: obj.transcript, model: mdl.label, deck, pos: 0, picked: {}, start: Date.now(), end: null });
+      setLquiz({ passageId, ptype, transcript: obj.transcript, model: mdl.label, deck: deck.map(shuffleForRound), pos: 0, picked: {}, start: Date.now(), end: null });
     } catch (e) {
       st.genErr = "สร้างชุดฝึกอ่านไม่สำเร็จ — " + (e && e.message ? e.message : String(e));
       st.genErrRaw = (e && e.rawText) || null;
@@ -3752,7 +3877,7 @@ function App() {
     const st = M.current.listening;
     const p = st.data[passageId];
     if (!p) return;
-    const deck = (p.questions || []).map(q => ({ ...q }));
+    const deck = (p.questions || []).map(shuffleForRound); // v0.60.0: fresh option order every replay
     setLquiz({ passageId, ptype: p.ptype || "Part 7", transcript: p.transcript, model: p.model || "", deck, pos: 0, picked: {}, start: Date.now(), end: null });
     setLSection("practice");
   }
@@ -3767,30 +3892,72 @@ function App() {
     persist("listening"); rerender();
   }
   // rate a single reading question (เข้าใจ/ไม่เข้าใจ) — same model as grammar ratings
-  // ---- v0.58.1: human-confirmed answer-key repair / removal (from AnswerKeyWarning) ----
-  // Mutates the CANONICAL store (grammar: data[qid] directly; listening/audio: the question
-  // inside its passage), persists, then patches the live quiz copy so the open session
-  // re-grades against the corrected key. Deletion keeps the open session playable (no
-  // mid-round deck surgery) and takes effect from the next round; an emptied passage is
-  // dropped entirely.
-  async function fixAnswerKey(modeKey, qid, newAnswer) {
+  // ---- v0.58.1/v0.60.0: human-confirmed repairs (from AnswerKeyWarning) ----
+  // Canonical accessors: grammar items live at data[qid]; listening/audio questions live
+  // inside their passage entry. Since v0.60.0 quiz decks are per-round SHUFFLED COPIES,
+  // so a letter the user sees must be translated through the copy's _perm before it can
+  // be written to the canonical store (and explain text re-derived the other way).
+  function canonicalQ(modeKey, qid) {
     const st = M.current[modeKey];
-    if (st.data[qid]) {
-      st.data = { ...st.data, [qid]: { ...st.data[qid], answer: newAnswer } };
-    } else {
-      for (const pid of Object.keys(st.data)) {
-        const p = st.data[pid];
-        if (p && Array.isArray(p.questions) && p.questions.some(q => q && q.id === qid)) {
-          st.data = { ...st.data, [pid]: { ...p, questions: p.questions.map(q => (q && q.id === qid ? { ...q, answer: newAnswer } : q)) } };
-          break;
-        }
+    if (st.data[qid]) return st.data[qid];
+    for (const pid of Object.keys(st.data)) {
+      const p = st.data[pid];
+      if (p && Array.isArray(p.questions)) {
+        const f = p.questions.find(q => q && q.id === qid);
+        if (f) return f;
       }
     }
+    return null;
+  }
+  function patchCanonicalQ(modeKey, qid, patch) {
+    const st = M.current[modeKey];
+    if (st.data[qid]) { st.data = { ...st.data, [qid]: { ...st.data[qid], ...patch } }; return true; }
+    for (const pid of Object.keys(st.data)) {
+      const p = st.data[pid];
+      if (p && Array.isArray(p.questions) && p.questions.some(q => q && q.id === qid)) {
+        st.data = { ...st.data, [pid]: { ...p, questions: p.questions.map(q => (q && q.id === qid ? { ...q, ...patch } : q)) } };
+        return true;
+      }
+    }
+    return false;
+  }
+  // the live (rendered) copy of qid in whichever deck this mode plays from
+  function liveDeckItem(modeKey, qid) {
+    const deck = modeKey === "grammar" ? (M.current.grammar.deck || [])
+      : modeKey === "listening" ? ((lquiz && lquiz.deck) || [])
+      : modeKey === "audio" ? ((aquiz && aquiz.deck) || []) : [];
+    return deck.find(it => it && it.id === qid) || null;
+  }
+  // Mutates the CANONICAL store, persists, then patches the live quiz copy so the open
+  // session re-grades against the corrected key. `shownAnswer` is in the ROUND's letter
+  // space; the canonical store receives the perm-translated letter. Deletion keeps the
+  // open session playable and takes effect from the next round; an emptied passage is
+  // dropped entirely.
+  async function fixAnswerKey(modeKey, qid, shownAnswer) {
+    const live = liveDeckItem(modeKey, qid);
+    const storedAnswer = live && live._perm ? (invertPerm(live._perm)[shownAnswer] || shownAnswer) : shownAnswer;
+    patchCanonicalQ(modeKey, qid, { answer: storedAnswer });
     try { await persist(modeKey); } catch (e) {}
-    const patchDeck = v => (v ? { ...v, deck: v.deck.map(it => (it.id === qid ? { ...it, answer: newAnswer } : it)) } : v);
+    const patchDeck = v => (v ? { ...v, deck: v.deck.map(it => (it.id === qid ? { ...it, answer: shownAnswer } : it)) } : v);
     if (modeKey === "listening") setLquiz(patchDeck);
     else if (modeKey === "audio") setAquiz(patchDeck);
-    else if (modeKey === "grammar") { st.deck = (st.deck || []).map(it => (it.id === qid ? { ...it, answer: newAnswer } : it)); }
+    else if (modeKey === "grammar") { const st = M.current.grammar; st.deck = (st.deck || []).map(it => (it.id === qid ? { ...it, answer: shownAnswer } : it)); }
+    rerender();
+  }
+  // v0.60.0: heal letter drift in the stored explanation (quote-matching, see
+  // repairExplainLetters). Repairs the CANONICAL text, persists, then re-derives every
+  // live copy through its own round permutation so what's on screen matches instantly.
+  async function repairExplain(modeKey, qid) {
+    const can = canonicalQ(modeKey, qid);
+    const rep = can && repairExplainLetters(can);
+    if (!rep) return;
+    patchCanonicalQ(modeKey, qid, { explain: rep.explain });
+    try { await persist(modeKey); } catch (e) {}
+    const derive = it => ({ ...it, explain: it._perm ? remapExplainLetters(rep.explain, it._perm) : rep.explain });
+    const patchDeck = v => (v ? { ...v, deck: v.deck.map(it => (it.id === qid ? derive(it) : it)) } : v);
+    if (modeKey === "listening") setLquiz(patchDeck);
+    else if (modeKey === "audio") setAquiz(patchDeck);
+    else if (modeKey === "grammar") { const st = M.current.grammar; st.deck = (st.deck || []).map(it => (it.id === qid ? derive(it) : it)); }
     rerender();
   }
   async function deleteQuestion(modeKey, qid) {
@@ -3852,9 +4019,9 @@ function App() {
       });
       const ptype = obj.ptype || (isP2 ? "Part 2" : useP3 ? "Part 3" : "Part 4");
       const clipId = "au" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+      // v0.60.0: store AS-GENERATED; per-round shuffle happens at setAquiz below.
       const deck = obj.questions.filter(q => q && q.q && q.options && q.answer).map((q, i) => {
-        const sq = shuffleQuestionOptions(q);
-        return { id: clipId + "-q" + i, q: sq.q, options: sq.options, answer: sq.answer, explain: sq.explain || "" };
+        return { id: clipId + "-q" + i, q: q.q, options: q.options, answer: q.answer, explain: q.explain || "" };
       });
       if (!deck.length) throw new Error("คำตอบจาก AI ถูกตัดกลางคัน เลยไม่มีคำถามที่สมบูรณ์ — ลองกดสร้างใหม่อีกครั้งครับ");
       const transcript = isP2 ? "" : obj.transcript;
@@ -3862,7 +4029,7 @@ function App() {
       await persist("audio");
       touchStreak(); updateHistory();
       setRevealScript(false);
-      setAquiz({ passageId: clipId, ptype, transcript, model: mdl.label, deck, pos: 0, picked: {}, start: Date.now(), end: null });
+      setAquiz({ passageId: clipId, ptype, transcript, model: mdl.label, deck: deck.map(shuffleForRound), pos: 0, picked: {}, start: Date.now(), end: null });
     } catch (e) {
       st.genErr = "สร้างชุดฝึกฟังไม่สำเร็จ — " + (e && e.message ? e.message : String(e));
       st.genErrRaw = (e && e.rawText) || null;
@@ -3872,7 +4039,7 @@ function App() {
     const st = M.current.audio;
     const p = st.data[clipId];
     if (!p) return;
-    const deck = (p.questions || []).map(q => ({ ...q }));
+    const deck = (p.questions || []).map(shuffleForRound); // v0.60.0: fresh option order every replay
     setRevealScript(false);
     setAquiz({ passageId: clipId, ptype: p.ptype || "Part 3", transcript: p.transcript, model: p.model || "", deck, pos: 0, picked: {}, start: Date.now(), end: null });
   }
@@ -4031,7 +4198,7 @@ function App() {
   function replaySavedExam(id) {
     const ex = examBank[id]; if (!ex) return;
     const dur = ex.durationMs || ((examPlan(ex.scope) || {}).totalSec || 0) * 1000;
-    setExam({ scope: ex.scope, parts: ex.parts, deck: (ex.deck || []).map(q => ({ ...q })), picked: {}, pos: 0, start: Date.now(), durationMs: dur, submitted: false, genErr: null, reveal: {}, building: false });
+    setExam({ scope: ex.scope, parts: ex.parts, deck: (ex.deck || []).map(shuffleForRound), picked: {}, pos: 0, start: Date.now(), durationMs: dur, submitted: false, genErr: null, reveal: {}, building: false }); // v0.60.0: fresh option order every replay
   }
   function deleteSavedExam(id) {
     setExamBank(prev => { const next = { ...prev }; delete next[id]; STORAGE.set(EXAM_BANK_KEY, JSON.stringify(next)); return next; });
@@ -5757,7 +5924,7 @@ function App() {
                       </div>
                       <div style={{ background: C.soft, border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", fontSize: 14, lineHeight: 1.65 }}>
                         <b style={{ color: C.accent }}>อธิบาย:</b> {item.explain}
-                        <AnswerKeyWarning item={item} onFix={(L) => fixAnswerKey("listening", item.id, L)} onDelete={() => deleteQuestion("listening", item.id)} />
+                        <AnswerKeyWarning item={item} canonical={canonicalQ("listening", item.id)} onFix={(L) => fixAnswerKey("listening", item.id, L)} onRepair={() => repairExplain("listening", item.id)} onDelete={() => deleteQuestion("listening", item.id)} />
                       </div>
                     </div>
                   )}
@@ -6071,7 +6238,7 @@ function App() {
                       </div>
                       <div style={{ background: C.soft, border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", fontSize: 14, lineHeight: 1.65 }}>
                         <b style={{ color: C.accent }}>อธิบาย:</b> {item.explain}
-                        <AnswerKeyWarning item={item} onFix={(L) => fixAnswerKey("audio", item.id, L)} onDelete={() => deleteQuestion("audio", item.id)} />
+                        <AnswerKeyWarning item={item} canonical={canonicalQ("audio", item.id)} onFix={(L) => fixAnswerKey("audio", item.id, L)} onRepair={() => repairExplain("audio", item.id)} onDelete={() => deleteQuestion("audio", item.id)} />
                       </div>
                     </div>
                   )}
@@ -6645,7 +6812,7 @@ function App() {
 
                   <div style={{ background: C.soft, border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", fontSize: 14.5, lineHeight: 1.65 }}>
                     <b style={{ color: C.accent }}>อธิบาย:</b> {card.explain}
-                    <AnswerKeyWarning item={card} onFix={(L) => fixAnswerKey("grammar", card.id, L)} onDelete={() => deleteQuestion("grammar", card.id)} />
+                    <AnswerKeyWarning item={card} canonical={canonicalQ("grammar", card.id)} onFix={(L) => fixAnswerKey("grammar", card.id, L)} onRepair={() => repairExplain("grammar", card.id)} onDelete={() => deleteQuestion("grammar", card.id)} />
                   </div>
                 </div>
               )}
@@ -7110,10 +7277,13 @@ function SettingStepper({ value, lo, hi, onChange }) {
 }
 // v0.58.0/v0.58.1: shown under the explanation box when auditAnswerExplain detects that the
 // AI's answer key contradicts its own explanation. When the audit can name the letter the
-// explanation argues for (S1/S2), a human-confirmed 🔧 button repairs the canonical store;
-// when it can't (S3), a 🗑 button removes the item instead. No callbacks = warn-only (Exam).
-function AnswerKeyWarning({ item, onFix, onDelete }) {
-  const [done, setDone] = useState(null); // "fixed" | "deleted"
+// explanation argues for (S2), a human-confirmed 🔧 button repairs the canonical store.
+// v0.60.0: letter-signal hits (suggest=null = likely letter drift) can now offer
+// "🔧 ซ่อมคำอธิบาย" when repairExplainLetters confidently re-matches the explanation's
+// letters to the real choices (quote-matching on the CANONICAL item, not the shuffled
+// round copy); deletion stays as the last resort. No callbacks = warn-only (Exam).
+function AnswerKeyWarning({ item, canonical, onFix, onRepair, onDelete }) {
+  const [done, setDone] = useState(null); // "fixed" | "repaired" | "deleted"
   const hit = auditAnswerExplain(item);
   if (!hit && !done) return null;
   const base = { marginTop: 8, borderRadius: 9, padding: "9px 11px", fontSize: 12.5, lineHeight: 1.55, fontWeight: 600 };
@@ -7121,16 +7291,30 @@ function AnswerKeyWarning({ item, onFix, onDelete }) {
     return <div style={{ ...base, background: C.amberBg, border: `1px solid ${C.amber}`, color: C.ink }}>
       🗑 ลบออกจากคลังแล้ว — ชุดที่เปิดอยู่เล่นต่อจนจบได้ มีผลตั้งแต่รอบหน้าครับ</div>;
   }
-  if (!hit) return null; // just fixed: audit agrees now -> banner gone next render anyway
+  if (!hit) {
+    if (done === "repaired") {
+      return <div style={{ ...base, background: C.greenBg, border: `1px solid ${C.green}`, color: C.ink }}>
+        🔧 ซ่อมคำอธิบายแล้ว — ตัวอักษรชี้ช้อยส์ตรงตามเนื้อหา และบันทึกลงคลังถาวรครับ</div>;
+    }
+    return null; // just fixed: audit agrees now -> banner gone next render anyway
+  }
+  // repair is offered only when the quote-matching is COMPLETE and unambiguous on the
+  // canonical item — otherwise we keep warning and let the human judge (or delete).
+  const rep = !hit.suggest && onRepair && canonical ? repairExplainLetters(canonical) : null;
   const btn = { border: `1.5px solid ${C.red}`, background: C.card, color: C.red, borderRadius: 9, padding: "7px 12px", fontSize: 12.5, fontWeight: 700, fontFamily: "inherit" };
   return (
     <div style={{ ...base, background: C.redBg, border: `1px solid ${C.red}`, color: C.red }}>
       ⚠️ เฉลยข้อนี้อาจผิด — {hit.why} (AI สร้างขัดแย้งกันเอง) อย่าเพิ่งจำเป็น pattern ครับ
-      {(onFix || onDelete) && (
-        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+      {(onFix || onRepair || onDelete) && (
+        <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
           {hit.suggest && onFix && (
             <button onClick={() => { onFix(hit.suggest); setDone("fixed"); }} style={btn}>
               🔧 แก้เฉลยเป็นข้อ {hit.suggest} ตามคำอธิบาย
+            </button>
+          )}
+          {rep && (
+            <button onClick={() => { onRepair(); setDone("repaired"); }} style={btn}>
+              🔧 ซ่อมคำอธิบาย (จับคู่เนื้อหา↔ช้อยส์ให้ตรง)
             </button>
           )}
           {!hit.suggest && onDelete && (
