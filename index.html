@@ -16,7 +16,7 @@ const { useState, useEffect, useRef } = React;
 
 // App version — bump on every release. Shown as a small badge (tap to confirm the
 // browser is running the latest build, not a stale cached one).
-const VERSION = "0.58.1";
+const VERSION = "0.59.0";
 
 // ============================================================
 //  ENVIRONMENT DETECTION
@@ -1102,7 +1102,7 @@ For EACH question provide:
 - "options": object with keys "A","B","C","D"
 - "answer": the correct key ("A"|"B"|"C"|"D")
 - "point": the grammar point in THAI, short (e.g. "กาล (tense)", "คำบุพบท", "รูปคำ", "คำเชื่อม")
-- "explain": a THAI explanation, 1-3 sentences, why the answer is correct AND why one key distractor is wrong IMPORTANT: before output, re-read each item and VERIFY that "answer" is the same option your "explain" argues for — if they disagree, fix "answer" to match the correct grammar/clue.
+- "explain": a THAI explanation, 1-3 sentences, why the answer is correct AND why one key distractor is wrong IMPORTANT: before output, re-read each item and VERIFY that "answer" is the same option your "explain" argues for — if they disagree, fix "answer" to match the correct grammar/clue. In "explain", NEVER refer to options by letter (A/B/C/D) — options are RESHUFFLED after generation so letters become wrong; refer to the option TEXT instead.
 IMPORTANT: vary the position of the correct answer across A/B/C/D — do NOT always put it at "A". Spread the correct keys roughly evenly across the 5 questions.
 Respond with ONLY a valid minified JSON array of 5 objects, no markdown, no backticks, no preamble.
 Shape: [{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"C","point":"...","explain":"..."}]`;
@@ -1125,7 +1125,7 @@ For EACH question provide:
 - "q": the blank label in Thai, e.g. "ช่องที่ (1)"
 - "options": object with keys "A","B","C","D" (English; for the sentence-insertion blank, options are full sentences)
 - "answer": the correct key ("A"|"B"|"C"|"D")
-- "explain": a THAI explanation, 1-2 sentences: why the answer fits and which clue/grammar rule proves it IMPORTANT: before output, re-read each item and VERIFY that "answer" is the same option your "explain" argues for — if they disagree, fix "answer" to match the correct grammar/clue.
+- "explain": a THAI explanation, 1-2 sentences: why the answer fits and which clue/grammar rule proves it IMPORTANT: before output, re-read each item and VERIFY that "answer" is the same option your "explain" argues for — if they disagree, fix "answer" to match the correct grammar/clue. In "explain", NEVER refer to options by letter (A/B/C/D) — options are RESHUFFLED after generation so letters become wrong; refer to the option TEXT instead.
 IMPORTANT: vary the position of the correct answer across A/B/C/D — do NOT always put it at "A".
 Each question object is closed by EXACTLY ONE "}"; separate questions with "},{" (never "}},{"), and close the whole response with "}]}" — do not add extra closing braces.\nRespond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
 Shape: {"ptype":"Part 6","transcript":"...(passage with (1) ______ ... (4) ______; use \\n for line breaks)...","questions":[{"q":"ช่องที่ (1)","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"C","explain":"..."}]}`;
@@ -1149,7 +1149,7 @@ For EACH question provide:
 - "q": the question in English
 - "options": object with keys "A","B","C","D" (English, plausible distractors)
 - "answer": the correct key ("A"|"B"|"C"|"D")
-- "explain": a THAI explanation, 1-2 sentences: why the answer is right and which clue in the passage proves it IMPORTANT: before output, re-read each item and VERIFY that "answer" is the same option your "explain" argues for — if they disagree, fix "answer" to match the correct grammar/clue.
+- "explain": a THAI explanation, 1-2 sentences: why the answer is right and which clue in the passage proves it IMPORTANT: before output, re-read each item and VERIFY that "answer" is the same option your "explain" argues for — if they disagree, fix "answer" to match the correct grammar/clue. In "explain", NEVER refer to options by letter (A/B/C/D) — options are RESHUFFLED after generation so letters become wrong; refer to the option TEXT instead.
 IMPORTANT: vary the position of the correct answer across A/B/C/D — do NOT always put it at "A".
 Each question object is closed by EXACTLY ONE "}"; separate questions with "},{" (never "}},{"), and close the whole response with "}]}" — do not add extra closing braces.\nRespond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
 Shape: {"ptype":"Part 7","transcript":"...(the full passage; use \\n for line breaks)...","questions":[{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"C","explain":"..."}]}`;
@@ -1167,7 +1167,7 @@ For EACH question provide:
 - "q": the question in English
 - "options": object with keys "A","B","C","D" (English, plausible distractors)
 - "answer": the correct key ("A"|"B"|"C"|"D")
-- "explain": a THAI explanation, 1-2 sentences: why it is right and which spoken clue proves it IMPORTANT: before output, re-read each item and VERIFY that "answer" is the same option your "explain" argues for — if they disagree, fix "answer" to match the correct grammar/clue.
+- "explain": a THAI explanation, 1-2 sentences: why it is right and which spoken clue proves it IMPORTANT: before output, re-read each item and VERIFY that "answer" is the same option your "explain" argues for — if they disagree, fix "answer" to match the correct grammar/clue. In "explain", NEVER refer to options by letter (A/B/C/D) — options are RESHUFFLED after generation so letters become wrong; refer to the option TEXT instead.
 IMPORTANT: vary the position of the correct answer across A/B/C/D — do NOT always put it at "A".
 Each question object is closed by EXACTLY ONE "}"; separate questions with "},{" (never "}},{"), and close the whole response with "}]}" — do not add extra closing braces.\nRespond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
 Shape: {"ptype":"Part 3","transcript":"Man: ...\\nWoman: ...\\nMan: ...","questions":[{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"C","explain":"..."}]}`;
@@ -1190,7 +1190,7 @@ For EACH question provide:
 - "q": the question in English
 - "options": object with keys "A","B","C","D" (English, plausible distractors)
 - "answer": the correct key ("A"|"B"|"C"|"D")
-- "explain": a THAI explanation, 1-2 sentences: why it is right and which spoken clue proves it IMPORTANT: before output, re-read each item and VERIFY that "answer" is the same option your "explain" argues for — if they disagree, fix "answer" to match the correct grammar/clue.
+- "explain": a THAI explanation, 1-2 sentences: why it is right and which spoken clue proves it IMPORTANT: before output, re-read each item and VERIFY that "answer" is the same option your "explain" argues for — if they disagree, fix "answer" to match the correct grammar/clue. In "explain", NEVER refer to options by letter (A/B/C/D) — options are RESHUFFLED after generation so letters become wrong; refer to the option TEXT instead.
 IMPORTANT: vary the position of the correct answer across A/B/C/D — do NOT always put it at "A".
 Each question object is closed by EXACTLY ONE "}"; separate questions with "},{" (never "}},{"), and close the whole response with "}]}" — do not add extra closing braces.\nRespond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
 Shape: {"ptype":"Part 4","transcript":"...the talk as one speaker; use \\n for paragraph breaks...","questions":[{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"C","explain":"..."}]}`;
@@ -1206,7 +1206,7 @@ For EACH item provide:
 - "q": the spoken prompt (the question or statement that is read first)
 - "options": object with keys "A","B","C" (each a short spoken response; NO key "D")
 - "answer": the correct key ("A"|"B"|"C")
-- "explain": a THAI explanation, 1-2 sentences: why the answer fits and why the trap options are wrong (name the trap type if useful, e.g. คำพ้องเสียง / ตอบผิดประเภทคำถาม) IMPORTANT: before output, re-read each item and VERIFY that "answer" is the same option your "explain" argues for — if they disagree, fix "answer" to match the correct grammar/clue.
+- "explain": a THAI explanation, 1-2 sentences: why the answer fits and why the trap options are wrong (name the trap type if useful, e.g. คำพ้องเสียง / ตอบผิดประเภทคำถาม) IMPORTANT: before output, re-read each item and VERIFY that "answer" is the same option your "explain" argues for — if they disagree, fix "answer" to match the correct grammar/clue. In "explain", NEVER refer to options by letter (A/B/C/D) — options are RESHUFFLED after generation so letters become wrong; refer to the option TEXT instead.
 IMPORTANT: vary the position of the correct answer across A/B/C — do NOT always put it at "A". Spread the correct keys roughly evenly across the 6 items.
 Each question object is closed by EXACTLY ONE "}"; separate questions with "},{" (never "}},{"), and close the whole response with "}]}" — do not add extra closing braces.\nRespond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
 Shape: {"ptype":"Part 2","transcript":"","questions":[{"q":"Where did you put the report?","options":{"A":"It was a great report.","B":"On your desk.","C":"At three o'clock."},"answer":"B","explain":"..."}]}`;
@@ -2808,13 +2808,10 @@ function auditAnswerExplain(item) {
     if (!item || !item.explain || !item.answer || !item.options) return null;
     const ex = String(item.explain);
     const ans = String(item.answer).toUpperCase();
-    // S1: "คำตอบ(ที่ถูกต้อง)คือ B" / "correct answer is B"
-    let m = ex.match(/คำตอบ(?:ที่ถูก(?:ต้อง)?)?\s*คือ\s*(?:ข้อ\s*|ตัวเลือก\s*)?([A-D])(?![A-Za-z])/)
-         || ex.match(/correct answer is\s*(?:option\s*)?([A-D])(?![A-Za-z])/i);
-    if (m && m[1].toUpperCase() !== ans) return { why: "คำอธิบายบอกว่าคำตอบคือข้อ " + m[1].toUpperCase() + " แต่เฉลยตั้งไว้ที่ข้อ " + ans, suggest: m[1].toUpperCase() };
-    // S2: "คำตอบ(ที่ถูกต้อง)คือ <ข้อความตัวเลือก>" — match the TEXT AFTER the phrase against
-    // each option as a prefix (handles multi-word options like "On your desk."); take the
-    // longest unique match, and require a word boundary so "have" never matches "haven't".
+    const DRIFT = " (ตัวอักษรในคำอธิบายอาจเพี้ยนจากการสลับช้อยส์ตอนสร้างข้อ — เนื้อหาที่เฉลยไว้อาจถูกอยู่ ใช้วิจารณญาณก่อนลบครับ)";
+    // S2 FIRST — the only shuffle-proof signal: the explanation names an option's TEXT as the
+    // answer. Matched as a prefix against every option (handles multi-word options), longest
+    // unique match wins, with a word boundary so "have" never matches "haven't".
     const tailOf = (re) => { const mm = ex.match(re); return mm ? ex.slice(mm.index + mm[0].length) : null; };
     const tail = tailOf(/คำตอบ(?:ที่ถูก(?:ต้อง)?)?\s*คือ\s*/) || tailOf(/correct answer is\s*(?:option\s*)?/i);
     if (tail) {
@@ -2825,16 +2822,28 @@ function auditAnswerExplain(item) {
         const o = norm(item.options[k] || "").replace(/\.$/, "");
         if (!o || !t.startsWith(o)) continue;
         const next = t[o.length];
-        if (next !== undefined && /[a-z']/.test(next)) continue; // mid-word -> not a real match
-        if (best && best.len === o.length) { best = "ambiguous"; break; }
-        if (best === null || o.length > best.len) best = { k, len: o.length };
+        if (next !== undefined && /[a-z']/.test(next)) continue;
+        if (best && best !== "ambiguous" && best.len === o.length) { best = "ambiguous"; break; }
+        if (best === null || (best !== "ambiguous" && o.length > best.len)) best = { k, len: o.length };
       }
       if (best && best !== "ambiguous" && best.k.toUpperCase() !== ans)
         return { why: 'คำอธิบายชี้ว่าคำตอบคือข้อ ' + best.k.toUpperCase() + ' ("' + String(item.options[best.k]).trim() + '") แต่เฉลยตั้งไว้ที่ข้อ ' + ans, suggest: best.k.toUpperCase() };
     }
-    // S3: "ตัวเลือก B (has) ผิด..." where B is the keyed answer itself
+    // S1: explanation names a LETTER as the answer ("คำตอบคือข้อ A") that differs from the key.
+    let m = ex.match(/คำตอบ(?:ที่ถูก(?:ต้อง)?)?\s*คือ\s*(?:ข้อ\s*|ตัวเลือก\s*)?([A-D])(?![A-Za-z])/)
+         || ex.match(/correct answer is\s*(?:option\s*)?([A-D])(?![A-Za-z])/i);
+    if (m && m[1].toUpperCase() !== ans) return { why: "คำอธิบายบอกว่าคำตอบคือข้อ " + m[1].toUpperCase() + " แต่เฉลยตั้งไว้ที่ข้อ " + ans + DRIFT, suggest: null };
+    // S4: "A ถูกต้องเพราะ..." / "A is correct" naming a different letter than the key.
+    m = ex.match(/(?:^|[\s(（"''])([A-D])\s*(?:ถูกต้อง|คือคำตอบ|เป็นคำตอบที่ถูก)/)
+     || ex.match(/(?:^|[\s(（"''])([A-D])\s+is\s+(?:the\s+)?correct/i);
+    if (m && m[1].toUpperCase() !== ans) return { why: "คำอธิบายบอกว่า " + m[1].toUpperCase() + " ถูกต้อง แต่เฉลยตั้งไว้ที่ข้อ " + ans + DRIFT, suggest: null };
+    // S5: the keyed letter itself is called a trap/distractor ("B เป็นกับดัก..." when key = B).
+    m = ex.match(/([A-D])\s*(?:\([^)]*\)\s*)?เป็น(?:กับดัก|ตัวลวง)/)
+     || ex.match(/([A-D])\s*(?:\([^)]*\)\s*)?is\s+(?:a\s+|the\s+)?(?:trap|distractor)/i);
+    if (m && m[1].toUpperCase() === ans) return { why: "คำอธิบายบอกว่าข้อ " + ans + " เป็นกับดัก ทั้งที่เฉลยตั้งไว้ที่ข้อ " + ans + " เอง" + DRIFT, suggest: null };
+    // S3: "ตัวเลือก B ... ผิด" where B is the keyed answer itself.
     m = ex.match(/ตัวเลือก\s*([A-D])\s*(?:\([^)]*\)\s*)?(?:จึง|ก็|นั้น)?\s*ผิด/);
-    if (m && m[1].toUpperCase() === ans) return { why: "คำอธิบายบอกว่าตัวเลือก " + ans + " ผิด ทั้งที่เฉลยตั้งไว้ที่ข้อ " + ans + " เอง", suggest: null };
+    if (m && m[1].toUpperCase() === ans) return { why: "คำอธิบายบอกว่าตัวเลือก " + ans + " ผิด ทั้งที่เฉลยตั้งไว้ที่ข้อ " + ans + " เอง" + DRIFT, suggest: null };
     return null;
   } catch (e) { return null; }
 }
@@ -3597,6 +3606,17 @@ function App() {
     return { kind: "known", n: known.length, label: `✓ รีคำที่แม่น ${known.length}` };
   }
 
+  // v0.59.0: answering a RATED question reschedules its SRS by the outcome. Previously only
+  // the rating buttons touched the schedule, so finishing a "ถึงกำหนด" round by ANSWERING
+  // left every item still due — the same 4 questions looped forever unless re-rated by hand.
+  // Correct -> re-bump with the existing self-rating (interval grows per nextSrs);
+  // wrong -> leave it due so missed items keep coming back. The rating label is untouched.
+  function settleSrsOnAnswer(modeKey, qid, correct) {
+    const st = M.current[modeKey];
+    if (!correct || !st || !st.ratings[qid]) return;
+    bumpSrs(st, qid, st.ratings[qid]);
+    persist(modeKey);
+  }
   function rate(id, status, advance) {
     const st = cur();
     st.ratings = { ...st.ratings, [id]: status };
@@ -3613,7 +3633,7 @@ function App() {
     if (st.pickedMap[id]) return;
     st.pickedMap = { ...st.pickedMap, [id]: key };
     bumpDaily(); // first answer of this grammar question
-    if (ans != null) playFeedback(key === ans); // v0.52.0: answer feedback sound
+    if (ans != null) { playFeedback(key === ans); settleSrsOnAnswer("grammar", id, key === ans); } // v0.52.0 sound / v0.59.0 srs
     rerender();
   }
 
@@ -3800,7 +3820,7 @@ function App() {
     touchStreak(); updateHistory();
     rerender();
   }
-  function chooseLQ(id, key, ans) { if (lquiz && lquiz.picked[id]) return; bumpDaily(); if (ans != null) playFeedback(key === ans); setLquiz(v => (v.picked[id] ? v : { ...v, picked: { ...v.picked, [id]: key } })); }
+  function chooseLQ(id, key, ans) { if (lquiz && lquiz.picked[id]) return; bumpDaily(); if (ans != null) { playFeedback(key === ans); settleSrsOnAnswer("listening", id, key === ans); } setLquiz(v => (v.picked[id] ? v : { ...v, picked: { ...v.picked, [id]: key } })); }
   function nextLQ() { setLquiz(v => ({ ...v, pos: Math.min(v.pos + 1, v.deck.length) })); }
   // build a review deck from Reading passages containing not-yet-mastered (forgot/sort) questions —
   // whole sets, scope-aware, capped. See buildPassageReviewDeck.
@@ -3882,7 +3902,7 @@ function App() {
   function chooseAQ(id, key, ans) {
     if (aquiz && aquiz.picked[id]) return;
     stopSpeak(); bumpDaily();
-    if (ans != null) playFeedback(key === ans);
+    if (ans != null) { playFeedback(key === ans); settleSrsOnAnswer("audio", id, key === ans); } // v0.59.0 srs
     // v0.53.0: autoScript — reveal the transcript automatically once every question
     // sharing it has been answered (counting this one). Earlier would spoil the rest.
     if (SETTINGS.autoScript && aquiz) {
