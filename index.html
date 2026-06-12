@@ -16,7 +16,7 @@ const { useState, useEffect, useRef } = React;
 
 // App version — bump on every release. Shown as a small badge (tap to confirm the
 // browser is running the latest build, not a stale cached one).
-const VERSION = "0.62.1";
+const VERSION = "0.66.0";
 
 // ============================================================
 //  ENVIRONMENT DETECTION
@@ -173,6 +173,65 @@ const CATEGORIES = [
 ];
 function pickCategory() {
   return CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)];
+}
+// ---- v0.63.0 multi-category (decision ข: parse-on-the-fly, no migration) ----
+// A saved set may carry `categories` (array, new) or `category` (single string, legacy).
+// catsOf is the ONE reading brain — chips, filter and search all go through it, so old
+// localStorage data AND old backups keep restoring untouched (same legacy-path
+// philosophy as the v1/v2 backup import).
+function catsOf(p) {
+  if (p && Array.isArray(p.categories) && p.categories.length) return p.categories.filter(c => typeof c === "string" && c);
+  if (p && typeof p.category === "string" && p.category) return [p.category];
+  return [];
+}
+// Chip/filter view: uncategorized sets still need a bucket — display-only, never stored.
+function catChipsOf(p) { const ks = catsOf(p); return ks.length ? ks : ["อื่นๆ"]; }
+// Sanitize AI-suggested tags onto the official CATEGORIES list (trim + case-fold exact
+// match), dedupe, force the picked theme first, cap at 3 — a flubbed AI list still
+// yields [primary], so `categories` is always non-empty on new sets.
+function canonCategories(raw, primary) {
+  const byLc = new Map(CATEGORIES.map(c => [c.toLowerCase(), c]));
+  const out = [], seen = new Set();
+  for (const r of [primary].concat(Array.isArray(raw) ? raw : [])) {
+    const c = typeof r === "string" ? byLc.get(r.trim().toLowerCase()) : null;
+    if (c && !seen.has(c)) { seen.add(c); out.push(c); }
+  }
+  return out.length ? out.slice(0, 3) : [primary];
+}
+// ---- v0.64.0: 5 top-level groups over the 25 categories (derived layer — UI only).
+// Same idea as grammarPointGroup: the ONE grouping brain. Storage and gen prompts keep
+// the fine-grained 25 tags, so regrouping later never touches saved data or backups.
+const CATEGORY_GROUPS = {
+  "Office & Workplace": ["meetings & scheduling", "office & equipment", "HR & hiring", "workplace communication (emails, memos, calls, announcements)", "company events (conferences, seminars, workshops, training)"],
+  "Business & Finance": ["finance & budget", "banking & investment", "contracts & legal", "marketing & advertising", "partnerships & negotiations (mergers, suppliers)"],
+  "Industry & Operations": ["manufacturing & factory", "logistics & shipping", "real estate & facilities", "technology & IT", "customer service"],
+  "Services & Transactions": ["transactions & paperwork (appointments, forms, bills, utilities)", "urban transport (commuting, traffic, directions)", "shopping & retail", "health & medical (general)", "education & learning"],
+  "Daily Life & Leisure": ["travel & tourism", "food & dining", "home & family", "weather & environment", "hobbies & leisure"],
+};
+const CATEGORY_GROUP_ORDER = Object.keys(CATEGORY_GROUPS).concat(["อื่นๆ"]); // fixed chip order; อื่นๆ (legacy/untagged) last
+const CAT_TO_GROUP = (() => { const m = new Map(); for (const [g, cats] of Object.entries(CATEGORY_GROUPS)) for (const c of cats) m.set(c, g); return m; })();
+function catGroupOf(cat) { return CAT_TO_GROUP.get(cat) || "อื่นๆ"; }
+// Compact label for the small sub-chips: drop the long parenthetical examples.
+function catShortLabel(c) { return String(c).replace(/ \(.*\)$/, ""); }
+// ---- v0.65.0: understanding stats by content category (Reading/Listening) ----
+// Pure module-level so toolkit can test it. Counts only RATED questions; a multi-tag
+// set counts its questions into EVERY category it carries (same rule as the bank chips).
+function categoryWeakness(st) {
+  const map = {};
+  for (const p of Object.values((st && st.data) || {})) {
+    const cats = catsOf(p);
+    const keys = cats.length ? cats : ["อื่นๆ"];
+    for (const q of (p.questions || [])) {
+      const r = st.ratings && st.ratings[q.id];
+      if (!r) continue; // only count questions the user has rated
+      for (const k of keys) {
+        if (!map[k]) map[k] = { topic: catShortLabel(k), total: 0, weak: 0, known: 0 };
+        map[k].total++;
+        if (r === "known") map[k].known++; else map[k].weak++;
+      }
+    }
+  }
+  return Object.values(map).sort((a, b) => b.weak - a.weak || b.total - a.total);
 }
 
 // ============================================================
@@ -366,6 +425,17 @@ const AUDIOTYPE_KEY = "toeic_audiotype_v1"; // Listening practice type: part3 | 
 const GOAL_KEY = "toeic_goal_v1"; // daily goal: how many cards/questions to do per day
 const VSEARCH_HIST_KEY = "toeic_vsearch_hist_v1"; // recent vocab searches (local-only, NOT in backup): string[]
 const VSEARCH_HIST_MAX = 20; // cap stored history (FIFO); we only render the most recent few
+const QSEARCH_HIST_KEY = "toeic_qsearch_hist_v1"; // v0.66.0 recent bank searches by scope (local-only, NOT in backup): { grammar|listening|audio: string[] }
+// Pure list ops shared by every search box (module-level so toolkit can test them):
+// most-recent first, case-insensitive dedupe (re-search floats to top), FIFO cap.
+function histPush(list, raw, max) {
+  const term = (raw || "").trim();
+  if (!term) return Array.isArray(list) ? list : [];
+  return [term, ...(Array.isArray(list) ? list : []).filter(t => t.toLowerCase() !== term.toLowerCase())].slice(0, max || VSEARCH_HIST_MAX);
+}
+function histRemove(list, term) {
+  return (Array.isArray(list) ? list : []).filter(t => t.toLowerCase() !== (term || "").toLowerCase());
+}
 const EXAM_BANK_KEY = "toeic_exam_bank_v1"; // saved mock-exam decks for replay (avoid re-gen): { [id]: {scope,parts,deck,n,durationMs,gen} }
 const GOAL_OPTIONS = [10, 20, 30, 50];
 const BACKUP_PREFIX = "TZv1:"; // marks a compressed backup string
@@ -1215,8 +1285,8 @@ For EACH question provide:
 - "answer": the correct key ("A"|"B"|"C"|"D")
 - "explain": a THAI explanation, 1-2 sentences: why the answer fits and which clue/grammar rule proves it IMPORTANT: before output, re-read each item and VERIFY that "answer" is the same option your "explain" argues for — if they disagree, fix "answer" to match the correct grammar/clue. In "explain", NEVER refer to options by letter (A/B/C/D) — options are RESHUFFLED after generation so letters become wrong; refer to the option TEXT instead. Do NOT refer by position either ("the first option", "ข้อแรก", "ข้อที่สอง") — positions change too; ALWAYS point at an option by quoting its TEXT.
 IMPORTANT: vary the position of the correct answer across A/B/C/D — do NOT always put it at "A".
-Each question object is closed by EXACTLY ONE "}"; separate questions with "},{" (never "}},{"), and close the whole response with "}]}" — do not add extra closing braces.\nRespond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
-Shape: {"ptype":"Part 6","transcript":"...(passage with (1) ______ ... (4) ______; use \\n for line breaks)...","questions":[{"q":"ช่องที่ (1)","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"C","explain":"..."}]}`;
+Each question object is closed by EXACTLY ONE "}"; separate questions with "},{" (never "}},{"), and close the whole response with "}]}" — do not add extra closing braces.\nAlso output a top-level "categories" field: an array of 1-3 theme tags that GENUINELY fit this content, picked ONLY from this official list (include the main theme; copy tag strings EXACTLY): ${JSON.stringify(CATEGORIES)}. Do not invent new tags.\nRespond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
+Shape: {"ptype":"Part 6","categories":["finance & budget","technology & IT"],"transcript":"...(passage with (1) ______ ... (4) ______; use \\n for line breaks)...","questions":[{"q":"ช่องที่ (1)","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"C","explain":"..."}]}`;
 }
 
 function listeningPracticePrompt(category, diffPrompt) {
@@ -1239,8 +1309,8 @@ For EACH question provide:
 - "answer": the correct key ("A"|"B"|"C"|"D")
 - "explain": a THAI explanation, 1-2 sentences: why the answer is right and which clue in the passage proves it IMPORTANT: before output, re-read each item and VERIFY that "answer" is the same option your "explain" argues for — if they disagree, fix "answer" to match the correct grammar/clue. In "explain", NEVER refer to options by letter (A/B/C/D) — options are RESHUFFLED after generation so letters become wrong; refer to the option TEXT instead. Do NOT refer by position either ("the first option", "ข้อแรก", "ข้อที่สอง") — positions change too; ALWAYS point at an option by quoting its TEXT.
 IMPORTANT: vary the position of the correct answer across A/B/C/D — do NOT always put it at "A".
-Each question object is closed by EXACTLY ONE "}"; separate questions with "},{" (never "}},{"), and close the whole response with "}]}" — do not add extra closing braces.\nRespond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
-Shape: {"ptype":"Part 7","transcript":"...(the full passage; use \\n for line breaks)...","questions":[{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"C","explain":"..."}]}`;
+Each question object is closed by EXACTLY ONE "}"; separate questions with "},{" (never "}},{"), and close the whole response with "}]}" — do not add extra closing braces.\nAlso output a top-level "categories" field: an array of 1-3 theme tags that GENUINELY fit this content, picked ONLY from this official list (include the main theme; copy tag strings EXACTLY): ${JSON.stringify(CATEGORIES)}. Do not invent new tags.\nRespond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
+Shape: {"ptype":"Part 7","categories":["finance & budget","technology & IT"],"transcript":"...(the full passage; use \\n for line breaks)...","questions":[{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"C","explain":"..."}]}`;
 }
 
 // ---- LISTENING (audio) prompt builders — same JSON shape as Reading, but the "transcript"
@@ -1257,8 +1327,8 @@ For EACH question provide:
 - "answer": the correct key ("A"|"B"|"C"|"D")
 - "explain": a THAI explanation, 1-2 sentences: why it is right and which spoken clue proves it IMPORTANT: before output, re-read each item and VERIFY that "answer" is the same option your "explain" argues for — if they disagree, fix "answer" to match the correct grammar/clue. In "explain", NEVER refer to options by letter (A/B/C/D) — options are RESHUFFLED after generation so letters become wrong; refer to the option TEXT instead. Do NOT refer by position either ("the first option", "ข้อแรก", "ข้อที่สอง") — positions change too; ALWAYS point at an option by quoting its TEXT.
 IMPORTANT: vary the position of the correct answer across A/B/C/D — do NOT always put it at "A".
-Each question object is closed by EXACTLY ONE "}"; separate questions with "},{" (never "}},{"), and close the whole response with "}]}" — do not add extra closing braces.\nRespond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
-Shape: {"ptype":"Part 3","transcript":"Man: ...\\nWoman: ...\\nMan: ...","questions":[{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"C","explain":"..."}]}`;
+Each question object is closed by EXACTLY ONE "}"; separate questions with "},{" (never "}},{"), and close the whole response with "}]}" — do not add extra closing braces.\nAlso output a top-level "categories" field: an array of 1-3 theme tags that GENUINELY fit this content, picked ONLY from this official list (include the main theme; copy tag strings EXACTLY): ${JSON.stringify(CATEGORIES)}. Do not invent new tags.\nRespond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
+Shape: {"ptype":"Part 3","categories":["finance & budget","technology & IT"],"transcript":"Man: ...\\nWoman: ...\\nMan: ...","questions":[{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"C","explain":"..."}]}`;
 }
 
 function audioPart4Prompt(category, diffPrompt) {
@@ -1280,8 +1350,8 @@ For EACH question provide:
 - "answer": the correct key ("A"|"B"|"C"|"D")
 - "explain": a THAI explanation, 1-2 sentences: why it is right and which spoken clue proves it IMPORTANT: before output, re-read each item and VERIFY that "answer" is the same option your "explain" argues for — if they disagree, fix "answer" to match the correct grammar/clue. In "explain", NEVER refer to options by letter (A/B/C/D) — options are RESHUFFLED after generation so letters become wrong; refer to the option TEXT instead. Do NOT refer by position either ("the first option", "ข้อแรก", "ข้อที่สอง") — positions change too; ALWAYS point at an option by quoting its TEXT.
 IMPORTANT: vary the position of the correct answer across A/B/C/D — do NOT always put it at "A".
-Each question object is closed by EXACTLY ONE "}"; separate questions with "},{" (never "}},{"), and close the whole response with "}]}" — do not add extra closing braces.\nRespond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
-Shape: {"ptype":"Part 4","transcript":"...the talk as one speaker; use \\n for paragraph breaks...","questions":[{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"C","explain":"..."}]}`;
+Each question object is closed by EXACTLY ONE "}"; separate questions with "},{" (never "}},{"), and close the whole response with "}]}" — do not add extra closing braces.\nAlso output a top-level "categories" field: an array of 1-3 theme tags that GENUINELY fit this content, picked ONLY from this official list (include the main theme; copy tag strings EXACTLY): ${JSON.stringify(CATEGORIES)}. Do not invent new tags.\nRespond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
+Shape: {"ptype":"Part 4","categories":["finance & budget","technology & IT"],"transcript":"...the talk as one speaker; use \\n for paragraph breaks...","questions":[{"q":"...","options":{"A":"...","B":"...","C":"...","D":"..."},"answer":"C","explain":"..."}]}`;
 }
 
 function audioPart2Prompt(category, diffPrompt) {
@@ -1296,8 +1366,8 @@ For EACH item provide:
 - "answer": the correct key ("A"|"B"|"C")
 - "explain": a THAI explanation, 1-2 sentences: why the answer fits and why the trap options are wrong (name the trap type if useful, e.g. คำพ้องเสียง / ตอบผิดประเภทคำถาม) IMPORTANT: before output, re-read each item and VERIFY that "answer" is the same option your "explain" argues for — if they disagree, fix "answer" to match the correct grammar/clue. In "explain", NEVER refer to options by letter (A/B/C/D) — options are RESHUFFLED after generation so letters become wrong; refer to the option TEXT instead. Do NOT refer by position either ("the first option", "ข้อแรก", "ข้อที่สอง") — positions change too; ALWAYS point at an option by quoting its TEXT.
 IMPORTANT: vary the position of the correct answer across A/B/C — do NOT always put it at "A". Spread the correct keys roughly evenly across the 6 items.
-Each question object is closed by EXACTLY ONE "}"; separate questions with "},{" (never "}},{"), and close the whole response with "}]}" — do not add extra closing braces.\nRespond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
-Shape: {"ptype":"Part 2","transcript":"","questions":[{"q":"Where did you put the report?","options":{"A":"It was a great report.","B":"On your desk.","C":"At three o'clock."},"answer":"B","explain":"..."}]}`;
+Each question object is closed by EXACTLY ONE "}"; separate questions with "},{" (never "}},{"), and close the whole response with "}]}" — do not add extra closing braces.\nAlso output a top-level "categories" field: an array of 1-3 theme tags that GENUINELY fit this content, picked ONLY from this official list (include the main theme; copy tag strings EXACTLY): ${JSON.stringify(CATEGORIES)}. Do not invent new tags.\nRespond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
+Shape: {"ptype":"Part 2","categories":["finance & budget","technology & IT"],"transcript":"","questions":[{"q":"Where did you put the report?","options":{"A":"It was a great report.","B":"On your desk.","C":"At three o'clock."},"answer":"B","explain":"..."}]}`;
 }
 
 // ---- TIMED MOCK EXAM ("สอบจริง") blueprint ----
@@ -3144,6 +3214,8 @@ function App() {
   const [vocabSearch, setVocabSearch] = useState(""); // bank search box (vocab only)
   const [vSearchHist, setVSearchHist] = useState([]); // recent vocab searches (most-recent first), local-only
   const [vSearchFocus, setVSearchFocus] = useState(false); // search box focused → show recent-search zero state
+  const [qSearchHist, setQSearchHist] = useState({}); // v0.66.0: { grammar|listening|audio: string[] } — vocab keeps its own legacy key
+  const [qSearchFocus, setQSearchFocus] = useState(null); // which bank search box is focused (scope string) → show its zero state
   const [bankLevel, setBankLevel] = useState("all"); // vocab bank CEFR filter: all|A1|A2|B1|B2|C1|C2|none
   const [quizLevel, setQuizLevel] = useState("all"); // vocab QUIZ-page CEFR filter — independent from bankLevel (card view)
   const [bankShow, setBankShow] = useState(60); // how many bank rows to render (perf: avoid dumping all 952 at once)
@@ -3177,7 +3249,7 @@ function App() {
   // ---- v0.61.0: bank overhaul UI state ----
   const [gSearch, setGSearch] = useState("");   // grammar bank: text search (โจทย์/ช้อยส์/คำอธิบาย/หมวด)
   const [gPoint, setGPoint] = useState("all");  // grammar bank: filter by grammar point chip
-  const [psFilter, setPsFilter] = useState({}); // reading/audio bank: { [mode]: { q, cat } }
+  const [psFilter, setPsFilter] = useState({}); // reading/audio bank: { [mode]: { q, grp, cat } }
   const [bankOpen, setBankOpen] = useState({}); // grammar bank: per-card answer reveal (bankReveal="tap")
   const [sweep, setSweep] = useState(null);     // 🩺 result: { mode, res: sweepQuestions(...) }
   // update settings: keep React state, module mirror, and storage in sync.
@@ -3430,6 +3502,17 @@ function App() {
           const rh = await STORAGE.get(VSEARCH_HIST_KEY);
           if (rh) { const a = JSON.parse(rh); if (Array.isArray(a)) setVSearchHist(a.filter(x => typeof x === "string").slice(0, VSEARCH_HIST_MAX)); }
         } catch (e) { /* no saved search history */ }
+        try {
+          const rq = await STORAGE.get(QSEARCH_HIST_KEY);
+          if (rq) {
+            const o = JSON.parse(rq);
+            if (o && typeof o === "object" && !Array.isArray(o)) {
+              const clean = {};
+              for (const k of ["grammar", "listening", "audio"]) if (Array.isArray(o[k])) clean[k] = o[k].filter(x => typeof x === "string").slice(0, VSEARCH_HIST_MAX);
+              setQSearchHist(clean);
+            }
+          }
+        } catch (e) { /* no saved bank-search history */ }
       } finally { setLoaded(true); }
     })();
   }, []);
@@ -3538,7 +3621,7 @@ function App() {
     const term = (raw || "").trim();
     if (!term) return;
     setVSearchHist(prev => {
-      const next = [term, ...prev.filter(t => t.toLowerCase() !== term.toLowerCase())].slice(0, VSEARCH_HIST_MAX);
+      const next = histPush(prev, term, VSEARCH_HIST_MAX);
       STORAGE.set(VSEARCH_HIST_KEY, JSON.stringify(next));
       return next;
     });
@@ -3549,8 +3632,34 @@ function App() {
   }
   function removeVocabSearchHist(term) {
     setVSearchHist(prev => {
-      const next = prev.filter(t => t.toLowerCase() !== (term || "").toLowerCase());
+      const next = histRemove(prev, term);
       STORAGE.set(VSEARCH_HIST_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
+
+  // v0.66.0: same recent-search mechanism for the question banks (Grammar/Reading/Listening),
+  // one storage key holding all three scopes; reuses histPush/histRemove from the vocab box.
+  function commitQSearch(scope, raw) {
+    const term = (raw || "").trim();
+    if (!term) return;
+    setQSearchHist(prev => {
+      const next = { ...prev, [scope]: histPush(prev[scope], term, VSEARCH_HIST_MAX) };
+      STORAGE.set(QSEARCH_HIST_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
+  function removeQSearchHist(scope, term) {
+    setQSearchHist(prev => {
+      const next = { ...prev, [scope]: histRemove(prev[scope], term) };
+      STORAGE.set(QSEARCH_HIST_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
+  function clearQSearchHist(scope) {
+    setQSearchHist(prev => {
+      const next = { ...prev, [scope]: [] };
+      STORAGE.set(QSEARCH_HIST_KEY, JSON.stringify(next));
       return next;
     });
   }
@@ -3698,6 +3807,9 @@ function App() {
   }
   function readingWeakness() { return partWeakness(M.current.listening); }
   function listeningWeakness() { return partWeakness(M.current.audio); }
+  // v0.65.0: understanding by content category — Reading/Listening detail pages only
+  function readingCategoryWeakness() { return categoryWeakness(M.current.listening); }
+  function listeningCategoryWeakness() { return categoryWeakness(M.current.audio); }
 
   function openStats() {
     // snapshot the ref into state so the modal renders a stable view
@@ -3976,7 +4088,7 @@ function App() {
       // SAVE the whole passage to the persistent bank (so a generated reading is never lost —
       // it cost tokens to make). Stored as one bank entry keyed by passageId, holding the
       // passage text + its questions. The bank powers "คลังข้อสอบ" and review-by-rating.
-      st.data = { ...st.data, [passageId]: { id: passageId, transcript: obj.transcript, ptype, model: mdl.label, questions: deck, gen: Date.now(), category, difficulty } };
+      st.data = { ...st.data, [passageId]: { id: passageId, transcript: obj.transcript, ptype, model: mdl.label, questions: deck, gen: Date.now(), categories: canonCategories(obj.categories, category), difficulty } };
       await persist("listening");
       touchStreak(); updateHistory();
       setLquiz({ passageId, ptype, transcript: obj.transcript, model: mdl.label, deck: deck.map(shuffleForRound), pos: 0, picked: {}, start: Date.now(), end: null });
@@ -4231,7 +4343,7 @@ function App() {
       });
       if (!deck.length) throw new Error("คำตอบจาก AI ถูกตัดกลางคัน เลยไม่มีคำถามที่สมบูรณ์ — ลองกดสร้างใหม่อีกครั้งครับ");
       const transcript = isP2 ? "" : obj.transcript;
-      st.data = { ...st.data, [clipId]: { id: clipId, transcript, ptype, model: mdl.label, questions: deck, gen: Date.now(), category, difficulty } };
+      st.data = { ...st.data, [clipId]: { id: clipId, transcript, ptype, model: mdl.label, questions: deck, gen: Date.now(), categories: canonCategories(obj.categories, category), difficulty } };
       await persist("audio");
       touchStreak(); updateHistory();
       setRevealScript(false);
@@ -5488,7 +5600,7 @@ function App() {
                   <WeaknessCard
                     title='🧩 จุดอ่อนรายหัวข้อ (ไวยากรณ์) · เรียงจากพลาดบ่อยสุด'
                     items={grammarWeakness()}
-                    hint='แถบเขียว = สัดส่วนที่ "เข้าใจแล้ว" · ความยาวแถบ = จำนวนข้อที่เคยทำในหัวข้อนั้น · เน้นฝึกหัวข้อบนสุดก่อน'
+                    hint='แถบเขียว = สัดส่วนที่ "เข้าใจแล้ว" · ความยาวแถบ = จำนวนข้อที่เคยทำในหัวข้อนั้น · เน้นฝึกหัวข้อบนสุดก่อน · หมวดที่ยังไม่เคยทำ/ยังไม่ได้เรตจะยังไม่แสดง'
                   />
                 )}
                 {(!f || f === "listening") && (
@@ -5498,11 +5610,25 @@ function App() {
                     hint='แถบเขียว = สัดส่วนที่ "เข้าใจแล้ว" ในแต่ละพาร์ท (6/7) · เน้นพาร์ทบนสุดก่อน'
                   />
                 )}
+                {f === "listening" && (
+                  <WeaknessCard showPct
+                    title='🗂️ ความเข้าใจรายหมวด (Reading) · เรียงจากพลาดบ่อยสุด'
+                    items={readingCategoryWeakness()}
+                    hint='แถบเขียว = สัดส่วนที่ "เข้าใจแล้ว" ในหมวดนั้น · ชุดที่ติดหลายหมวดนับเข้าทุกหมวด · โชว์เฉพาะหน้านี้ ไม่ขึ้นแดชบอร์ดรวม'
+                  />
+                )}
                 {(!f || f === "audio") && (
                   <WeaknessCard
                     title='🧩 จุดอ่อนรายพาร์ท (Listening) · เรียงจากพลาดบ่อยสุด'
                     items={listeningWeakness()}
                     hint='แถบเขียว = สัดส่วนที่ "เข้าใจแล้ว" ในแต่ละพาร์ท (3/4) · เน้นพาร์ทบนสุดก่อน'
+                  />
+                )}
+                {f === "audio" && (
+                  <WeaknessCard showPct
+                    title='🗂️ ความเข้าใจรายหมวด (Listening) · เรียงจากพลาดบ่อยสุด'
+                    items={listeningCategoryWeakness()}
+                    hint='แถบเขียว = สัดส่วนที่ "เข้าใจแล้ว" ในหมวดนั้น · ชุดที่ติดหลายหมวดนับเข้าทุกหมวด · โชว์เฉพาะหน้านี้ ไม่ขึ้นแดชบอร์ดรวม'
                   />
                 )}
 
@@ -6048,29 +6174,54 @@ function App() {
                   if (!passages.length) return null;
                   const scopeLbl = wantPart ? wantPart : "ทุกพาร์ท";
                   // v0.61.0: text search + category chips over the saved sets
-                  const f = psFilter[mode] || { q: "", cat: "all" };
-                  const setPs = patch => setPsFilter(s => ({ ...s, [mode]: { ...(s[mode] || { q: "", cat: "all" }), ...patch } }));
+                  const f = psFilter[mode] || { q: "", grp: "all", cat: "all" };
+                  const setPs = patch => setPsFilter(s => ({ ...s, [mode]: { ...(s[mode] || { q: "", grp: "all", cat: "all" }), ...patch } }));
                   const ql = (f.q || "").trim().toLowerCase();
                   let shown = !ql ? passages : passages.filter(p =>
-                    (`${p.transcript || ""} ${p.category || ""} ${(p.questions || []).map(q => `${q.q || ""} ${Object.values(q.options || {}).join(" ")} ${q.explain || ""}`).join(" ")}`).toLowerCase().includes(ql));
-                  const catCounts = {}; for (const p of shown) { const k = p.category || "อื่นๆ"; catCounts[k] = (catCounts[k] || 0) + 1; }
-                  if (f.cat !== "all") shown = shown.filter(p => (p.category || "อื่นๆ") === f.cat);
+                    (`${p.transcript || ""} ${catsOf(p).join(" ")} ${(p.questions || []).map(q => `${q.q || ""} ${Object.values(q.options || {}).join(" ")} ${q.explain || ""}`).join(" ")}`).toLowerCase().includes(ql));
+                  const catCounts = {}; const grpCounts = {}; // multi-tag: sums can exceed the set count
+                  for (const p of shown) {
+                    const gs = new Set();
+                    for (const k of catChipsOf(p)) { catCounts[k] = (catCounts[k] || 0) + 1; gs.add(catGroupOf(k)); }
+                    for (const g of gs) grpCounts[g] = (grpCounts[g] || 0) + 1; // a set counts ONCE per group even with sibling tags
+                  }
+                  const catTotal = shown.length;
+                  const grp = f.grp || "all"; // sessions started on v0.63.x lack grp — treat as "all"
+                  if (grp !== "all") shown = shown.filter(p => catChipsOf(p).some(k => catGroupOf(k) === grp));
+                  if (f.cat !== "all") shown = shown.filter(p => catChipsOf(p).includes(f.cat));
                   return (
                     <div style={{ marginTop: 4 }}>
                       <div style={{ fontSize: 12.5, color: C.sub, fontWeight: 600, marginBottom: 8 }}>
                         📚 คลังข้อสอบที่เคยสร้าง · {scopeLbl} ({passages.length} ชุด) — แตะเพื่อทำซ้ำ
                       </div>
                       <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-                        <input value={f.q || ""} onChange={e => setPs({ q: e.target.value })} placeholder="ค้นหา (เนื้อเรื่อง/โจทย์/เฉลย/หมวด)…"
-                          style={{ flex: 1, minWidth: 0, boxSizing: "border-box", padding: "9px 12px", fontSize: 13, borderRadius: 10, border: `1.5px solid ${C.line}`, background: C.card, color: C.ink, outline: "none", fontFamily: "inherit" }} />
+                        <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+                          <input value={f.q || ""} onChange={e => setPs({ q: e.target.value })}
+                            onFocus={() => setQSearchFocus(mode)}
+                            onBlur={() => { setQSearchFocus(null); commitQSearch(mode, f.q); }}
+                            onKeyDown={e => { if (e.key === "Enter") { commitQSearch(mode, f.q); e.target.blur(); } }}
+                            placeholder="ค้นหา (เนื้อเรื่อง/โจทย์/เฉลย/หมวด)…"
+                            style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", fontSize: 13, borderRadius: 10, border: `1.5px solid ${C.line}`, background: C.card, color: C.ink, outline: "none", fontFamily: "inherit" }} />
+                          <SearchHistDropdown show={qSearchFocus === mode && !(f.q || "").trim()} hist={qSearchHist[mode]}
+                            onPick={t => { setPs({ q: t }); commitQSearch(mode, t); }}
+                            onRemove={t => removeQSearchHist(mode, t)} onClear={() => clearQSearchHist(mode)} />
+                        </div>
                         <button onClick={() => runSweep(mode)} title="🩺 ตรวจเฉลยทั้งคลัง (จับ+ซ่อมข้อที่เฉลยขัดคำอธิบาย)" aria-label="ตรวจเฉลยทั้งคลัง"
                           style={{ flexShrink: 0, width: 42, borderRadius: 10, border: `1.5px solid ${C.line}`, background: C.card, fontSize: 16 }}>🩺</button>
                       </div>
                       {Object.keys(catCounts).length > 1 && (
-                        <div style={{ display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 4, marginBottom: 8 }}>
-                          {[["all", `ทั้งหมด ${Object.values(catCounts).reduce((a, b) => a + b, 0)}`]].concat(Object.entries(catCounts).sort((a, b) => b[1] - a[1]).map(([k, n]) => [k, `${k} ${n}`])).map(([id, lbl]) => (
+                        <div style={{ display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 4, marginBottom: grp !== "all" ? 4 : 8 }}>
+                          {[["all", `ทั้งหมด ${catTotal}`]].concat(CATEGORY_GROUP_ORDER.filter(g => grpCounts[g]).map(g => [g, `${g} ${grpCounts[g]}`])).map(([id, lbl]) => (
+                            <button key={id} onClick={() => setPs({ grp: id, cat: "all" })}
+                              style={{ flexShrink: 0, whiteSpace: "nowrap", border: `1px solid ${grp === id ? C.accent : C.line}`, background: grp === id ? C.accentSoft : C.card, color: grp === id ? C.accent : C.sub, borderRadius: 20, padding: "5px 11px", fontSize: 12, fontWeight: 600 }}>{lbl}</button>
+                          ))}
+                        </div>
+                      )}
+                      {Object.keys(catCounts).length > 1 && grp !== "all" && (
+                        <div style={{ display: "flex", gap: 5, overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 4, marginBottom: 8 }}>
+                          {[["all", `ทั้งกลุ่ม ${grpCounts[grp] || 0}`]].concat(Object.entries(catCounts).filter(([k]) => catGroupOf(k) === grp).sort((a, b) => b[1] - a[1]).map(([k, n]) => [k, `${catShortLabel(k)} ${n}`])).map(([id, lbl]) => (
                             <button key={id} onClick={() => setPs({ cat: id })}
-                              style={{ flexShrink: 0, whiteSpace: "nowrap", border: `1px solid ${f.cat === id ? C.accent : C.line}`, background: f.cat === id ? C.accentSoft : C.card, color: f.cat === id ? C.accent : C.sub, borderRadius: 20, padding: "5px 11px", fontSize: 12, fontWeight: 600 }}>{lbl}</button>
+                              style={{ flexShrink: 0, whiteSpace: "nowrap", border: `1px solid ${f.cat === id ? C.accent : C.line}`, background: f.cat === id ? C.accentSoft : C.card, color: f.cat === id ? C.accent : C.sub, borderRadius: 20, padding: "4px 9px", fontSize: 11, fontWeight: 600 }}>{lbl}</button>
                           ))}
                         </div>
                       )}
@@ -6366,29 +6517,54 @@ function App() {
                   if (!clips.length) return null;
                   const scopeLbl = wantPart ? wantPart : "ทุกพาร์ท";
                   // v0.61.0: text search + category chips over the saved clips (mirrors Reading)
-                  const f = psFilter[mode] || { q: "", cat: "all" };
-                  const setPs = patch => setPsFilter(s => ({ ...s, [mode]: { ...(s[mode] || { q: "", cat: "all" }), ...patch } }));
+                  const f = psFilter[mode] || { q: "", grp: "all", cat: "all" };
+                  const setPs = patch => setPsFilter(s => ({ ...s, [mode]: { ...(s[mode] || { q: "", grp: "all", cat: "all" }), ...patch } }));
                   const ql = (f.q || "").trim().toLowerCase();
                   let shown = !ql ? clips : clips.filter(p =>
-                    (`${p.transcript || ""} ${p.category || ""} ${(p.questions || []).map(q => `${q.q || ""} ${Object.values(q.options || {}).join(" ")} ${q.explain || ""}`).join(" ")}`).toLowerCase().includes(ql));
-                  const catCounts = {}; for (const p of shown) { const k = p.category || "อื่นๆ"; catCounts[k] = (catCounts[k] || 0) + 1; }
-                  if (f.cat !== "all") shown = shown.filter(p => (p.category || "อื่นๆ") === f.cat);
+                    (`${p.transcript || ""} ${catsOf(p).join(" ")} ${(p.questions || []).map(q => `${q.q || ""} ${Object.values(q.options || {}).join(" ")} ${q.explain || ""}`).join(" ")}`).toLowerCase().includes(ql));
+                  const catCounts = {}; const grpCounts = {}; // multi-tag: sums can exceed the set count
+                  for (const p of shown) {
+                    const gs = new Set();
+                    for (const k of catChipsOf(p)) { catCounts[k] = (catCounts[k] || 0) + 1; gs.add(catGroupOf(k)); }
+                    for (const g of gs) grpCounts[g] = (grpCounts[g] || 0) + 1; // a set counts ONCE per group even with sibling tags
+                  }
+                  const catTotal = shown.length;
+                  const grp = f.grp || "all"; // sessions started on v0.63.x lack grp — treat as "all"
+                  if (grp !== "all") shown = shown.filter(p => catChipsOf(p).some(k => catGroupOf(k) === grp));
+                  if (f.cat !== "all") shown = shown.filter(p => catChipsOf(p).includes(f.cat));
                   return (
                     <div style={{ marginTop: 4 }}>
                       <div style={{ fontSize: 12.5, color: C.sub, fontWeight: 600, marginBottom: 8 }}>
                         📚 คลังบทฟังที่เคยสร้าง · {scopeLbl} ({clips.length} ชุด) — แตะเพื่อฟังซ้ำ
                       </div>
                       <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-                        <input value={f.q || ""} onChange={e => setPs({ q: e.target.value })} placeholder="ค้นหา (สคริปต์/โจทย์/เฉลย/หมวด)…"
-                          style={{ flex: 1, minWidth: 0, boxSizing: "border-box", padding: "9px 12px", fontSize: 13, borderRadius: 10, border: `1.5px solid ${C.line}`, background: C.card, color: C.ink, outline: "none", fontFamily: "inherit" }} />
+                        <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+                          <input value={f.q || ""} onChange={e => setPs({ q: e.target.value })}
+                            onFocus={() => setQSearchFocus(mode)}
+                            onBlur={() => { setQSearchFocus(null); commitQSearch(mode, f.q); }}
+                            onKeyDown={e => { if (e.key === "Enter") { commitQSearch(mode, f.q); e.target.blur(); } }}
+                            placeholder="ค้นหา (สคริปต์/โจทย์/เฉลย/หมวด)…"
+                            style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px", fontSize: 13, borderRadius: 10, border: `1.5px solid ${C.line}`, background: C.card, color: C.ink, outline: "none", fontFamily: "inherit" }} />
+                          <SearchHistDropdown show={qSearchFocus === mode && !(f.q || "").trim()} hist={qSearchHist[mode]}
+                            onPick={t => { setPs({ q: t }); commitQSearch(mode, t); }}
+                            onRemove={t => removeQSearchHist(mode, t)} onClear={() => clearQSearchHist(mode)} />
+                        </div>
                         <button onClick={() => runSweep(mode)} title="🩺 ตรวจเฉลยทั้งคลัง (จับ+ซ่อมข้อที่เฉลยขัดคำอธิบาย)" aria-label="ตรวจเฉลยทั้งคลัง"
                           style={{ flexShrink: 0, width: 42, borderRadius: 10, border: `1.5px solid ${C.line}`, background: C.card, fontSize: 16 }}>🩺</button>
                       </div>
                       {Object.keys(catCounts).length > 1 && (
-                        <div style={{ display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 4, marginBottom: 8 }}>
-                          {[["all", `ทั้งหมด ${Object.values(catCounts).reduce((a, b) => a + b, 0)}`]].concat(Object.entries(catCounts).sort((a, b) => b[1] - a[1]).map(([k, n]) => [k, `${k} ${n}`])).map(([id, lbl]) => (
+                        <div style={{ display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 4, marginBottom: grp !== "all" ? 4 : 8 }}>
+                          {[["all", `ทั้งหมด ${catTotal}`]].concat(CATEGORY_GROUP_ORDER.filter(g => grpCounts[g]).map(g => [g, `${g} ${grpCounts[g]}`])).map(([id, lbl]) => (
+                            <button key={id} onClick={() => setPs({ grp: id, cat: "all" })}
+                              style={{ flexShrink: 0, whiteSpace: "nowrap", border: `1px solid ${grp === id ? C.accent : C.line}`, background: grp === id ? C.accentSoft : C.card, color: grp === id ? C.accent : C.sub, borderRadius: 20, padding: "5px 11px", fontSize: 12, fontWeight: 600 }}>{lbl}</button>
+                          ))}
+                        </div>
+                      )}
+                      {Object.keys(catCounts).length > 1 && grp !== "all" && (
+                        <div style={{ display: "flex", gap: 5, overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 4, marginBottom: 8 }}>
+                          {[["all", `ทั้งกลุ่ม ${grpCounts[grp] || 0}`]].concat(Object.entries(catCounts).filter(([k]) => catGroupOf(k) === grp).sort((a, b) => b[1] - a[1]).map(([k, n]) => [k, `${catShortLabel(k)} ${n}`])).map(([id, lbl]) => (
                             <button key={id} onClick={() => setPs({ cat: id })}
-                              style={{ flexShrink: 0, whiteSpace: "nowrap", border: `1px solid ${f.cat === id ? C.accent : C.line}`, background: f.cat === id ? C.accentSoft : C.card, color: f.cat === id ? C.accent : C.sub, borderRadius: 20, padding: "5px 11px", fontSize: 12, fontWeight: 600 }}>{lbl}</button>
+                              style={{ flexShrink: 0, whiteSpace: "nowrap", border: `1px solid ${f.cat === id ? C.accent : C.line}`, background: f.cat === id ? C.accentSoft : C.card, color: f.cat === id ? C.accent : C.sub, borderRadius: 20, padding: "4px 9px", fontSize: 11, fontWeight: 600 }}>{lbl}</button>
                           ))}
                         </div>
                       )}
@@ -7194,30 +7370,10 @@ function App() {
                       ) : (
                         <span style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", color: C.sub, fontSize: 15, pointerEvents: "none" }}>🔍</span>
                       )}
-                      {/* zero-state recent searches: float OVER the content below (IG-style), so the
-                          filter chips never get pushed down. Shows only when focused AND empty. */}
-                      {vSearchFocus && !(vocabSearch || "").trim() && vSearchHist.length > 0 && (
-                        <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 30,
-                          background: C.card, border: `1.5px solid ${C.line}`, borderRadius: 12, padding: "6px 0",
-                          boxShadow: "0 8px 24px rgba(0,0,0,0.12)", maxHeight: 280, overflowY: "auto" }}>
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "2px 14px 6px" }}>
-                            <span style={{ fontSize: 11.5, color: C.sub, fontWeight: 600 }}>ค้นหาล่าสุด</span>
-                            <button onMouseDown={e => { e.preventDefault(); clearVocabSearchHist(); }}
-                              style={{ border: "none", background: "none", color: C.sub, fontSize: 11.5, padding: 2 }}>ล้างทั้งหมด</button>
-                          </div>
-                          {vSearchHist.map(term => (
-                            <div key={term} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px" }}>
-                              <span style={{ color: C.sub, fontSize: 14, flexShrink: 0 }}>🕘</span>
-                              <button onMouseDown={e => { e.preventDefault(); setVocabSearch(term); setBankShow(60); commitVocabSearch(term); }}
-                                style={{ flex: 1, textAlign: "left", border: "none", background: "none", color: C.ink, fontSize: 14, fontFamily: "inherit", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", padding: 0 }}>
-                                {term}
-                              </button>
-                              <button onMouseDown={e => { e.preventDefault(); removeVocabSearchHist(term); }} aria-label={"ลบ " + term}
-                                style={{ flexShrink: 0, border: "none", background: "none", color: C.sub, fontSize: 17, lineHeight: 1, padding: 4 }}>×</button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                      {/* zero-state recent searches (shared SearchHistDropdown since v0.66.0) */}
+                      <SearchHistDropdown show={vSearchFocus && !(vocabSearch || "").trim()} hist={vSearchHist}
+                        onPick={t => { setVocabSearch(t); setBankShow(60); commitVocabSearch(t); }}
+                        onRemove={removeVocabSearchHist} onClear={clearVocabSearchHist} />
                     </div>
                     {reviewable > 0 && (
                       <button onClick={copyUnmasteredVocab} title={`ก๊อปคำที่ยังไม่แม่นไปถาม Coach (${reviewable} คำ)`} aria-label="ก๊อปคำที่ยังไม่แม่นไปถาม Coach"
@@ -7231,8 +7387,17 @@ function App() {
                 )}
                 {mode === "grammar" && (
                   <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-                    <input value={gSearch} onChange={e => { setGSearch(e.target.value); setBankShow(60); }} placeholder="ค้นหา (โจทย์/ช้อยส์/คำอธิบาย/หมวด)…"
-                      style={{ flex: 1, minWidth: 0, boxSizing: "border-box", padding: "10px 13px", fontSize: 13.5, borderRadius: 11, border: `1.5px solid ${C.line}`, background: C.card, color: C.ink, outline: "none", fontFamily: "inherit" }} />
+                    <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+                      <input value={gSearch} onChange={e => { setGSearch(e.target.value); setBankShow(60); }}
+                        onFocus={() => setQSearchFocus("grammar")}
+                        onBlur={() => { setQSearchFocus(null); commitQSearch("grammar", gSearch); }}
+                        onKeyDown={e => { if (e.key === "Enter") { commitQSearch("grammar", gSearch); e.target.blur(); } }}
+                        placeholder="ค้นหา (โจทย์/ช้อยส์/คำอธิบาย/หมวด)…"
+                        style={{ width: "100%", boxSizing: "border-box", padding: "10px 13px", fontSize: 13.5, borderRadius: 11, border: `1.5px solid ${C.line}`, background: C.card, color: C.ink, outline: "none", fontFamily: "inherit" }} />
+                      <SearchHistDropdown show={qSearchFocus === "grammar" && !(gSearch || "").trim()} hist={qSearchHist.grammar}
+                        onPick={t => { setGSearch(t); setBankShow(60); commitQSearch("grammar", t); }}
+                        onRemove={t => removeQSearchHist("grammar", t)} onClear={() => clearQSearchHist("grammar")} />
+                    </div>
                     <button onClick={() => runSweep("grammar")} title="🩺 ตรวจเฉลยทั้งคลัง (จับ+ซ่อมข้อที่เฉลยขัดคำอธิบาย)" aria-label="ตรวจเฉลยทั้งคลัง"
                       style={{ flexShrink: 0, width: 44, borderRadius: 11, border: `1.5px solid ${C.line}`, background: C.card, fontSize: 17 }}>🩺</button>
                   </div>
@@ -7447,9 +7612,39 @@ function MiniLineChart({ series, color }) {
 }
 
 // shared weakness-by-topic card (grammar topics / reading parts / listening parts)
-function WeaknessCard({ title, items, hint }) {
+// ---- v0.66.0: recent-search zero-state dropdown, shared by Vocab/Grammar/Reading/Listening.
+// Floats over the content below (IG-style) so filter chips never get pushed down; shows only
+// when the box is focused AND empty. Buttons use onMouseDown+preventDefault so the input does
+// not blur (closing the panel) before the tap lands.
+function SearchHistDropdown({ show, hist, onPick, onRemove, onClear }) {
+  if (!show || !hist || !hist.length) return null;
+  return (
+    <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 30,
+      background: C.card, border: `1.5px solid ${C.line}`, borderRadius: 12, padding: "6px 0",
+      boxShadow: "0 8px 24px rgba(0,0,0,0.12)", maxHeight: 280, overflowY: "auto" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "2px 14px 6px" }}>
+        <span style={{ fontSize: 11.5, color: C.sub, fontWeight: 600 }}>ค้นหาล่าสุด</span>
+        <button onMouseDown={e => { e.preventDefault(); onClear(); }}
+          style={{ border: "none", background: "none", color: C.sub, fontSize: 11.5, padding: 2 }}>ล้างทั้งหมด</button>
+      </div>
+      {hist.map(term => (
+        <div key={term} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px" }}>
+          <span style={{ color: C.sub, fontSize: 14, flexShrink: 0 }}>🕘</span>
+          <button onMouseDown={e => { e.preventDefault(); onPick(term); }}
+            style={{ flex: 1, textAlign: "left", border: "none", background: "none", color: C.ink, fontSize: 14, fontFamily: "inherit", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", padding: 0 }}>
+            {term}
+          </button>
+          <button onMouseDown={e => { e.preventDefault(); onRemove(term); }} aria-label={"ลบ " + term}
+            style={{ flexShrink: 0, border: "none", background: "none", color: C.sub, fontSize: 17, lineHeight: 1, padding: 4 }}>×</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function WeaknessCard({ title, items, hint, showPct }) {
   if (!items || !items.length) return null;
-  const top = items.slice(0, 6);
+  const top = items; // v0.62.2: no more top-6 cap — the lesson taxonomy bounds the list (~16 max), so show every rated group
   const maxTotal = Math.max(...top.map(t => t.total), 1);
   return (
     <div style={{ marginTop: 18 }}>
@@ -7462,7 +7657,7 @@ function WeaknessCard({ title, items, hint }) {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, marginBottom: 3 }}>
                 <span style={{ fontSize: 13, color: C.ink, fontWeight: 600, lineHeight: 1.3 }}>{t.topic}</span>
                 <span style={{ fontSize: 11, color: t.weak > 0 ? C.red : C.green, fontWeight: 700, flex: "0 0 auto" }}>
-                  {t.weak > 0 ? `ยังไม่แม่น ${t.weak}/${t.total}` : `แม่นครบ ${t.total}`}
+                  {showPct ? `เข้าใจ ${pctKnown}% · ` : ""}{t.weak > 0 ? `ยังไม่แม่น ${t.weak}/${t.total}` : `แม่นครบ ${t.total}`}
                 </span>
               </div>
               <div style={{ height: 7, borderRadius: 4, background: C.redBg, overflow: "hidden", width: `${Math.max(28, (t.total / maxTotal) * 100)}%` }}>
