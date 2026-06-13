@@ -16,7 +16,7 @@ const { useState, useEffect, useRef } = React;
 
 // App version — bump on every release. Shown as a small badge (tap to confirm the
 // browser is running the latest build, not a stale cached one).
-const VERSION = "0.67.0";
+const VERSION = "0.69.1";
 
 // ============================================================
 //  ENVIRONMENT DETECTION
@@ -510,6 +510,19 @@ const SETTINGS_DEFAULT = {
   bankReveal: "tap", // เฉลยในคลังข้อสอบ (Grammar): tap=แตะเผยทีละข้อ (กันสปอยล์ตอนไล่ทำเอง) | show=โชว์ทันที
 };
 let SETTINGS = { ...SETTINGS_DEFAULT };
+// v0.68.2: kill the light→dark boot flash. In the browser localStorage is synchronous, so we
+// resolve the saved theme and paint the right palette on the FIRST frame — before React mounts
+// and before the async boot read runs. Artifact mode (window.storage is async-only) keeps the
+// old path and may still flash on load, but the deployed GitHub Pages build is the one that matters.
+if (!IS_ARTIFACT) {
+  try {
+    const _saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
+    if (_saved && typeof _saved === "object") {
+      SETTINGS = { ...SETTINGS_DEFAULT, ..._saved };
+      applyThemePalette(SETTINGS.theme);
+    }
+  } catch (e) { /* unreadable storage → keep the light default */ }
+}
 
 // v0.54.0: per-part review caps now come from Settings (REVIEW_CAP const retired).
 // Falls back to the default when the stored value is missing or garbage.
@@ -1193,6 +1206,20 @@ function shuffle(arr) {
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
+}
+
+// v0.68.0: build the distractor word list for a cloze item. Real TOEIC vocab items usually
+// keep all four choices the SAME part of speech, so prefer same-POS words; if the target's POS
+// bucket has fewer than `n` others, top up with words of any POS so the item always fills A–D.
+// An empty/unknown target POS falls back to a whole-pool sample (the pre-0.68.0 behaviour).
+// `shuf` is injectable so tests can pass an identity shuffle for deterministic output.
+function pickDistractors(word, pool, n, shuf = shuffle) {
+  const norm = s => (s || "").trim().toLowerCase();
+  const tgtPos = norm(word.pos);
+  const rest = pool.filter(x => x.w !== word.w);
+  const same = tgtPos ? shuf(rest.filter(x => norm(x.pos) === tgtPos)) : [];
+  const sameSet = new Set(same.map(x => x.w));
+  return [...same, ...shuf(rest.filter(x => !sameSet.has(x.w)))].slice(0, n).map(x => x.w);
 }
 
 // ---- v0.60.0: option-letter permutation core -------------------------------------------
@@ -3279,7 +3306,7 @@ function App() {
     synth.onvoiceschanged = load; // older WebView fallback
     return () => { if (synth.onvoiceschanged === load) synth.onvoiceschanged = null; };
   }, []);
-  const [settings, setSettingsState] = useState(SETTINGS_DEFAULT); // user settings (toeic_settings_v1)
+  const [settings, setSettingsState] = useState(SETTINGS); // v0.68.2: SETTINGS is pre-seeded from localStorage above (sync) → first render already matches the saved theme, no flash
   // ---- v0.61.0: bank overhaul UI state ----
   const [gSearch, setGSearch] = useState("");   // grammar bank: text search (โจทย์/ช้อยส์/คำอธิบาย/หมวด)
   const [gPoint, setGPoint] = useState("all");  // grammar bank: filter by grammar point chip
@@ -3414,7 +3441,13 @@ function App() {
     const v = aquiz;
     if (!v || v.end || v.pos >= v.deck.length) stopSpeak();
   }, [aquiz]);
+  // ---- v0.68.1: silence Exam TTS once the paper is submitted or the exam is quit/left ----
+  // (mirrors the Listening-quiz effect above; covers submit, quit, and leaving the screen)
+  useEffect(() => {
+    if (!exam || exam.submitted) stopSpeak();
+  }, [exam]);
   const [statsFilter, setStatsFilter] = useState(null); // Stats modal: null = all modes, else "vocab"|"grammar"|"listening"|"audio"
+  const [chartRange, setChartRange] = useState(30); // v0.69.0: mastery-chart window — 30 | 90 | 365 days, or "all"
   const [revealTh, setRevealTh] = useState(false); // vocab card: show Thai meaning?
 
   useEffect(() => {
@@ -4031,7 +4064,8 @@ function App() {
     // v0.67.0: prefer the stored exam-style sentence; fall back to the card example as before
     const sentence = quizSentenceOf(word, M.current.vocab.qex) || word.ex || "";
     const prompt = sentence.replace(re, "____");
-    const others = shuffle(pool.filter(x => x.w !== word.w)).slice(0, 3).map(x => x.w);
+    // v0.68.0: distractors now prefer the target's part of speech (see pickDistractors)
+    const others = pickDistractors(word, pool, 3);
     const opts = shuffle([word.w, ...others]);
     return {
       id: idPrefix + idx, prompt, options: { A: opts[0], B: opts[1], C: opts[2], D: opts[3] },
@@ -5066,8 +5100,16 @@ function App() {
           <div onClick={() => setShowSettings(false)}
             style={{ position: "fixed", inset: 0, background: "rgba(33,29,24,.55)", display: "grid", placeItems: "center", padding: 18, zIndex: 60 }}>
             <div onClick={e => e.stopPropagation()} className="rise"
-              style={{ background: C.panel, borderRadius: 16, padding: "20px 18px", maxWidth: 480, width: "100%", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 20px 50px -20px rgba(0,0,0,.5)" }}>
-              <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 20, marginBottom: 6 }}>⚙️ ตั้งค่า</div>
+              style={{ background: C.panel, borderRadius: 16, maxWidth: 480, width: "100%", maxHeight: "88vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 20px 50px -20px rgba(0,0,0,.5)" }}>
+              {/* v0.67.1: header is pinned (flex-column shell + scrollable body below) so the ×
+                  is always reachable — no more scrolling to the bottom just to close. */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "18px 18px 12px", flex: "0 0 auto" }}>
+                <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 20 }}>⚙️ ตั้งค่า</div>
+                <button onClick={() => setShowSettings(false)} aria-label="ปิด"
+                  style={{ background: "none", border: "none", color: C.sub, fontSize: 22, lineHeight: 1, padding: 4, marginRight: -4, cursor: "pointer" }}>×</button>
+              </div>
+              {/* scrollable body */}
+              <div style={{ overflowY: "auto", padding: "0 18px 18px", flex: "1 1 auto" }}>
               {/* v0.54.1: groups are an accordion — tap a header to expand (one at a time) */}
               <SettingGroup first title="🤖 AI" open={openGroup === "ai"}
                 onToggle={() => setOpenGroup(g => (g === "ai" ? null : "ai"))}>
@@ -5306,6 +5348,7 @@ function App() {
 
               <button onClick={() => setShowSettings(false)}
                 style={{ marginTop: 10, width: "100%", background: "none", border: "none", color: C.sub, fontSize: 13, textDecoration: "underline" }}>ปิด</button>
+              </div>
             </div>
           </div>
         )}
@@ -5540,7 +5583,7 @@ function App() {
           const histT = { vocab: "vt", grammar: "gt", listening: "rt", audio: "at" };
           const hist = statsView.history || {};
           const dates = Object.keys(hist).sort();
-          const last = dates.slice(-30);
+          const last = chartRange === "all" ? dates : dates.slice(-chartRange); // v0.69.0: window selectable
           const masterySeries = last.map(d => {
             const s = hist[d] || {};
             const y = f ? (s[histK[f]] || 0) : (s.vk || 0) + (s.gk || 0) + (s.rk || 0) + (s.ak || 0);
@@ -5598,8 +5641,19 @@ function App() {
                   </div>
                 )}
 
-                {/* mastery over time */}
-                <div style={{ fontSize: 12.5, color: C.sub, fontWeight: 600, marginBottom: 8 }}>📈 คำ/ข้อที่แม่นสะสม{f ? ` · ${sLabel[f]}` : ""} (30 วันล่าสุด)</div>
+                {/* mastery over time — v0.69.0: tap a pill to change the window (30/90/365/all) */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  <div style={{ fontSize: 12.5, color: C.sub, fontWeight: 600, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📈 คำ/ข้อที่แม่นสะสม</div>
+                  <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                    {[[30, "30 วัน"], [90, "90 วัน"], [365, "1 ปี"], ["all", "ทั้งหมด"]].map(([r, lbl]) => {
+                      const on = chartRange === r;
+                      return (
+                        <button key={r} onClick={() => setChartRange(r)}
+                          style={{ background: on ? C.accent : C.track, color: on ? C.inkOn : C.sub, border: "none", borderRadius: 8, padding: "4px 9px", fontSize: 11, fontWeight: on ? 700 : 600, cursor: "pointer", whiteSpace: "nowrap" }}>{lbl}</button>
+                      );
+                    })}
+                  </div>
+                </div>
                 {masterySeries.length >= 2 ? (
                   <MiniLineChart series={masterySeries} color={C.accent} />
                 ) : (
@@ -5873,9 +5927,13 @@ function App() {
                 </div>
                 <div style={{ fontSize: 11.5, color: C.sub, marginBottom: 14 }}>* รุ่น AI ใช้กับคำที่ "สุ่มคำใหม่" ในแท็บการ์ด — ป้ายรุ่นที่สร้างประโยคจะติดอยู่กับแต่ละข้อ</div>
                 {/* v0.67.0: exam-sentence coverage — write once, keep forever; the quiz never calls AI */}
+                {/* v0.67.1: once every word is covered the card is pure clutter sitting between the
+                    model picker and the start button, so hide it when have >= total. It re-appears
+                    on its own if new words are added later (have drops below total again). */}
                 {(() => {
                   const qx = M.current.vocab.qex || {};
                   const have = Object.values(M.current.vocab.data).filter(w => qx[w.w]).length;
+                  if (have >= total) return null;
                   return (
                     <div style={{ border: `1.5px solid ${C.line}`, background: C.panel, borderRadius: 12, padding: "10px 12px", marginBottom: 14 }}>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
