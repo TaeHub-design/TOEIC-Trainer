@@ -16,7 +16,7 @@ const { useState, useEffect, useRef } = React;
 
 // App version — bump on every release. Shown as a small badge (tap to confirm the
 // browser is running the latest build, not a stale cached one).
-const VERSION = "0.66.0";
+const VERSION = "0.67.0";
 
 // ============================================================
 //  ENVIRONMENT DETECTION
@@ -435,6 +435,40 @@ function histPush(list, raw, max) {
 }
 function histRemove(list, term) {
   return (Array.isArray(list) ? list : []).filter(t => t.toLowerCase() !== (term || "").toLowerCase());
+}
+// ---- v0.67.0: exam-style quiz sentences (qex) ----
+// One sentence per word, written by AI ONCE and then kept forever (persisted + backed up).
+// The quiz itself never calls AI: quizSentenceOf is the single brain that picks the stored
+// exam sentence when it is valid, else falls back to the card example — old behavior intact.
+const QEX_BATCH = 20; // words per fill request
+function wordRe(w) { return new RegExp("\\b" + String(w).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i"); }
+function quizSentenceOf(word, qexMap) {
+  const qx = qexMap && qexMap[word.w];
+  if (typeof qx === "string" && qx && wordRe(word.w).test(qx)) return qx;
+  if (word.ex && wordRe(word.w).test(word.ex)) return word.ex;
+  return null;
+}
+// Acceptance gate for AI output: must contain the exact surface form (word boundary) and be
+// a sane exam length. Rejected items are simply skipped — the word stays uncovered for retry.
+function qexAccept(w, sent) {
+  if (typeof sent !== "string") return false;
+  const t = sent.trim();
+  if (!t || !wordRe(w).test(t)) return false;
+  const n = t.split(/\s+/).length;
+  return n >= 10 && n <= 40;
+}
+function qexPrompt(words) {
+  const list = words.map(w => `{"w":"${w.w}","pos":"${(w.pos || "").replace(/"/g, "")}","th":"${(w.th || "").replace(/"/g, "")}"}`).join(",");
+  return `You are a TOEIC item writer. For EACH vocabulary word below, write ONE exam-style sentence that could appear on the TOEIC Reading test.
+Rules for every sentence:
+- 14-22 words, professional TOEIC register (workplace, business, services, travel).
+- It MUST contain the target word EXACTLY ONCE, in exactly the given surface form (no plural or tense changes).
+- The surrounding context must make the meaning of the word recoverable, but do NOT define the word outright.
+- Natural and self-contained; no blanks, no quotation marks inside the sentence.
+Words: [${list}]
+Each item object is closed by EXACTLY ONE "}"; separate items with "},{" (never "}},{"), and close the whole response with "}]}" — do not add extra closing braces.
+Respond with ONLY a valid minified JSON object, no markdown, no backticks, no preamble.
+Shape: {"items":[{"w":"budget","s":"..."}]}`;
 }
 const EXAM_BANK_KEY = "toeic_exam_bank_v1"; // saved mock-exam decks for replay (avoid re-gen): { [id]: {scope,parts,deck,n,durationMs,gen} }
 const GOAL_OPTIONS = [10, 20, 30, 50];
@@ -2934,7 +2968,7 @@ function vocabPersistPayload(st) {
     if (w && w.gen === 0 && VOCAB_BANK_BY_KEY[k]) entries.push(k); // bank word -> key only
     else if (w) entries.push(w);                                   // custom/off-bank -> full body
   }
-  return { fmt: 2, entries, ratings: st.ratings, genCount: st.genCount, missQ: st.missQ, srs: st.srs };
+  return { fmt: 2, entries, ratings: st.ratings, genCount: st.genCount, missQ: st.missQ, srs: st.srs, qex: st.qex || {} };
 }
 // Load EITHER format: old (full `words` map, no entries) or new (`entries` array).
 // Old data therefore migrates automatically — first boot reads it as-is, first persist
@@ -3138,7 +3172,7 @@ function auditAnswerExplain(item) {
 
 // blank state per mode
 const emptyMode = () => ({
-  data: {}, ratings: {}, genCount: 0, missQ: {}, srs: {},
+  data: {}, ratings: {}, genCount: 0, missQ: {}, srs: {}, qex: {}, // qex: vocab-only — exam-style cloze sentences keyed by word
   deck: [], pos: 0, flipped: false, pickedMap: {}, tab: "study", bankFilter: "all",
   generating: false, genErr: null, lastAdded: null, lastCategory: null,
   startTime: null, endTime: null,
@@ -3326,6 +3360,8 @@ function App() {
   const [aFilter, setAFilter] = useState("all"); // listening(audio) strategy filter
   const [gLessonFilter, setGLessonFilter] = useState("all"); // grammar lesson status filter
   const [vquiz, setVquiz] = useState(null); // { deck, pos, picked, start, end, tooFew }
+  const [qexBusy, setQexBusy] = useState(false); // v0.67.0: batch-writing exam sentences
+  const [qexErr, setQexErr] = useState(null);
   // ---- timed mock exam ("สอบจริง") ----
   const [examScope, setExamScope] = useState("Part 5"); // selected scope id (EXAM_SCOPES key)
   const [exam, setExam] = useState(null); // active/finished exam:
@@ -3398,6 +3434,7 @@ function App() {
             M.current[m].genCount = Math.max(s.genCount || 0, topGen(M.current[m].data));
             M.current[m].srs = s.srs || {};
             if (m === "vocab" || m === "listening" || m === "audio") M.current[m].missQ = s.missQ || {};
+            if (m === "vocab") M.current[m].qex = s.qex || {}; // v0.67.0 exam sentences (older saves: none yet)
           } catch (e) { /* no data for this mode */ }
         }
         // SEED the static vocab bank: add any bank word the user doesn't already have.
@@ -3991,7 +4028,9 @@ function App() {
     const letters = ["A", "B", "C", "D"];
     const safe = word.w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const re = new RegExp("\\b" + safe + "\\b", "i");
-    const prompt = word.ex.replace(re, "____");
+    // v0.67.0: prefer the stored exam-style sentence; fall back to the card example as before
+    const sentence = quizSentenceOf(word, M.current.vocab.qex) || word.ex || "";
+    const prompt = sentence.replace(re, "____");
     const others = shuffle(pool.filter(x => x.w !== word.w)).slice(0, 3).map(x => x.w);
     const opts = shuffle([word.w, ...others]);
     return {
@@ -3999,10 +4038,45 @@ function App() {
       answer: letters[opts.indexOf(word.w)], word: word.w, th: word.th, model: word.model || "",
     };
   }
+  // v0.67.0: write exam sentences for words that still lack one. Generated ONCE per word,
+  // stored in st.qex (persist + backup), NEVER overwritten — quiz time stays fully AI-free.
+  async function fillQexBatch() {
+    const st = M.current.vocab;
+    const now = Date.now();
+    const missing = Object.values(st.data)
+      .filter(w => w && w.w && !((st.qex || {})[w.w]))
+      .sort((a, b) => (isDue((st.srs || {})[a.w], now) ? 0 : 1) - (isDue((st.srs || {})[b.w], now) ? 0 : 1))
+      .slice(0, QEX_BATCH);
+    if (!missing.length || qexBusy) return;
+    setQexBusy(true); setQexErr(null);
+    try {
+      const mdl = MODELS.find(x => x.id === models.vocab) || MODELS[0];
+      const obj = await aiCompleteJson({
+        engineId: engine, model: mdl.str, maxTokens: genMaxTokens(mdl), prompt: qexPrompt(missing),
+        validate: o => o && Array.isArray(o.items) && o.items.length,
+      });
+      const byLc = {}; for (const w of missing) byLc[w.w.toLowerCase()] = w.w;
+      const nextQex = { ...(st.qex || {}) };
+      let added = 0;
+      for (const it of (obj.items || [])) {
+        const key = it && it.w ? byLc[String(it.w).trim().toLowerCase()] : null;
+        if (!key || nextQex[key]) continue; // unknown word / already filled — never overwrite
+        const sent = typeof it.s === "string" ? it.s.trim() : "";
+        if (!qexAccept(key, sent)) continue; // must contain the exact word + sane length
+        nextQex[key] = sent; added++;
+      }
+      st.qex = nextQex;
+      await persist("vocab");
+      if (!added) setQexErr("AI ส่งประโยคมาไม่ผ่านเกณฑ์ทั้งชุด — ลองกดอีกครั้งครับ");
+      rerender();
+    } catch (e) {
+      setQexErr(String((e && e.message) || e));
+    } finally { setQexBusy(false); }
+  }
   function buildVocabQuiz() {
     const all = Object.values(M.current.vocab.data);
     // cloze needs the word to appear in its own example sentence
-    const usable = all.filter(w => w.ex && new RegExp("\\b" + w.w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i").test(w.ex));
+    const usable = all.filter(w => quizSentenceOf(w, M.current.vocab.qex)); // qex OR ex must contain the word
     // CEFR filter applies to the TARGET word only; distractors still come from the whole bank (option B),
     // so a sparse level (e.g. C2 with 1–3 words) can still build a full 4-choice TOEIC-style item.
     const targets = quizLevel === "all" ? usable
@@ -4631,6 +4705,7 @@ function App() {
       audio: { clips: M.current.audio.data, ratings: M.current.audio.ratings, genCount: M.current.audio.genCount, missQ: M.current.audio.missQ },
       // ---- v2 extras (purposely excluded from canonicalBackup so the checksum stays backward-compatible) ----
       srs: { vocab: M.current.vocab.srs || {}, grammar: M.current.grammar.srs || {}, listening: M.current.listening.srs || {}, audio: M.current.audio.srs || {} },
+      vocabQex: M.current.vocab.qex || {}, // v0.67.0 extra (outside legacy checksum): exam sentences — written once, kept forever
       streak: streak,
       stats: { history: STATS.current.history || {}, sessions: STATS.current.sessions || [], daily: STATS.current.daily || {} },
     };
@@ -4705,6 +4780,7 @@ function App() {
         M.current.vocab.ratings = isMerge ? mergeMap(M.current.vocab.ratings, obj.vocab.ratings, true) : (obj.vocab.ratings || {});
         M.current.vocab.genCount = Math.max(M.current.vocab.genCount || 0, obj.vocab.genCount || 0, topGen(M.current.vocab.data));
         M.current.vocab.missQ = isMerge ? mergeMap(M.current.vocab.missQ, obj.vocab.missQ, true) : (obj.vocab.missQ || {});
+        M.current.vocab.qex = isMerge ? mergeMap(M.current.vocab.qex, obj.vocabQex, true) : (obj.vocabQex || {}); // existing sentences win on merge
         M.current.vocab.deck = []; M.current.vocab.pos = 0; M.current.vocab.pickedMap = {};
         await persist("vocab");
       }
@@ -5754,8 +5830,8 @@ function App() {
             // P1b fix: these four values are only needed by the START screen below, but they
             // used to be computed on EVERY render of this panel (incl. every answer tap during
             // a quiz) — that's ~1,500 RegExp builds + tests per render. Now they only run here.
-            // usable = words whose own example sentence actually contains the word (cloze-able)
-            const quizUsable = Object.values(M.current.vocab.data).filter(w => w.ex && new RegExp("\\b" + w.w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i").test(w.ex));
+            // usable = words with a cloze-able sentence (exam qex first, else the card example)
+            const quizUsable = Object.values(M.current.vocab.data).filter(w => quizSentenceOf(w, M.current.vocab.qex));
             // counts per CEFR level among usable words (drives the filter pills + counts)
             const quizLevelCounts = (() => {
               const c = { all: quizUsable.length, A1: 0, A2: 0, B1: 0, B2: 0, C1: 0, C2: 0, none: 0 };
@@ -5796,6 +5872,27 @@ function App() {
                   </div>
                 </div>
                 <div style={{ fontSize: 11.5, color: C.sub, marginBottom: 14 }}>* รุ่น AI ใช้กับคำที่ "สุ่มคำใหม่" ในแท็บการ์ด — ป้ายรุ่นที่สร้างประโยคจะติดอยู่กับแต่ละข้อ</div>
+                {/* v0.67.0: exam-sentence coverage — write once, keep forever; the quiz never calls AI */}
+                {(() => {
+                  const qx = M.current.vocab.qex || {};
+                  const have = Object.values(M.current.vocab.data).filter(w => qx[w.w]).length;
+                  return (
+                    <div style={{ border: `1.5px solid ${C.line}`, background: C.panel, borderRadius: 12, padding: "10px 12px", marginBottom: 14 }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                        <div style={{ fontSize: 12.5, color: C.sub }}>📝 ประโยคสนามสอบ: <b style={{ color: C.ink }}>{have}/{total}</b> คำ</div>
+                        <button onClick={fillQexBatch} disabled={qexBusy || have >= total}
+                          style={{ flexShrink: 0, border: "none", borderRadius: 9, padding: "7px 11px", fontSize: 12, fontWeight: 700,
+                            background: (qexBusy || have >= total) ? C.track : C.accent, color: (qexBusy || have >= total) ? C.subDim : "#fff" }}>
+                          {qexBusy ? "กำลังเขียน…" : have >= total ? "ครบทุกคำแล้ว" : `✨ เติม ${Math.min(QEX_BATCH, total - have)} คำ`}
+                        </button>
+                      </div>
+                      <div style={{ fontSize: 11, color: C.subDim, marginTop: 5, lineHeight: 1.5 }}>
+                        AI เขียนครั้งเดียวต่อคำแล้วเก็บถาวร (ลง backup ด้วย) — ตอนทำ quiz ไม่เรียก AI · คำที่ยังไม่มีใช้ประโยคการ์ดแบบเดิม · เรียงคำถึงคิวทบทวนก่อน
+                      </div>
+                      {qexErr && <div style={{ fontSize: 11.5, color: C.red, marginTop: 6 }}>{qexErr}</div>}
+                    </div>
+                  );
+                })()}
 
                 {total < 4 ? (
                   <Centered>ยังมีคำไม่พอ — ไปที่ "📇 เรียน (การ์ด)" แล้วกด ✨ สร้างคำชุดแรกก่อนนะครับ</Centered>
