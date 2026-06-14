@@ -16,7 +16,7 @@ const { useState, useEffect, useRef } = React;
 
 // App version — bump on every release. Shown as a small badge (tap to confirm the
 // browser is running the latest build, not a stale cached one).
-const VERSION = "0.78.0";
+const VERSION = "0.80.0";
 
 // ============================================================
 //  ENVIRONMENT DETECTION
@@ -564,6 +564,13 @@ function clampFabPos(p) { // keep the bubble fully on-screen (handles resize / r
   const h = (typeof window !== "undefined" && window.innerHeight) || 720;
   const M = 8;
   return { x: Math.max(M, Math.min(p.x, w - FAB_SIZE - M)), y: Math.max(M, Math.min(p.y, h - FAB_SIZE - M)) };
+}
+const FAB_PEEK = 20; // how much of the bubble stays visible when tucked into an edge
+function clampFabDrag(p) { // looser clamp used WHILE dragging — bubble may sit partly off an edge (min FAB_PEEK visible)
+  const w = (typeof window !== "undefined" && window.innerWidth) || 380;
+  const h = (typeof window !== "undefined" && window.innerHeight) || 720;
+  const M = 8;
+  return { x: Math.max(FAB_PEEK - FAB_SIZE, Math.min(p.x, w - FAB_PEEK)), y: Math.max(M, Math.min(p.y, h - FAB_SIZE - M)) };
 }
 const GOAL_OPTIONS = [10, 20, 30, 50];
 const BACKUP_PREFIX = "TZv1:"; // marks a compressed backup string
@@ -4990,6 +4997,7 @@ function App() {
   const [captureMsg, setCaptureMsg] = useState(null);    // v0.77.0: success line shown in the sheet
   const [fabPos, setFabPos] = useState(null);            // v0.78.0: bubble position {x,y}; null = default corner
   const [fabDragging, setFabDragging] = useState(false); // true while actively dragging (disables snap transition)
+  const [fabTucked, setFabTucked] = useState(false);     // v0.79.0: tucked into an edge (only a sliver peeks)
   const fabDragRef = useRef(null);                       // live drag session — avoids stale state on release
   // ---- timed mock exam ("สอบจริง") ----
   const [examScope, setExamScope] = useState("Part 5"); // selected scope id (EXAM_SCOPES key)
@@ -5800,26 +5808,34 @@ function App() {
   }
 
   // ---- v0.78.0: draggable capture bubble handlers ----
-  useEffect(() => { // restore the remembered bubble position on load
+  useEffect(() => { // restore the remembered bubble position + tuck state on load
     (async () => {
       try {
         const raw = await STORAGE.get(FAB_POS_KEY);
         const s = raw ? JSON.parse(raw) : null;
-        if (s && typeof s.x === "number" && typeof s.y === "number") setFabPos(clampFabPos(s));
+        if (s && typeof s.x === "number" && typeof s.y === "number") { setFabPos(clampFabPos(s)); setFabTucked(!!s.tucked); }
       } catch (e) {}
     })();
   }, []);
+  function fabRenderPos() { // where the bubble actually sits: live while dragging, tucked sliver at rest
+    if (fabDragging && fabPos) return fabPos;
+    const base = clampFabPos(fabPos || defaultFabPos());
+    if (!fabTucked) return base;
+    const w = (typeof window !== "undefined" && window.innerWidth) || 380;
+    const onRight = (base.x + FAB_SIZE / 2) >= w / 2;
+    return { x: onRight ? (w - FAB_PEEK) : (FAB_PEEK - FAB_SIZE), y: base.y };
+  }
   function fabPointerDown(e) {
-    const p = fabPos || defaultFabPos();
+    const p = fabRenderPos(); // start from what the user actually sees (sliver or full) — no jump on grab
     fabDragRef.current = { startX: e.clientX, startY: e.clientY, baseX: p.x, baseY: p.y, moved: false };
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) {}
   }
   function fabPointerMove(e) {
     const d = fabDragRef.current; if (!d) return;
     const dx = e.clientX - d.startX, dy = e.clientY - d.startY;
-    if (!d.moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) { d.moved = true; setFabDragging(true); } // past threshold = a drag
+    if (!d.moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) { d.moved = true; setFabDragging(true); setFabTucked(false); } // a drag pulls it fully out
     if (!d.moved) return;
-    const np = clampFabPos({ x: d.baseX + dx, y: d.baseY + dy });
+    const np = clampFabDrag({ x: d.baseX + dx, y: d.baseY + dy }); // loose clamp: may sit partly off-edge while dragging
     d.lastX = np.x; d.lastY = np.y;
     setFabPos(np);
   }
@@ -5828,13 +5844,26 @@ function App() {
     try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (err) {}
     if (!d) return;
     setFabDragging(false);
-    if (!d.moved) { setCaptureOpen(true); setCaptureErr(null); return; } // a tap (no real move) opens the sheet
-    // a drag: snap to the nearest left/right edge, keep the vertical spot, and remember it
+    if (!d.moved) { // a tap: a tucked bubble pops OUT to a full ball; a full bubble opens the sheet
+      if (fabTucked) {
+        const base = clampFabPos(fabPos || defaultFabPos());
+        setFabTucked(false);
+        try { STORAGE.set(FAB_POS_KEY, JSON.stringify({ x: base.x, y: base.y, tucked: false })); } catch (err) {}
+      } else {
+        setCaptureOpen(true); setCaptureErr(null);
+      }
+      return;
+    }
+    // a drag: snap to the nearest edge. Tuck ONLY if shoved well into the edge (mostly off-screen);
+    // a gentle drop near the edge rests as a full round ball hugging the side.
     const w = (typeof window !== "undefined" && window.innerWidth) || 380;
     const lx = d.lastX != null ? d.lastX : d.baseX, ly = d.lastY != null ? d.lastY : d.baseY;
-    const snapped = clampFabPos({ x: (lx + FAB_SIZE / 2) < w / 2 ? 16 : (w - FAB_SIZE - 16), y: ly });
-    setFabPos(snapped);
-    try { STORAGE.set(FAB_POS_KEY, JSON.stringify(snapped)); } catch (err) {}
+    const off = Math.max(0, (lx + FAB_SIZE) - w, -lx); // how far the bubble is pushed off the nearest edge
+    const tuck = off > 18;                              // shoved past the edge -> store as a sliver
+    const onRight = (lx + FAB_SIZE / 2) >= w / 2;
+    const snapped = clampFabPos({ x: onRight ? (w - FAB_SIZE - 16) : 16, y: ly });
+    setFabPos(snapped); setFabTucked(tuck);
+    try { STORAGE.set(FAB_POS_KEY, JSON.stringify({ x: snapped.x, y: snapped.y, tucked: tuck })); } catch (err) {}
   }
 
   function buildVocabQuiz() {
@@ -9453,14 +9482,16 @@ function App() {
 
       {/* ===== v0.77.0: global capture FAB + sheet — collect unknown words from ANY part ===== */}
       {!captureOpen && (() => {
-        const p = clampFabPos(fabPos || defaultFabPos());
+        const p = fabRenderPos();
+        const tuckedRest = fabTucked && !fabDragging;
         return (
           <button onPointerDown={fabPointerDown} onPointerMove={fabPointerMove} onPointerUp={fabPointerUp} onPointerCancel={fabPointerUp}
-            aria-label="เพิ่มคำที่เจอ" title="ลากย้ายได้ · แตะเพื่อเพิ่มคำ"
+            aria-label="เพิ่มคำที่เจอ" title={tuckedRest ? "แตะเพื่อดึงออกมา · ลากเพื่อย้าย" : "แตะเพื่อเพิ่มคำ · ลากดันชนขอบเพื่อเก็บ"}
             style={{ position: "fixed", left: p.x, top: p.y, zIndex: 45, width: 56, height: 56, borderRadius: "50%",
               border: "none", background: C.accent, color: C.inkOn, fontSize: 24, boxShadow: "0 10px 24px -8px rgba(191,77,40,.85)",
+              opacity: tuckedRest ? 0.6 : 1,
               display: "flex", alignItems: "center", justifyContent: "center", touchAction: "none", userSelect: "none", WebkitUserSelect: "none",
-              transition: fabDragging ? "none" : "left .22s ease, top .22s ease" }}>
+              transition: fabDragging ? "none" : "left .22s ease, top .22s ease, opacity .22s ease" }}>
             ✍️
           </button>
         );
