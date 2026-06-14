@@ -16,7 +16,7 @@ const { useState, useEffect, useRef } = React;
 
 // App version — bump on every release. Shown as a small badge (tap to confirm the
 // browser is running the latest build, not a stale cached one).
-const VERSION = "0.76.0";
+const VERSION = "0.76.1";
 
 // ============================================================
 //  ENVIRONMENT DETECTION
@@ -8830,7 +8830,9 @@ function App() {
         {!(mode === "grammar" && gSection === "lesson") && !(mode === "vocab" && vSection === "quiz") && mode !== "listening" && mode !== "audio" && mode !== "exam" && (
           <>
         <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12, fontSize: 13, color: C.sub }}>
-          <span>สร้างไปแล้ว <b style={{ color: C.accent, fontSize: 15 }}>{distinctGenCount(st.data)}</b> ชุด</span>
+          {mode === "vocab"
+            ? <span>เพิ่มไปแล้ว <b style={{ color: C.accent, fontSize: 15 }}>{Object.values(st.data).filter(w => w && (w.gen || 0) >= 1).length}</b> คำ</span>
+            : <span>สร้างไปแล้ว <b style={{ color: C.accent, fontSize: 15 }}>{distinctGenCount(st.data)}</b> ชุด</span>}
           <span style={{ color: C.line }}>•</span>
           <span>{mode === "vocab" ? "คำสะสม" : "ข้อสะสม"} <b style={{ color: C.ink }}>{total}</b></span>
         </div>
