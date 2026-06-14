@@ -16,7 +16,7 @@ const { useState, useEffect, useRef } = React;
 
 // App version — bump on every release. Shown as a small badge (tap to confirm the
 // browser is running the latest build, not a stale cached one).
-const VERSION = "0.76.1";
+const VERSION = "0.78.0";
 
 // ============================================================
 //  ENVIRONMENT DETECTION
@@ -550,6 +550,21 @@ Shape: [{"src":"...","w":"...","pos":"...","ipa":"...","th":"...","def":"...","e
 }
 
 const EXAM_BANK_KEY = "toeic_exam_bank_v1"; // saved mock-exam decks for replay (avoid re-gen): { [id]: {scope,parts,deck,n,durationMs,gen} }
+
+// ---- v0.78.0: draggable capture bubble (Messenger-style chat head) ----
+const FAB_POS_KEY = "toeic_fab_pos_v1"; // remembered {x,y} of the bubble so it stays put across reloads
+const FAB_SIZE = 56;
+function defaultFabPos() { // bottom-right corner
+  const w = (typeof window !== "undefined" && window.innerWidth) || 380;
+  const h = (typeof window !== "undefined" && window.innerHeight) || 720;
+  return { x: w - FAB_SIZE - 16, y: h - FAB_SIZE - 90 };
+}
+function clampFabPos(p) { // keep the bubble fully on-screen (handles resize / rotation)
+  const w = (typeof window !== "undefined" && window.innerWidth) || 380;
+  const h = (typeof window !== "undefined" && window.innerHeight) || 720;
+  const M = 8;
+  return { x: Math.max(M, Math.min(p.x, w - FAB_SIZE - M)), y: Math.max(M, Math.min(p.y, h - FAB_SIZE - M)) };
+}
 const GOAL_OPTIONS = [10, 20, 30, 50];
 const BACKUP_PREFIX = "TZv1:"; // marks a compressed backup string
 // Set by importData on a v3 restore: how many bankRefs keys were absent from this build's
@@ -4971,6 +4986,11 @@ function App() {
   const [captureText, setCaptureText] = useState(""); // v0.76.0: capture-box textarea
   const [captureBusy, setCaptureBusy] = useState(false); // AI enriching the queue
   const [captureErr, setCaptureErr] = useState(null);
+  const [captureOpen, setCaptureOpen] = useState(false); // v0.77.0: global capture sheet open?
+  const [captureMsg, setCaptureMsg] = useState(null);    // v0.77.0: success line shown in the sheet
+  const [fabPos, setFabPos] = useState(null);            // v0.78.0: bubble position {x,y}; null = default corner
+  const [fabDragging, setFabDragging] = useState(false); // true while actively dragging (disables snap transition)
+  const fabDragRef = useRef(null);                       // live drag session — avoids stale state on release
   // ---- timed mock exam ("สอบจริง") ----
   const [examScope, setExamScope] = useState("Part 5"); // selected scope id (EXAM_SCOPES key)
   const [exam, setExam] = useState(null); // active/finished exam:
@@ -5173,6 +5193,13 @@ function App() {
   function chooseModel(id) {
     setModelsByEngine(prev => {
       const next = { ...prev, [engine]: { ...prev[engine], [mode]: id } };
+      STORAGE.set(MODEL_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
+  function chooseVocabModel(id) { // v0.77.0: capture sheet sets the vocab enrich model regardless of current mode
+    setModelsByEngine(prev => {
+      const next = { ...prev, [engine]: { ...prev[engine], vocab: id } };
       STORAGE.set(MODEL_KEY, JSON.stringify(next));
       return next;
     });
@@ -5709,7 +5736,7 @@ function App() {
       return;
     }
     st.pending = [...(st.pending || []), ...found];
-    setCaptureText(""); setCaptureErr(null);
+    setCaptureText(""); setCaptureErr(null); setCaptureMsg(null);
     persist("vocab"); rerender();
   }
   function removePending(i) {
@@ -5759,20 +5786,55 @@ function App() {
       st.data = nextData; st.genCount = newGen;
       // remove every queued word the AI resolved; words it skipped stay queued for another try
       st.pending = (st.pending || []).filter(p => !consumed.has(p.key));
-      const freshCards = Object.values(nextData).filter(w => w && w.gen === newGen);
-      if (freshCards.length) {
-        st.deck = shuffle(freshCards); st.pos = 0; st.flipped = false; st.pickedMap = {}; st.tryOne = false; st.tab = "study";
-      }
-      st.lastAdded = added; st.lastCategory = null;
+      // v0.77.0: capture is a global sheet now — do NOT switch tab / build a deck / scroll away.
+      // the new cards are in the bank, ready under Vocab → เรียน (การ์ด); just report the count here.
       await persist("vocab");
       touchStreak(); updateHistory();
-      if (!added) setCaptureErr("ยังไม่ได้การ์ดใหม่ — AI ไม่ผ่านเกณฑ์ หรือคำที่เหลือซ้ำตระกูลกับคลังทั้งหมด");
+      if (added) setCaptureMsg("✓ เพิ่ม " + added + " คำเข้าคลังคำศัพท์แล้ว — เปิดแท็บ Vocab → เรียน (การ์ด) ได้เลย");
+      else setCaptureErr("ยังไม่ได้การ์ดใหม่ — AI ไม่ผ่านเกณฑ์ หรือคำที่เหลือซ้ำตระกูลกับคลังทั้งหมด");
     } catch (e) {
       setCaptureErr(String((e && e.message) || e));
     } finally {
       setCaptureBusy(false); rerender();
-      if (!captureErr) scrollToCards();
     }
+  }
+
+  // ---- v0.78.0: draggable capture bubble handlers ----
+  useEffect(() => { // restore the remembered bubble position on load
+    (async () => {
+      try {
+        const raw = await STORAGE.get(FAB_POS_KEY);
+        const s = raw ? JSON.parse(raw) : null;
+        if (s && typeof s.x === "number" && typeof s.y === "number") setFabPos(clampFabPos(s));
+      } catch (e) {}
+    })();
+  }, []);
+  function fabPointerDown(e) {
+    const p = fabPos || defaultFabPos();
+    fabDragRef.current = { startX: e.clientX, startY: e.clientY, baseX: p.x, baseY: p.y, moved: false };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) {}
+  }
+  function fabPointerMove(e) {
+    const d = fabDragRef.current; if (!d) return;
+    const dx = e.clientX - d.startX, dy = e.clientY - d.startY;
+    if (!d.moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) { d.moved = true; setFabDragging(true); } // past threshold = a drag
+    if (!d.moved) return;
+    const np = clampFabPos({ x: d.baseX + dx, y: d.baseY + dy });
+    d.lastX = np.x; d.lastY = np.y;
+    setFabPos(np);
+  }
+  function fabPointerUp(e) {
+    const d = fabDragRef.current; fabDragRef.current = null;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (err) {}
+    if (!d) return;
+    setFabDragging(false);
+    if (!d.moved) { setCaptureOpen(true); setCaptureErr(null); return; } // a tap (no real move) opens the sheet
+    // a drag: snap to the nearest left/right edge, keep the vertical spot, and remember it
+    const w = (typeof window !== "undefined" && window.innerWidth) || 380;
+    const lx = d.lastX != null ? d.lastX : d.baseX, ly = d.lastY != null ? d.lastY : d.baseY;
+    const snapped = clampFabPos({ x: (lx + FAB_SIZE / 2) < w / 2 ? 16 : (w - FAB_SIZE - 16), y: ly });
+    setFabPos(snapped);
+    try { STORAGE.set(FAB_POS_KEY, JSON.stringify(snapped)); } catch (err) {}
   }
 
   function buildVocabQuiz() {
@@ -8837,7 +8899,8 @@ function App() {
           <span>{mode === "vocab" ? "คำสะสม" : "ข้อสะสม"} <b style={{ color: C.ink }}>{total}</b></span>
         </div>
 
-        {/* model picker (per mode, remembers choice) — always expanded so picking is one tap */}
+        {/* model picker (grammar; vocab's enrich model now lives in the ✍️ capture sheet) — v0.77.0 */}
+        {mode !== "vocab" && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
           <span style={{ fontSize: 12.5, color: C.sub, flex: "0 0 auto" }}>รุ่น AI:</span>
           <div style={{ display: "flex", flex: 1, background: C.track, borderRadius: 10, padding: 3, gap: 3 }}>
@@ -8855,56 +8918,10 @@ function App() {
             })}
           </div>
         </div>
+        )}
 
-        {/* generate (grammar) / capture box (vocab) — v0.76.0 */}
-        {mode === "vocab" ? (
-          <div style={{ marginBottom: 12 }}>
-            {/* capture input + ✂️ split */}
-            <div style={{ border: `1px solid ${C.line}`, borderRadius: 13, padding: 12, background: C.card }}>
-              <div style={{ fontSize: 12, color: C.sub, fontWeight: 700, marginBottom: 7 }}>✍️ เจอคำที่ไม่รู้จัก? วางที่นี่ <span style={{ fontWeight: 400, fontSize: 11 }}>· คำเดียว, หลายคำ, หรือทั้งประโยคก็ได้</span></div>
-              <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
-                <textarea value={captureText} onChange={e => { setCaptureText(e.target.value); if (captureErr) setCaptureErr(null); }} rows={2}
-                  placeholder="เช่น liaising, curate, obstructing — หรือวางทั้งประโยค"
-                  style={{ flex: 1, resize: "vertical", border: `1.5px solid ${C.line}`, background: C.panel, color: C.ink, borderRadius: 10, padding: "9px 11px", fontSize: 13, fontFamily: "inherit", lineHeight: 1.5 }} />
-                <button onClick={addCaptured} disabled={!captureText.trim()}
-                  style={{ flexShrink: 0, border: "none", borderRadius: 10, padding: "0 13px", fontSize: 13, fontWeight: 700, background: captureText.trim() ? C.accent : C.track, color: captureText.trim() ? C.inkOn : C.subDim }}>
-                  ✂️<br />แยกคำ
-                </button>
-              </div>
-              {captureErr && <div style={{ fontSize: 11.5, color: C.red, marginTop: 7, lineHeight: 1.5 }}>{captureErr}</div>}
-              <div style={{ fontSize: 11, color: C.subDim, marginTop: 7, lineHeight: 1.5 }}>แยกแล้วเช็กกับคลังทันที (ทำงานออฟไลน์) · คำที่มีอยู่แล้วหรือรูปผันของคำในคลัง (เช่น rivals↔rival) จะถูกตัดออกให้</div>
-            </div>
-
-            {/* ช่องรอ + ✨ enrich */}
-            {(st.pending && st.pending.length > 0) && (
-              <div style={{ border: `1px solid ${C.line}`, borderRadius: 13, padding: "11px 12px", background: C.soft, marginTop: 10 }}>
-                <div style={{ fontSize: 12, color: C.sub, fontWeight: 700, marginBottom: 8 }}>📥 คำที่รอทำการ์ด: <b style={{ color: C.ink }}>{st.pending.length}</b></div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 11 }}>
-                  {st.pending.map((p, i) => (
-                    <span key={p.key + "_" + i} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 20, padding: "4px 5px 4px 11px", fontSize: 12.5, color: C.ink }}>
-                      {p.w}
-                      <button onClick={() => removePending(i)} aria-label="ลบ"
-                        style={{ border: "none", background: C.track, color: C.sub, borderRadius: "50%", width: 18, height: 18, fontSize: 13, lineHeight: 1, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>×</button>
-                    </span>
-                  ))}
-                </div>
-                <button onClick={enrichPending} disabled={captureBusy || (needsKey && !hasKey)}
-                  style={{ width: "100%", border: "none", borderRadius: 12, padding: "12px 16px", fontSize: 14.5, fontWeight: 700,
-                    background: captureBusy ? C.accentDim : (needsKey && !hasKey) ? C.disabled : C.accent, color: C.inkOn,
-                    display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                  {captureBusy ? (
-                    <><span className="spin" style={{ width: 15, height: 15, border: `2px solid ${C.inkOn}`, borderTopColor: "transparent", borderRadius: "50%", display: "inline-block" }} /> AI กำลังทำการ์ด…</>
-                  ) : (needsKey && !hasKey) ? (
-                    <>🔒 เติมการ์ดต้องใส่ API key</>
-                  ) : (
-                    <>✨ ให้ AI ทำการ์ดเรียน ({Math.min(CAPTURE_ENRICH_BATCH, st.pending.length)} คำ)</>
-                  )}
-                </button>
-                <div style={{ fontSize: 11, color: C.subDim, marginTop: 6, lineHeight: 1.5 }}>AI เติมคำแปล/IPA/ตัวอย่าง/ระดับให้ทุกคำ แล้วเข้าคลังเป็นการ์ด ทำโจทย์ได้ทันที · ตรวจตระกูลซ้ำกับคลังอีกชั้นก่อนใส่</div>
-              </div>
-            )}
-          </div>
-        ) : (
+        {/* generate button — grammar only (v0.77.0: vocab capture moved to the global ✍️ sheet) */}
+        {mode !== "vocab" && (
         <button onClick={generate} disabled={st.generating}
           style={{ width: "100%", background: st.generating ? C.accentDim : (needsKey && !hasKey) ? C.disabled : C.accent, color: C.inkOn, border: "none", borderRadius: 13,
             padding: "14px 18px", fontSize: 15.5, fontWeight: 600, boxShadow: (needsKey && !hasKey) ? "none" : "0 8px 20px -10px rgba(191,77,40,.9)",
@@ -9433,6 +9450,94 @@ function App() {
           </span>
         </div>
       </div>
+
+      {/* ===== v0.77.0: global capture FAB + sheet — collect unknown words from ANY part ===== */}
+      {!captureOpen && (() => {
+        const p = clampFabPos(fabPos || defaultFabPos());
+        return (
+          <button onPointerDown={fabPointerDown} onPointerMove={fabPointerMove} onPointerUp={fabPointerUp} onPointerCancel={fabPointerUp}
+            aria-label="เพิ่มคำที่เจอ" title="ลากย้ายได้ · แตะเพื่อเพิ่มคำ"
+            style={{ position: "fixed", left: p.x, top: p.y, zIndex: 45, width: 56, height: 56, borderRadius: "50%",
+              border: "none", background: C.accent, color: C.inkOn, fontSize: 24, boxShadow: "0 10px 24px -8px rgba(191,77,40,.85)",
+              display: "flex", alignItems: "center", justifyContent: "center", touchAction: "none", userSelect: "none", WebkitUserSelect: "none",
+              transition: fabDragging ? "none" : "left .22s ease, top .22s ease" }}>
+            ✍️
+          </button>
+        );
+      })()}
+      {captureOpen && (
+        <div onClick={() => setCaptureOpen(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(33,29,24,.55)", zIndex: 80, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+          <div onClick={e => e.stopPropagation()} className="rise"
+            style={{ width: "100%", maxWidth: 600, background: C.bg, borderRadius: "18px 18px 0 0", padding: "16px 16px 24px",
+              maxHeight: "85vh", overflowY: "auto", boxShadow: "0 -12px 32px -10px rgba(0,0,0,.45)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+              <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 18 }}>✍️ เพิ่มคำที่เจอ</div>
+              <button onClick={() => setCaptureOpen(false)} aria-label="ปิด"
+                style={{ border: "none", background: C.track, color: C.sub, borderRadius: "50%", width: 30, height: 30, fontSize: 18, lineHeight: 1, flexShrink: 0 }}>×</button>
+            </div>
+            <div style={{ fontSize: 12, color: C.sub, marginBottom: 12, lineHeight: 1.5 }}>เจอคำไม่รู้จักจาก Part ไหนก็วางได้ — คำเดียว, หลายคำ, หรือทั้งประโยค · ระบบจะเก็บเข้าคลัง Vocab ให้</div>
+
+            {/* input + ✂️ split */}
+            <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
+              <textarea value={captureText} onChange={e => { setCaptureText(e.target.value); if (captureErr) setCaptureErr(null); if (captureMsg) setCaptureMsg(null); }} rows={2}
+                placeholder="เช่น liaising, curate, obstructing — หรือวางทั้งประโยค"
+                style={{ flex: 1, resize: "vertical", border: `1.5px solid ${C.line}`, background: C.panel, color: C.ink, borderRadius: 10, padding: "9px 11px", fontSize: 13, fontFamily: "inherit", lineHeight: 1.5 }} />
+              <button onClick={addCaptured} disabled={!captureText.trim()}
+                style={{ flexShrink: 0, border: "none", borderRadius: 10, padding: "0 13px", fontSize: 13, fontWeight: 700, background: captureText.trim() ? C.accent : C.track, color: captureText.trim() ? C.inkOn : C.subDim }}>
+                ✂️<br />แยกคำ
+              </button>
+            </div>
+            {captureErr && <div style={{ fontSize: 11.5, color: C.red, marginTop: 8, lineHeight: 1.5 }}>{captureErr}</div>}
+            {captureMsg && <div style={{ fontSize: 12, color: C.green, marginTop: 8, fontWeight: 600, lineHeight: 1.5 }}>{captureMsg}</div>}
+            <div style={{ fontSize: 11, color: C.subDim, marginTop: 8, lineHeight: 1.5 }}>แยกแล้วเช็กกับคลังทันที (ออฟไลน์) · คำที่มีอยู่แล้วหรือรูปผันของคำในคลัง (rivals↔rival) จะถูกตัดออกให้</div>
+
+            {/* ช่องรอ + รุ่น AI + ✨ enrich */}
+            {(M.current.vocab.pending && M.current.vocab.pending.length > 0) && (
+              <div style={{ border: `1px solid ${C.line}`, borderRadius: 13, padding: "11px 12px", background: C.soft, marginTop: 12 }}>
+                <div style={{ fontSize: 12, color: C.sub, fontWeight: 700, marginBottom: 8 }}>📥 คำที่รอทำการ์ด: <b style={{ color: C.ink }}>{M.current.vocab.pending.length}</b></div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 11 }}>
+                  {M.current.vocab.pending.map((p, i) => (
+                    <span key={p.key + "_" + i} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 20, padding: "4px 5px 4px 11px", fontSize: 12.5, color: C.ink }}>
+                      {p.w}
+                      <button onClick={() => removePending(i)} aria-label="ลบ"
+                        style={{ border: "none", background: C.track, color: C.sub, borderRadius: "50%", width: 18, height: 18, fontSize: 13, lineHeight: 1, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>×</button>
+                    </span>
+                  ))}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                  <span style={{ fontSize: 12, color: C.sub, flex: "0 0 auto" }}>รุ่น AI:</span>
+                  <div style={{ display: "flex", flex: 1, background: C.track, borderRadius: 9, padding: 3, gap: 3 }}>
+                    {MODELS.map(mm => {
+                      const on = models.vocab === mm.id;
+                      return (
+                        <button key={mm.id} onClick={() => chooseVocabModel(mm.id)} disabled={captureBusy}
+                          style={{ flex: 1, border: "none", borderRadius: 7, padding: "6px 4px", fontSize: 11.5, fontWeight: 600, lineHeight: 1.2,
+                            background: on ? C.panel : "transparent", color: on ? C.ink : C.subDim }}>
+                          {mm.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <button onClick={enrichPending} disabled={captureBusy || (needsKey && !hasKey)}
+                  style={{ width: "100%", border: "none", borderRadius: 12, padding: "12px 16px", fontSize: 14.5, fontWeight: 700,
+                    background: captureBusy ? C.accentDim : (needsKey && !hasKey) ? C.disabled : C.accent, color: C.inkOn,
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                  {captureBusy ? (
+                    <><span className="spin" style={{ width: 15, height: 15, border: `2px solid ${C.inkOn}`, borderTopColor: "transparent", borderRadius: "50%", display: "inline-block" }} /> AI กำลังทำการ์ด…</>
+                  ) : (needsKey && !hasKey) ? (
+                    <>🔒 เติมการ์ดต้องใส่ API key</>
+                  ) : (
+                    <>✨ ให้ AI ทำการ์ดเรียน ({Math.min(CAPTURE_ENRICH_BATCH, M.current.vocab.pending.length)} คำ)</>
+                  )}
+                </button>
+                <div style={{ fontSize: 11, color: C.subDim, marginTop: 6, lineHeight: 1.5 }}>AI เติมคำแปล/IPA/ตัวอย่าง/ระดับ แล้วเข้าคลังเป็นการ์ด · ตรวจตระกูลซ้ำกับคลังอีกชั้นก่อนใส่</div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
