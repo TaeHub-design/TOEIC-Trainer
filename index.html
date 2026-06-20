@@ -7273,7 +7273,7 @@
   // <stdin>
   var import_react = __toESM(require_react());
   var import_client = __toESM(require_client());
-  var VERSION = "0.89.0";
+  var VERSION = "0.90.0";
   var IS_ARTIFACT = typeof window !== "undefined" && !!window.storage;
   var STORAGE = IS_ARTIFACT ? {
     async get(k) {
@@ -7608,6 +7608,21 @@
     }
     return Object.values(map).sort((a, b) => b.weak - a.weak || b.total - a.total);
   }
+  var AI_TIMEOUT_MS = 12e4;
+  async function fetchWithTimeout(url, opts = {}, ms = AI_TIMEOUT_MS) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), ms);
+    try {
+      return await fetch(url, __spreadProps(__spreadValues({}, opts), { signal: ctrl.signal }));
+    } catch (e) {
+      if (e && (e.name === "AbortError" || /abort/i.test(String(e && e.message || "")))) {
+        throw new Error("\u0E2B\u0E21\u0E14\u0E40\u0E27\u0E25\u0E32\u0E23\u0E2D AI (timeout " + Math.round(ms / 1e3) + " \u0E27\u0E34) \u2014 \u0E40\u0E04\u0E23\u0E37\u0E2D\u0E02\u0E48\u0E32\u0E22\u0E0A\u0E49\u0E32\u0E2B\u0E23\u0E37\u0E2D\u0E04\u0E49\u0E32\u0E07 \u0E25\u0E2D\u0E07\u0E01\u0E14\u0E43\u0E2B\u0E21\u0E48\u0E2D\u0E35\u0E01\u0E04\u0E23\u0E31\u0E49\u0E07\u0E04\u0E23\u0E31\u0E1A");
+      }
+      throw e;
+    } finally {
+      clearTimeout(t);
+    }
+  }
   var ENGINES = {
     gemini: {
       id: "gemini",
@@ -7632,7 +7647,7 @@
         const url = "https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent";
         let res;
         try {
-          res = await fetch(url, {
+          res = await fetchWithTimeout(url, {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-goog-api-key": key },
             body: JSON.stringify({
@@ -7699,7 +7714,7 @@
         const body = { model, max_tokens: maxTokens, messages: [{ role: "user", content: prompt }] };
         let res;
         try {
-          res = await fetch("https://api.anthropic.com/v1/messages", {
+          res = await fetchWithTimeout("https://api.anthropic.com/v1/messages", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -7769,7 +7784,7 @@
         const body = { model, max_tokens: maxTokens, messages: [{ role: "user", content: prompt }] };
         let res;
         try {
-          res = await fetch("https://api.anthropic.com/v1/messages", {
+          res = await fetchWithTimeout("https://api.anthropic.com/v1/messages", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body)
@@ -7850,8 +7865,171 @@ Shape: {"items":[{"w":"budget","s":"..."}]}`;
   }
   var CAPTURE_ENRICH_BATCH = 10;
   var CAPTURE_STOPWORDS = new Set("a an the and or but nor for so yet of to in on at by with from into onto out off over under about above below between through during before after again is am are was were be been being do does did have has had having will would shall should can could may might must not no nor if then than this that these those it its it's he she they them his her their your you i we our us me my mine who whom whose which what how why when where all any both each few more most other some such only own same too very just also as".split(/\s+/));
+  var IRREGULAR_LEMMA = {
+    began: "begin",
+    begun: "begin",
+    broke: "break",
+    broken: "break",
+    brought: "bring",
+    built: "build",
+    bought: "buy",
+    caught: "catch",
+    chose: "choose",
+    chosen: "choose",
+    came: "come",
+    dealt: "deal",
+    drew: "draw",
+    drawn: "draw",
+    drove: "drive",
+    driven: "drive",
+    ate: "eat",
+    eaten: "eat",
+    fell: "fall",
+    fallen: "fall",
+    felt: "feel",
+    found: "find",
+    flew: "fly",
+    flown: "fly",
+    forgot: "forget",
+    forgotten: "forget",
+    got: "get",
+    gotten: "get",
+    gave: "give",
+    given: "give",
+    went: "go",
+    gone: "go",
+    grew: "grow",
+    grown: "grow",
+    heard: "hear",
+    held: "hold",
+    kept: "keep",
+    knew: "know",
+    known: "know",
+    laid: "lay",
+    led: "lead",
+    left: "leave",
+    lent: "lend",
+    lost: "lose",
+    made: "make",
+    meant: "mean",
+    met: "meet",
+    paid: "pay",
+    rose: "rise",
+    risen: "rise",
+    ran: "run",
+    said: "say",
+    saw: "see",
+    seen: "see",
+    sold: "sell",
+    sent: "send",
+    shook: "shake",
+    shown: "show",
+    sang: "sing",
+    sat: "sit",
+    slept: "sleep",
+    spoke: "speak",
+    spoken: "speak",
+    spent: "spend",
+    stood: "stand",
+    stole: "steal",
+    stolen: "steal",
+    struck: "strike",
+    swept: "sweep",
+    swam: "swim",
+    took: "take",
+    taken: "take",
+    taught: "teach",
+    told: "tell",
+    thought: "think",
+    threw: "throw",
+    thrown: "throw",
+    understood: "understand",
+    undertook: "undertake",
+    woke: "wake",
+    wore: "wear",
+    worn: "wear",
+    won: "win",
+    withdrew: "withdraw",
+    withdrawn: "withdraw",
+    wrote: "write",
+    written: "write",
+    better: "good",
+    best: "good",
+    worse: "bad",
+    worst: "bad",
+    more: "much",
+    most: "much",
+    less: "little",
+    least: "little",
+    further: "far",
+    furthest: "far",
+    farther: "far",
+    farthest: "far",
+    elder: "old",
+    eldest: "old",
+    // curated REGULAR comparatives/superlatives of common one-syllable adjectives. Listed
+    // explicitly (not a blanket -er/-est strip) so we never merge corner/interest/manager/water.
+    // Verified: 0 of these keys is its own bank card, so no false merge.
+    fewer: "few",
+    fewest: "few",
+    nearer: "near",
+    nearest: "near",
+    faster: "fast",
+    fastest: "fast",
+    newer: "new",
+    newest: "new",
+    older: "old",
+    oldest: "old",
+    larger: "large",
+    largest: "large",
+    higher: "high",
+    highest: "high",
+    lower: "low",
+    lowest: "low",
+    longer: "long",
+    longest: "long",
+    shorter: "short",
+    shortest: "short",
+    stronger: "strong",
+    strongest: "strong",
+    weaker: "weak",
+    weakest: "weak",
+    cheaper: "cheap",
+    cheapest: "cheap",
+    richer: "rich",
+    richest: "rich",
+    smaller: "small",
+    smallest: "small",
+    greater: "great",
+    greatest: "great",
+    slower: "slow",
+    slowest: "slow",
+    deeper: "deep",
+    deepest: "deep",
+    wider: "wide",
+    widest: "wide",
+    broader: "broad",
+    broadest: "broad",
+    cleaner: "clean",
+    cleanest: "clean",
+    safer: "safe",
+    safest: "safe",
+    closer: "close",
+    closest: "close",
+    harder: "hard",
+    hardest: "hard",
+    softer: "soft",
+    softest: "soft",
+    warmer: "warm",
+    warmest: "warm",
+    cooler: "cool",
+    coolest: "cool",
+    lighter: "light",
+    lightest: "light"
+  };
   function captureStem(word) {
     let w = String(word || "").toLowerCase().replace(/[^a-z]/g, "");
+    if (IRREGULAR_LEMMA[w]) return IRREGULAR_LEMMA[w];
     if (w.length <= 3) return w;
     if (w.length > 5 && w.endsWith("ing")) w = w.slice(0, -3);
     else if (w.length > 5 && w.endsWith("edly")) w = w.slice(0, -4);
