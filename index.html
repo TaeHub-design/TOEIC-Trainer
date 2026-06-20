@@ -7273,7 +7273,7 @@
   // <stdin>
   var import_react = __toESM(require_react());
   var import_client = __toESM(require_client());
-  var VERSION = "0.88.2";
+  var VERSION = "0.89.0";
   var IS_ARTIFACT = typeof window !== "undefined" && !!window.storage;
   var STORAGE = IS_ARTIFACT ? {
     async get(k) {
@@ -12456,6 +12456,7 @@ Shape: {"ptype":"Part 2","categories":["finance & budget","technology & IT"],"tr
     });
     const [difficulty, setDifficultyState] = (0, import_react.useState)(DEFAULT_DIFFICULTY);
     const [copyBox, setCopyBox] = (0, import_react.useState)(null);
+    const [armClearPending, setArmClearPending] = (0, import_react.useState)(false);
     const [dayCount, setDayCount] = (0, import_react.useState)(0);
     const [streak, setStreak] = (0, import_react.useState)({ streak: 0, best: 0, last: null });
     const [showStats, setShowStats] = (0, import_react.useState)(false);
@@ -12594,6 +12595,7 @@ Shape: {"ptype":"Part 2","categories":["finance & budget","technology & IT"],"tr
     useBackToClose(backup !== null, () => setBackup(null));
     useBackToClose(confirmReset, () => setConfirmReset(false));
     useBackToClose(confirmOverwrite, () => setConfirmOverwrite(false));
+    useBackToClose(copyBox !== null, () => setCopyBox(null));
     const [fabPos, setFabPos] = (0, import_react.useState)(null);
     const [fabDragging, setFabDragging] = (0, import_react.useState)(false);
     const [fabTucked, setFabTucked] = (0, import_react.useState)(false);
@@ -13404,6 +13406,17 @@ Shape: {"ptype":"Part 2","categories":["finance & budget","technology & IT"],"tr
     function removePending(i) {
       const st2 = M.current.vocab;
       st2.pending = (st2.pending || []).filter((_, idx) => idx !== i);
+      persist("vocab");
+      rerender();
+    }
+    function clearAllPending() {
+      if (!armClearPending) {
+        setArmClearPending(true);
+        setTimeout(() => setArmClearPending(false), 3e3);
+        return;
+      }
+      setArmClearPending(false);
+      M.current.vocab.pending = [];
       persist("vocab");
       rerender();
     }
@@ -14382,6 +14395,10 @@ ${opts}
           M.current.vocab.missQ = isMerge ? mergeMap(M.current.vocab.missQ, obj.vocab.missQ, true) : obj.vocab.missQ || {};
           M.current.vocab.qex = isMerge ? mergeMap(M.current.vocab.qex, obj.vocabQex, true) : obj.vocabQex || {};
           M.current.vocab.pending = isMerge ? mergePending(M.current.vocab.pending, obj.vocabPending) : Array.isArray(obj.vocabPending) ? obj.vocabPending : [];
+          {
+            const famKeys = bankFamilyKeys();
+            M.current.vocab.pending = (M.current.vocab.pending || []).filter((p) => p && !famKeys.has(p.key));
+          }
           M.current.vocab.deck = [];
           M.current.vocab.pos = 0;
           M.current.vocab.pickedMap = {};
@@ -17557,7 +17574,24 @@ ${opts}
         captureErr && /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 11.5, color: C.red, marginTop: 8, lineHeight: 1.5 } }, captureErr),
         captureMsg && /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 12, color: C.green, marginTop: 8, fontWeight: 600, lineHeight: 1.5 } }, captureMsg),
         /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 11, color: C.subDim, marginTop: 8, lineHeight: 1.5 } }, "\u0E41\u0E22\u0E01\u0E41\u0E25\u0E49\u0E27\u0E40\u0E0A\u0E47\u0E01\u0E01\u0E31\u0E1A\u0E04\u0E25\u0E31\u0E07\u0E17\u0E31\u0E19\u0E17\u0E35 (\u0E2D\u0E2D\u0E1F\u0E44\u0E25\u0E19\u0E4C) \xB7 \u0E04\u0E33\u0E17\u0E35\u0E48\u0E21\u0E35\u0E2D\u0E22\u0E39\u0E48\u0E41\u0E25\u0E49\u0E27\u0E2B\u0E23\u0E37\u0E2D\u0E23\u0E39\u0E1B\u0E1C\u0E31\u0E19\u0E02\u0E2D\u0E07\u0E04\u0E33\u0E43\u0E19\u0E04\u0E25\u0E31\u0E07 (rivals\u2194rival) \u0E08\u0E30\u0E16\u0E39\u0E01\u0E15\u0E31\u0E14\u0E2D\u0E2D\u0E01\u0E43\u0E2B\u0E49"),
-        M.current.vocab.pending && M.current.vocab.pending.length > 0 && /* @__PURE__ */ import_react.default.createElement("div", { style: { border: `1px solid ${C.line}`, borderRadius: 13, padding: "11px 12px", background: C.soft, marginTop: 12 } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 12, color: C.sub, fontWeight: 700, marginBottom: 8 } }, "\u{1F4E5} \u0E04\u0E33\u0E17\u0E35\u0E48\u0E23\u0E2D\u0E17\u0E33\u0E01\u0E32\u0E23\u0E4C\u0E14: ", /* @__PURE__ */ import_react.default.createElement("b", { style: { color: C.ink } }, M.current.vocab.pending.length)), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 11 } }, M.current.vocab.pending.map((p, i) => /* @__PURE__ */ import_react.default.createElement("span", { key: p.key + "_" + i, style: { display: "inline-flex", alignItems: "center", gap: 5, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 20, padding: "4px 5px 4px 11px", fontSize: 12.5, color: C.ink } }, p.w, /* @__PURE__ */ import_react.default.createElement(
+        M.current.vocab.pending && M.current.vocab.pending.length > 0 && /* @__PURE__ */ import_react.default.createElement("div", { style: { border: `1px solid ${C.line}`, borderRadius: 13, padding: "11px 12px", background: C.soft, marginTop: 12 } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 12, color: C.sub, fontWeight: 700 } }, "\u{1F4E5} \u0E04\u0E33\u0E17\u0E35\u0E48\u0E23\u0E2D\u0E17\u0E33\u0E01\u0E32\u0E23\u0E4C\u0E14: ", /* @__PURE__ */ import_react.default.createElement("b", { style: { color: C.ink } }, M.current.vocab.pending.length)), /* @__PURE__ */ import_react.default.createElement(
+          "button",
+          {
+            onClick: clearAllPending,
+            style: {
+              flex: "0 0 auto",
+              border: `1px solid ${armClearPending ? C.red : C.line}`,
+              background: armClearPending ? C.red : "transparent",
+              color: armClearPending ? C.inkOn : C.sub,
+              borderRadius: 8,
+              padding: "5px 10px",
+              fontSize: 11.5,
+              fontWeight: 700,
+              whiteSpace: "nowrap"
+            }
+          },
+          armClearPending ? `\u0E22\u0E37\u0E19\u0E22\u0E31\u0E19\u0E25\u0E49\u0E32\u0E07 ${M.current.vocab.pending.length} \u0E04\u0E33?` : "\u{1F5D1} \u0E25\u0E49\u0E32\u0E07\u0E17\u0E31\u0E49\u0E07\u0E2B\u0E21\u0E14"
+        )), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 11 } }, M.current.vocab.pending.map((p, i) => /* @__PURE__ */ import_react.default.createElement("span", { key: p.key + "_" + i, style: { display: "inline-flex", alignItems: "center", gap: 5, background: C.panel, border: `1px solid ${C.line}`, borderRadius: 20, padding: "4px 5px 4px 11px", fontSize: 12.5, color: C.ink } }, p.w, /* @__PURE__ */ import_react.default.createElement(
           "button",
           {
             onClick: () => removePending(i),
