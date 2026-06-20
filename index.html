@@ -7273,7 +7273,7 @@
   // <stdin>
   var import_react = __toESM(require_react());
   var import_client = __toESM(require_client());
-  var VERSION = "0.90.0";
+  var VERSION = "0.93.0";
   var IS_ARTIFACT = typeof window !== "undefined" && !!window.storage;
   var STORAGE = IS_ARTIFACT ? {
     async get(k) {
@@ -8027,10 +8027,24 @@ Shape: {"items":[{"w":"budget","s":"..."}]}`;
     lighter: "light",
     lightest: "light"
   };
-  function captureStem(word) {
+  var LY_STRIP_GUARD = /* @__PURE__ */ new Set([
+    "apply",
+    "supply",
+    "comply",
+    "reply",
+    "imply",
+    "multiply",
+    "ply"
+  ]);
+  function captureStem(word, bankKeySet) {
     let w = String(word || "").toLowerCase().replace(/[^a-z]/g, "");
     if (IRREGULAR_LEMMA[w]) return IRREGULAR_LEMMA[w];
     if (w.length <= 3) return w;
+    if (bankKeySet && w.length > 4 && w.endsWith("ly") && !LY_STRIP_GUARD.has(w)) {
+      let cand = w.slice(0, -2);
+      if (w.endsWith("ily")) cand = w.slice(0, -3) + "y";
+      if (cand.length >= 3 && bankKeySet.has(cand)) return cand;
+    }
     if (w.length > 5 && w.endsWith("ing")) w = w.slice(0, -3);
     else if (w.length > 5 && w.endsWith("edly")) w = w.slice(0, -4);
     else if (w.length > 4 && w.endsWith("ied")) w = w.slice(0, -3) + "y";
@@ -8050,7 +8064,7 @@ Shape: {"items":[{"w":"budget","s":"..."}]}`;
     const seen = new Set(queuedKeys || []);
     for (const tok of captureTokens(text)) {
       if (CAPTURE_STOPWORDS.has(tok)) continue;
-      const key = captureStem(tok);
+      const key = captureStem(tok, bankKeySet);
       if (!key || key.length < 2) continue;
       if (bankKeySet && bankKeySet.has(key)) continue;
       if (seen.has(key)) continue;
@@ -8907,13 +8921,51 @@ Rules for "explain": THAI language, 1-3 sentences: why the correct choice is rig
     }
     return a;
   }
+  var POS_FAMILY = {
+    "v.": "verb",
+    "phr.v.": "verb",
+    "adv.": "modifier",
+    "phr.": "modifier",
+    "prep.": "function",
+    "conj.": "function"
+  };
+  var LEVEL_RANK = { beginner: 0, intermediate: 1, advanced: 2, nearnative: 3 };
+  function posFamilyOf(pos) {
+    const p = (pos || "").trim().toLowerCase();
+    return POS_FAMILY[p] || p;
+  }
   function pickDistractors(word, pool, n, shuf = shuffle) {
     const norm = (s) => (s || "").trim().toLowerCase();
     const tgtPos = norm(word.pos);
+    const tgtFam = posFamilyOf(tgtPos);
+    const tgtLv = LEVEL_RANK[norm(word.level)];
     const rest = pool.filter((x) => x.w !== word.w);
-    const same = tgtPos ? shuf(rest.filter((x) => norm(x.pos) === tgtPos)) : [];
-    const sameSet = new Set(same.map((x) => x.w));
-    return [...same, ...shuf(rest.filter((x) => !sameSet.has(x.w)))].slice(0, n).map((x) => x.w);
+    const byLevel = (list) => {
+      if (tgtLv == null) return shuf(list);
+      return shuf(list).sort((a, b) => {
+        const la = LEVEL_RANK[norm(a.level)], lb = LEVEL_RANK[norm(b.level)];
+        const da = la == null ? 99 : Math.abs(la - tgtLv);
+        const db = lb == null ? 99 : Math.abs(lb - tgtLv);
+        return da - db;
+      });
+    };
+    const out = [];
+    const taken = /* @__PURE__ */ new Set();
+    const drain = (list) => {
+      for (const x of list) {
+        if (out.length >= n) break;
+        if (!taken.has(x.w)) {
+          taken.add(x.w);
+          out.push(x.w);
+        }
+      }
+    };
+    if (tgtPos) {
+      drain(byLevel(rest.filter((x) => norm(x.pos) === tgtPos)));
+      if (out.length < n) drain(byLevel(rest.filter((x) => posFamilyOf(norm(x.pos)) === tgtFam)));
+    }
+    if (out.length < n) drain(byLevel(rest));
+    return out.slice(0, n);
   }
   function makeOptionPerm(q) {
     if (!q || !q.options || !q.answer) return null;
@@ -15973,7 +16025,7 @@ ${opts}
           /* @__PURE__ */ import_react.default.createElement("span", { style: { flex: 1, fontWeight: 600, fontSize: 15, color: C.ink, lineHeight: 1.35 } }, ls.title),
           /* @__PURE__ */ import_react.default.createElement(StatusBadge, { mode: "grammar", status: st2.ratings[ls.id] }),
           /* @__PURE__ */ import_react.default.createElement("span", { style: { color: C.sub, fontSize: 18, transform: open ? "rotate(180deg)" : "none", transition: "transform .2s" } }, "\u2304")
-        ), open && /* @__PURE__ */ import_react.default.createElement("div", { className: "rise", style: { padding: "0 15px 16px 15px" } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 13.5, color: C.accent, fontWeight: 600, marginBottom: 8 } }, "\u{1F449} ", ls.point), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 14, color: C.ink, lineHeight: 1.65, marginBottom: 12 } }, ls.body), /* @__PURE__ */ import_react.default.createElement("div", { style: { background: C.soft, border: `1px solid ${C.line}`, borderRadius: 10, padding: "11px 13px", marginBottom: 10 } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 11.5, color: C.sub, fontWeight: 600, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 } }, "\u0E15\u0E31\u0E27\u0E2D\u0E22\u0E48\u0E32\u0E07"), ls.examples.map((ex, j) => /* @__PURE__ */ import_react.default.createElement("div", { key: j, style: { fontSize: 14, color: C.ink, lineHeight: 1.5, marginBottom: j < ls.examples.length - 1 ? 5 : 0 } }, "\u2022 ", ex))), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", gap: 8, alignItems: "flex-start", background: C.redBg, borderRadius: 10, padding: "10px 12px", marginBottom: 10 } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 14 } }, "\u26A0\uFE0F"), /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 13.5, color: C.ink, lineHeight: 1.55 } }, /* @__PURE__ */ import_react.default.createElement("b", { style: { color: C.red } }, "\u0E01\u0E31\u0E1A\u0E14\u0E31\u0E01:"), " ", ls.trap)), /* @__PURE__ */ import_react.default.createElement(RatingRow, { mode: "grammar", current: st2.ratings[ls.id], onRate: (s) => rate(ls.id, s, false), small: true })));
+        ), open && /* @__PURE__ */ import_react.default.createElement("div", { className: "rise", style: { padding: "0 15px 16px 15px" } }, /* @__PURE__ */ import_react.default.createElement(LessonBody, { ls }), /* @__PURE__ */ import_react.default.createElement(RatingRow, { mode: "grammar", current: st2.ratings[ls.id], onRate: (s) => rate(ls.id, s, false), small: true })));
       }), shown.length === 0 && /* @__PURE__ */ import_react.default.createElement(Centered, null, "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E1A\u0E17\u0E40\u0E23\u0E35\u0E22\u0E19\u0E43\u0E19\u0E2B\u0E21\u0E27\u0E14\u0E19\u0E35\u0E49")), /* @__PURE__ */ import_react.default.createElement(
         "button",
         {
@@ -17907,6 +17959,36 @@ ${opts}
   function MiniBars({ items }) {
     const H = 110;
     return /* @__PURE__ */ import_react.default.createElement("div", { style: { background: C.card, border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 10px 8px" } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { position: "relative", height: H } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { position: "absolute", left: 0, right: 0, bottom: "80%", borderTop: `1px dashed ${C.green}`, opacity: 0.55 } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { position: "absolute", right: 0, top: -14, fontSize: 9, color: C.green, fontWeight: 700 } }, "80%")), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 5, height: "100%" } }, items.map((it, i) => /* @__PURE__ */ import_react.default.createElement("div", { key: i, style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" }, title: it.value + "%" }, /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 9, color: C.sub, marginBottom: 2 } }, it.value), /* @__PURE__ */ import_react.default.createElement("div", { style: { width: "100%", maxWidth: 26, height: `${Math.max(3, it.value)}%`, background: it.color, borderRadius: "4px 4px 0 0" } }))))), /* @__PURE__ */ import_react.default.createElement("div", { style: { borderTop: `1px solid ${C.line}`, marginTop: 2, paddingTop: 4, textAlign: "center", fontSize: 10, color: C.sub } }, "\u0E40\u0E01\u0E48\u0E32 \u2192 \u0E43\u0E2B\u0E21\u0E48"));
+  }
+  function LessonBody({ ls }) {
+    if (!ls) return null;
+    const Examples = ({ items }) => /* @__PURE__ */ import_react.default.createElement("div", { style: { background: C.soft, border: `1px solid ${C.line}`, borderRadius: 10, padding: "11px 13px", marginBottom: 10 } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 11.5, color: C.sub, fontWeight: 600, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 } }, "\u0E15\u0E31\u0E27\u0E2D\u0E22\u0E48\u0E32\u0E07"), items.map((ex, j) => /* @__PURE__ */ import_react.default.createElement("div", { key: j, style: { fontSize: 14, color: C.ink, lineHeight: 1.5, marginBottom: j < items.length - 1 ? 5 : 0 } }, "\u2022 ", ex)));
+    const Trap = ({ md }) => /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", gap: 8, alignItems: "flex-start", background: C.redBg, borderRadius: 10, padding: "10px 12px", marginBottom: 10 } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 14 } }, "\u26A0\uFE0F"), /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 13.5, color: C.ink, lineHeight: 1.55 } }, /* @__PURE__ */ import_react.default.createElement("b", { style: { color: C.red } }, "\u0E01\u0E31\u0E1A\u0E14\u0E31\u0E01:"), " ", md));
+    if (!Array.isArray(ls.blocks)) {
+      return /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 13.5, color: C.accent, fontWeight: 600, marginBottom: 8 } }, "\u{1F449} ", ls.point), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 14, color: C.ink, lineHeight: 1.65, marginBottom: 12 } }, ls.body), /* @__PURE__ */ import_react.default.createElement(Examples, { items: ls.examples || [] }), /* @__PURE__ */ import_react.default.createElement(Trap, { md: ls.trap }));
+    }
+    const lines = (s) => String(s == null ? "" : s).split("\n");
+    return /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, ls.point && /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 13.5, color: C.accent, fontWeight: 600, marginBottom: 8 } }, "\u{1F449} ", ls.point), ls.blocks.map((b, i) => {
+      const k = "blk" + i;
+      if (!b || !b.type) return null;
+      if (b.type === "text")
+        return /* @__PURE__ */ import_react.default.createElement("div", { key: k, style: { fontSize: 14, color: C.ink, lineHeight: 1.65, marginBottom: 12 } }, lines(b.md).map((ln, j) => /* @__PURE__ */ import_react.default.createElement("div", { key: j }, ln || "\xA0")));
+      if (b.type === "note")
+        return /* @__PURE__ */ import_react.default.createElement("div", { key: k, style: { background: C.soft, border: `1px solid ${C.line}`, borderRadius: 10, padding: "11px 13px", marginBottom: 10, fontSize: 13.5, color: C.ink, lineHeight: 1.6 } }, lines(b.md).map((ln, j) => /* @__PURE__ */ import_react.default.createElement("div", { key: j }, ln || "\xA0")));
+      if (b.type === "example")
+        return /* @__PURE__ */ import_react.default.createElement(Examples, { key: k, items: b.items || [] });
+      if (b.type === "trap")
+        return /* @__PURE__ */ import_react.default.createElement(Trap, { key: k, md: b.md });
+      if (b.type === "table")
+        return /* @__PURE__ */ import_react.default.createElement("div", { key: k, style: { overflowX: "auto", marginBottom: 10, border: `1px solid ${C.line}`, borderRadius: 10 } }, /* @__PURE__ */ import_react.default.createElement("table", { style: { borderCollapse: "collapse", width: "100%", fontSize: 13 } }, Array.isArray(b.headers) && b.headers.length > 0 && /* @__PURE__ */ import_react.default.createElement("thead", null, /* @__PURE__ */ import_react.default.createElement("tr", null, b.headers.map((h, j) => /* @__PURE__ */ import_react.default.createElement("th", { key: j, style: { textAlign: "left", padding: "8px 10px", background: C.accentSoft, color: C.accent, fontWeight: 700, fontSize: 12, borderBottom: `1px solid ${C.line}`, whiteSpace: "nowrap" } }, h)))), /* @__PURE__ */ import_react.default.createElement("tbody", null, (b.rows || []).map((row, r) => /* @__PURE__ */ import_react.default.createElement("tr", { key: r }, row.map((cell, c) => /* @__PURE__ */ import_react.default.createElement("td", { key: c, style: { padding: "8px 10px", color: C.ink, lineHeight: 1.5, borderBottom: r < b.rows.length - 1 ? `1px solid ${C.line}` : "none", verticalAlign: "top" } }, cell)))))));
+      if (b.type === "tree")
+        return /* @__PURE__ */ import_react.default.createElement("div", { key: k, style: { background: C.soft, border: `1px solid ${C.line}`, borderRadius: 10, padding: "11px 13px", marginBottom: 10 } }, (b.steps || []).map((s, j) => {
+          if (typeof s === "string")
+            return /* @__PURE__ */ import_react.default.createElement("div", { key: j, style: { fontSize: 13.5, color: C.ink, lineHeight: 1.55, marginBottom: j < b.steps.length - 1 ? 7 : 0 } }, /* @__PURE__ */ import_react.default.createElement("b", { style: { color: C.accent } }, j + 1, "."), " ", s);
+          return /* @__PURE__ */ import_react.default.createElement("div", { key: j, style: { marginBottom: j < b.steps.length - 1 ? 9 : 0 } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 13.5, color: C.ink, fontWeight: 600, lineHeight: 1.5 } }, /* @__PURE__ */ import_react.default.createElement("b", { style: { color: C.accent } }, j + 1, "."), " ", s.q), s.yes && /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 13, color: C.ink, lineHeight: 1.5, marginLeft: 16 } }, "\u2713 ", s.yes), s.no && /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 13, color: C.sub, lineHeight: 1.5, marginLeft: 16 } }, "\u2717 ", s.no));
+        }));
+      return null;
+    }));
   }
   function RatingRow({ mode, current, onRate, big, small }) {
     const S = STATUS[mode];
