@@ -7273,7 +7273,7 @@
   // <stdin>
   var import_react = __toESM(require_react());
   var import_client = __toESM(require_client());
-  var VERSION = "0.101.1";
+  var VERSION = "0.101.2";
   var IS_ARTIFACT = typeof window !== "undefined" && !!window.storage;
   var STORAGE = IS_ARTIFACT ? {
     async get(k) {
@@ -13048,11 +13048,20 @@ Shape: {"ptype":"Part 2","categories":["finance & budget","technology & IT"],"tr
     const M = (0, import_react.useRef)({ vocab: emptyMode(), grammar: emptyMode(), listening: emptyMode(), audio: emptyMode() });
     const STATS = (0, import_react.useRef)({ history: {}, sessions: [] });
     const cardAreaRef = (0, import_react.useRef)(null);
+    const modeTabsRef = (0, import_react.useRef)(null);
     const deepCacheRef = (0, import_react.useRef)({});
     function scrollToCards() {
       setTimeout(() => {
         try {
           cardAreaRef.current && cardAreaRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+        } catch (e) {
+        }
+      }, 60);
+    }
+    function scrollToTop() {
+      setTimeout(() => {
+        try {
+          modeTabsRef.current && modeTabsRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
         } catch (e) {
         }
       }, 60);
@@ -13936,6 +13945,7 @@ Shape: {"ptype":"Part 2","categories":["finance & budget","technology & IT"],"tr
       }
       setPauseMsg('\u23F8 \u0E1E\u0E31\u0E01\u0E44\u0E27\u0E49\u0E41\u0E25\u0E49\u0E27 \u2014 \u0E01\u0E14 "\u0E17\u0E33\u0E15\u0E48\u0E2D\u0E08\u0E32\u0E01\u0E17\u0E35\u0E48\u0E04\u0E49\u0E32\u0E07" \u0E40\u0E21\u0E37\u0E48\u0E2D\u0E1E\u0E23\u0E49\u0E2D\u0E21');
       rerender();
+      scrollToTop();
     }
     function resumeMode(m) {
       var _a, _b, _c, _d;
@@ -16146,7 +16156,7 @@ ${opts}
           )
         )
       );
-    })(), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", background: C.track, borderRadius: 13, padding: 4, gap: 4, margin: "12px 0 14px" } }, [["vocab", "\u{1F4D5} Vocab"], ["grammar", "\u270F\uFE0F Grammar"], ["listening", "\u{1F4D6} Reading"], ["audio", "\u{1F3A7} Listening"], ["exam", "\u{1F4DD} Exam"]].map(([id, lbl]) => {
+    })(), /* @__PURE__ */ import_react.default.createElement("div", { ref: modeTabsRef, style: { display: "flex", background: C.track, borderRadius: 13, padding: 4, gap: 4, margin: "12px 0 14px" } }, [["vocab", "\u{1F4D5} Vocab"], ["grammar", "\u270F\uFE0F Grammar"], ["listening", "\u{1F4D6} Reading"], ["audio", "\u{1F3A7} Listening"], ["exam", "\u{1F4DD} Exam"]].map(([id, lbl]) => {
       const on = mode === id;
       return /* @__PURE__ */ import_react.default.createElement(
         "button",
