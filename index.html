@@ -7273,7 +7273,7 @@
   // <stdin>
   var import_react = __toESM(require_react());
   var import_client = __toESM(require_client());
-  var VERSION = "0.93.0";
+  var VERSION = "0.99.0";
   var IS_ARTIFACT = typeof window !== "undefined" && !!window.storage;
   var STORAGE = IS_ARTIFACT ? {
     async get(k) {
@@ -8294,6 +8294,19 @@ Shape: [{"src":"...","w":"...","pos":"...","ipa":"...","th":"...","def":"...","e
       blurb: "\u0E28\u0E31\u0E1E\u0E17\u0E4C\u0E02\u0E31\u0E49\u0E19\u0E2A\u0E39\u0E07 \u0E2A\u0E33\u0E19\u0E27\u0E19 \u0E15\u0E31\u0E27\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E2B\u0E25\u0E2D\u0E01\u0E43\u0E01\u0E25\u0E49\u0E40\u0E04\u0E35\u0E22\u0E07\u0E21\u0E32\u0E01 \u0E15\u0E49\u0E2D\u0E07\u0E2D\u0E48\u0E32\u0E19\u0E25\u0E30\u0E40\u0E2D\u0E35\u0E22\u0E14",
       prompt: "TARGET DIFFICULTY: Near-native / TOEIC 900+. Use advanced and low-frequency vocabulary, idiomatic expressions, nuanced register, and dense professional content. Distractors must be VERY close \u2014 differing only by subtle shades of meaning, scope, or a single grammatical detail \u2014 so that only a careful, high-level reader can eliminate them. Heavy paraphrasing throughout. No giveaways. Mirror the trickiest real TOEIC items.",
       rec: { gemini: "pro25", claude: "opus48", artifact: "opus48" }
+    },
+    // v0.98.0: 5th level — "mixed". Quiz-only (see the vocab bank-level grid below, which
+    // explicitly filters this id out): vocab words never carry level:"mixed" so it would
+    // otherwise render as a permanently-disabled button there.
+    {
+      id: "mixed",
+      icon: "\u{1F3B2}",
+      label: "\u0E04\u0E25\u0E30\u0E23\u0E30\u0E14\u0E31\u0E1A",
+      band: "\u0E17\u0E38\u0E01\u0E23\u0E30\u0E14\u0E31\u0E1A",
+      cefr: "A1\u2013C2",
+      blurb: "\u0E2A\u0E38\u0E48\u0E21\u0E04\u0E25\u0E30\u0E07\u0E48\u0E32\u0E22-\u0E22\u0E32\u0E01\u0E43\u0E19\u0E0A\u0E38\u0E14\u0E40\u0E14\u0E35\u0E22\u0E27 \u0E40\u0E2B\u0E21\u0E37\u0E2D\u0E19\u0E02\u0E49\u0E2D\u0E2A\u0E2D\u0E1A TOEIC \u0E08\u0E23\u0E34\u0E07",
+      prompt: "TARGET DIFFICULTY: Mixed. Randomly vary the difficulty of items WITHIN this single set \u2014 include a spread from easier to very challenging, mirroring how a real TOEIC test mixes easy and hard items together rather than keeping uniform difficulty. Do not make every item the same level.",
+      rec: { gemini: "flash25", claude: "sonnet46", artifact: "sonnet46" }
     }
   ];
   var DEFAULT_DIFFICULTY = "nearnative";
@@ -8659,14 +8672,25 @@ Shape: [{"src":"...","w":"...","pos":"...","ipa":"...","th":"...","def":"...","e
     throw lastErr;
   }
   var GRAMMAR_POINT_GROUPS = [
+    // v0.96.0: five 900+-level categories, placed first so their specific patterns win before the
+    // broader groups below. Inversion uses a negative lookahead for tense/กาล so a point that pairs
+    // tense WITH inversion (e.g. "กาล / inversion") still classifies as Tense, while a pure
+    // inversion point ("Inversion (Not only...)") lands here. "inversion" was also removed from the
+    // Tense regex below (it never belonged there) so pure-inversion points reach this entry.
+    { label: "Word Choice (\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E04\u0E33)", re: /word\s*choice|เลือกคำ\b|word\s*usage|confusable|commonly confused|มักสับสน|easily confused/i },
+    { label: "Parallel Structure", re: /parallel|โครงสร้างขนาน|ขนาน\b|parallelism/i },
+    { label: "Participle/Reduced", re: /participle|reduced\s*(relative|clause)|ลดรูป|-ing clause|-ed clause/i },
+    { label: "Inversion", re: /^(?!.*tense)(?!.*กาล).*(inversion|กลับหัว|negative\s*adverb|not only.*\bbut\b|hardly had|no sooner|seldom\b)/i },
+    { label: "Conjunctive Adverb", re: /conjunctive adverb|adverbial connector|คำเชื่อมระดับประโยค|(however|therefore|moreover|nevertheless|furthermore|consequently)\b/i },
     { label: "Present Perfect", re: /present\s*perfect/i },
-    { label: "Tense (\u0E01\u0E32\u0E25)", re: /tense|กาล|past|future|progressive|inversion|by the time/i },
+    { label: "Tense (\u0E01\u0E32\u0E25)", re: /tense|กาล|past|future|progressive|by the time/i },
     { label: "S-V Agreement", re: /agreement|สอดคล้อง|ประธาน/i },
     { label: "Preposition (\u0E1A\u0E38\u0E1E\u0E1A\u0E17)", re: /preposition|บุพบท/i },
     { label: "Conjunction (\u0E04\u0E33\u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21)", re: /conjunction|คำเชื่อม|correlative|transition/i },
     { label: "Conditionals (if)", re: /conditional|เงื่อนไข/i },
     { label: "Comparison (\u0E40\u0E1B\u0E23\u0E35\u0E22\u0E1A\u0E40\u0E17\u0E35\u0E22\u0E1A)", re: /comparat|superlat|เปรียบเทียบ|ขั้นกว่า|ขั้นสุด|as\s*\.+\s*as/i },
     { label: "Word Form (\u0E23\u0E39\u0E1B\u0E04\u0E33)", re: /word\s*form|รูปคำ|suffix/i },
+    { label: "Subjunctive", re: /subjunctive|that[\s-]*clause|ensure that|require that|recommend that|suggest that|insist that|demand that|essential that|important that|necessary that/i },
     { label: "Relative Clause", re: /relative|อนุประโยค/i },
     { label: "Gerund/Infinitive", re: /gerund|infinitive|v-?ing/i },
     { label: "Passive Voice", re: /passive/i },
@@ -8676,6 +8700,11 @@ Shape: [{"src":"...","w":"...","pos":"...","ipa":"...","th":"...","def":"...","e
     { label: "Vocabulary/\u0E2A\u0E33\u0E19\u0E27\u0E19", re: /vocab|nuance|ความหมาย|สำนวน|idiom/i }
   ];
   var POINT_GEN_HINT = {
+    "Word Choice (\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E04\u0E33)": "word choice where all four options are grammatically valid but only one fits the meaning, collocation, or register (e.g. make/do/take, raise/rise, affect/effect, commonly confused words)",
+    "Parallel Structure": "parallel structure \u2014 keeping items in a list or coordinated by and/or/but and correlatives (not only...but also, both...and) in the same grammatical form",
+    "Participle/Reduced": "participle phrases and reduced relative/adverbial clauses (the report submitted..., the man waiting..., -ing/-ed clauses opening a sentence)",
+    "Inversion": "inversion for emphasis with fronted negative/restrictive adverbials (Not only..., Hardly had..., No sooner..., Seldom..., Only then...)",
+    "Conjunctive Adverb": "conjunctive adverbs and their placement/punctuation (however, therefore, moreover, nevertheless, consequently) versus coordinating conjunctions",
     "Present Perfect": "the present perfect tense (have/has + past participle) and its contrast with the simple past",
     "Tense (\u0E01\u0E32\u0E25)": "verb tenses and time sequence (present/past/future across simple, progressive, and perfect forms)",
     "S-V Agreement": "subject-verb agreement",
@@ -8684,6 +8713,7 @@ Shape: [{"src":"...","w":"...","pos":"...","ipa":"...","th":"...","def":"...","e
     "Conditionals (if)": "conditional sentences (zero, first, second, third, and mixed)",
     "Comparison (\u0E40\u0E1B\u0E23\u0E35\u0E22\u0E1A\u0E40\u0E17\u0E35\u0E22\u0E1A)": "comparatives and superlatives, including as...as and parallel comparison structures",
     "Word Form (\u0E23\u0E39\u0E1B\u0E04\u0E33)": "word forms \u2014 choosing the correct noun / verb / adjective / adverb derivative for the blank",
+    "Subjunctive": "the subjunctive mood in that-clauses after verbs and expressions of request, recommendation, demand, and necessity (ensure/require/recommend/suggest/insist/demand/essential/important that + subject + base-form verb, including the passive 'that ... be + past participle')",
     "Relative Clause": "relative clauses (who/which/that/whose/where/when), including reduced relative clauses",
     "Gerund/Infinitive": "gerunds vs infinitives after verbs, prepositions, and adjectives",
     "Passive Voice": "the passive voice across different tenses",
@@ -8768,10 +8798,127 @@ Rules for "explain": THAI language, 1-3 sentences: why the correct choice is rig
     },
     {
       title: "Word Forms (\u0E23\u0E39\u0E1B\u0E04\u0E33: noun/verb/adj/adverb)",
-      point: "\u0E14\u0E39\u0E15\u0E33\u0E41\u0E2B\u0E19\u0E48\u0E07\u0E43\u0E19\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\u0E27\u0E48\u0E32\u0E15\u0E49\u0E2D\u0E07\u0E01\u0E32\u0E23\u0E0A\u0E19\u0E34\u0E14\u0E04\u0E33\u0E43\u0E14",
-      body: "\u0E2B\u0E25\u0E31\u0E07 the/a \u2192 \u0E04\u0E33\u0E19\u0E32\u0E21 \xB7 \u0E02\u0E22\u0E32\u0E22\u0E04\u0E33\u0E19\u0E32\u0E21 \u2192 adjective \xB7 \u0E02\u0E22\u0E32\u0E22\u0E01\u0E23\u0E34\u0E22\u0E32/adj \u2192 adverb (\u0E21\u0E31\u0E01 -ly) \xB7 \u0E40\u0E1B\u0E47\u0E19\u0E01\u0E23\u0E34\u0E22\u0E32\u0E2B\u0E25\u0E31\u0E01 \u2192 verb",
-      examples: ["The decision was final. (n.)", "a successful project (adj.)", "She works efficiently. (adv.)"],
-      trap: "\u0E14\u0E39 '\u0E25\u0E07\u0E17\u0E49\u0E32\u0E22\u0E04\u0E33' \u0E0A\u0E48\u0E27\u0E22\u0E44\u0E14\u0E49: -tion/-ment/-ness=\u0E19\u0E32\u0E21, -ous/-ful/-ive=adj, -ly=adv (\u0E41\u0E15\u0E48\u0E44\u0E21\u0E48\u0E40\u0E2A\u0E21\u0E2D\u0E44\u0E1B)"
+      point: 'Word Form \u0E04\u0E37\u0E2D "\u0E1F\u0E31\u0E07\u0E01\u0E4C\u0E0A\u0E31\u0E19" \u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 "\u0E27\u0E34\u0E0A\u0E32\u0E04\u0E27\u0E32\u0E21\u0E08\u0E33" \u2014 \u0E2D\u0E48\u0E32\u0E19\u0E15\u0E33\u0E41\u0E2B\u0E19\u0E48\u0E07\u0E43\u0E19\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\u0E41\u0E25\u0E49\u0E27\u0E23\u0E31\u0E19\u0E01\u0E0E\u0E2B\u0E32\u0E0A\u0E19\u0E34\u0E14\u0E04\u0E33',
+      blocks: [
+        { type: "text", md: '\u0E42\u0E08\u0E17\u0E22\u0E4C Word Form \u0E43\u0E2B\u0E49\u0E04\u0E33\u0E40\u0E14\u0E35\u0E22\u0E27\u0E01\u0E31\u0E19\u0E21\u0E32 4 \u0E23\u0E39\u0E1B (decide / decision / decisive / decisively) \u0E41\u0E25\u0E49\u0E27\u0E16\u0E32\u0E21\u0E27\u0E48\u0E32\u0E23\u0E39\u0E1B\u0E44\u0E2B\u0E19\u0E40\u0E15\u0E34\u0E21\u0E43\u0E19\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07 \u0E04\u0E33\u0E15\u0E2D\u0E1A\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49\u0E02\u0E36\u0E49\u0E19\u0E01\u0E31\u0E1A "\u0E04\u0E27\u0E32\u0E21\u0E2B\u0E21\u0E32\u0E22" \u0E41\u0E15\u0E48\u0E02\u0E36\u0E49\u0E19\u0E01\u0E31\u0E1A "\u0E15\u0E33\u0E41\u0E2B\u0E19\u0E48\u0E07\u0E43\u0E19\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04"\n\ninput = \u0E04\u0E33\u0E0B\u0E49\u0E32\u0E22 + \u0E04\u0E33\u0E02\u0E27\u0E32 \u0E02\u0E2D\u0E07\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\noutput = \u0E0A\u0E19\u0E34\u0E14\u0E04\u0E33\u0E17\u0E35\u0E48\u0E16\u0E39\u0E01\u0E15\u0E49\u0E2D\u0E07 (noun / verb / adj / adverb)\n\n\u0E44\u0E21\u0E48\u0E15\u0E49\u0E2D\u0E07\u0E08\u0E33\u0E40\u0E1B\u0E47\u0E19\u0E02\u0E49\u0E2D \u0E46 \u2014 \u0E2D\u0E48\u0E32\u0E19\u0E1A\u0E23\u0E34\u0E1A\u0E17\u0E23\u0E2D\u0E1A\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E41\u0E25\u0E49\u0E27 "\u0E23\u0E31\u0E19\u0E01\u0E0E" \u0E2B\u0E32\u0E0A\u0E19\u0E34\u0E14\u0E04\u0E33 \u0E08\u0E32\u0E01\u0E19\u0E31\u0E49\u0E19\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E15\u0E31\u0E27\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E17\u0E35\u0E48\u0E25\u0E07\u0E17\u0E49\u0E32\u0E22 (suffix) \u0E15\u0E23\u0E07\u0E01\u0E31\u0E1A\u0E0A\u0E19\u0E34\u0E14\u0E04\u0E33\u0E19\u0E31\u0E49\u0E19' },
+        { type: "note", md: "4 \u0E02\u0E31\u0E49\u0E19\u0E17\u0E35\u0E48\u0E17\u0E33\u0E17\u0E38\u0E01\u0E02\u0E49\u0E2D \u0E2B\u0E49\u0E32\u0E21\u0E02\u0E49\u0E32\u0E21:\n1. \u0E14\u0E39\u0E04\u0E33\u0E0B\u0E49\u0E32\u0E22 \u0E41\u0E25\u0E30\u0E02\u0E27\u0E32 \u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E43\u0E2B\u0E49\u0E04\u0E23\u0E1A \u2192 \u0E2B\u0E32 signal word\n2. \u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E2D\u0E22\u0E39\u0E48\u0E15\u0E23\u0E07\u0E44\u0E2B\u0E19? (\u0E2B\u0E19\u0E49\u0E32 noun / \u0E2B\u0E25\u0E31\u0E07 verb / \u0E2B\u0E25\u0E31\u0E07 be / \u0E41\u0E17\u0E23\u0E01\u0E01\u0E25\u0E32\u0E07\u0E01\u0E23\u0E34\u0E22\u0E32)\n3. signal \u0E1A\u0E2D\u0E01\u0E27\u0E48\u0E32\u0E15\u0E49\u0E2D\u0E07\u0E01\u0E32\u0E23\u0E0A\u0E19\u0E34\u0E14\u0E04\u0E33\u0E2D\u0E30\u0E44\u0E23\n4. \u0E40\u0E25\u0E37\u0E2D\u0E01\u0E15\u0E31\u0E27\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E17\u0E35\u0E48 suffix \u0E15\u0E23\u0E07\u0E01\u0E31\u0E1A\u0E0A\u0E19\u0E34\u0E14\u0E04\u0E33\u0E19\u0E31\u0E49\u0E19\u0E08\u0E23\u0E34\u0E07 \u0E46" },
+        { type: "text", md: "\u{1F333} DECISION TREE \u2014 \u0E23\u0E31\u0E19\u0E2D\u0E31\u0E19\u0E19\u0E35\u0E49\u0E43\u0E19\u0E2B\u0E31\u0E27\u0E17\u0E38\u0E01\u0E02\u0E49\u0E2D (\u0E2B\u0E31\u0E27\u0E43\u0E08\u0E02\u0E2D\u0E07\u0E2B\u0E21\u0E27\u0E14)\n\n\u{1F441}\uFE0F \u0E01\u0E48\u0E2D\u0E19\u0E23\u0E31\u0E19 tree \u0E2D\u0E48\u0E32\u0E19 3 \u0E08\u0E38\u0E14\u0E40\u0E2A\u0E21\u0E2D \u0E2D\u0E22\u0E48\u0E32\u0E25\u0E47\u0E2D\u0E01\u0E2A\u0E32\u0E22\u0E15\u0E32\u0E41\u0E04\u0E48 2 \u0E04\u0E33\u0E17\u0E35\u0E48\u0E15\u0E34\u0E14\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07:\n\u2022 \u0E0B\u0E49\u0E32\u0E22\u0E2A\u0E38\u0E14 \u2192 \u0E01\u0E23\u0E34\u0E22\u0E32\u0E41\u0E17\u0E49\u0E02\u0E2D\u0E07\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\u0E04\u0E37\u0E2D\u0E2D\u0E30\u0E44\u0E23? (has/is/will \u0E2B\u0E23\u0E37\u0E2D action verb)\n\u2022 \u0E04\u0E33\u0E15\u0E34\u0E14\u0E0B\u0E49\u0E32\u0E22\u2013\u0E02\u0E27\u0E32\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\n\u2022 \u0E02\u0E27\u0E32\u0E2A\u0E38\u0E14 \u2192 \u0E2B\u0E25\u0E31\u0E07\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E08\u0E1A\u0E22\u0E31\u0E07\u0E44\u0E07? (noun / prep / than / \u0E08\u0E1A\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04)" },
+        { type: "tree", steps: [
+          { q: '\u0E02\u0E31\u0E49\u0E19 0 \u2014 \u0E01\u0E27\u0E32\u0E14\u0E2B\u0E32 "\u0E01\u0E23\u0E34\u0E22\u0E32\u0E41\u0E17\u0E49" \u0E02\u0E2D\u0E07\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\u0E01\u0E48\u0E2D\u0E19 (has/is/will/was \u0E2B\u0E23\u0E37\u0E2D action verb \u0E2B\u0E25\u0E31\u0E01)', yes: '\u0E16\u0E32\u0E21: \u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E2D\u0E22\u0E39\u0E48 "\u0E2B\u0E19\u0E49\u0E32" \u0E2B\u0E23\u0E37\u0E2D "\u0E2B\u0E25\u0E31\u0E07" \u0E01\u0E23\u0E34\u0E22\u0E32\u0E41\u0E17\u0E49?' },
+          { q: "\u0E02\u0E31\u0E49\u0E19 1 \u2014 \u0E04\u0E33\u0E02\u0E27\u0E32\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E40\u0E1B\u0E47\u0E19 noun?", yes: "\u0E43\u0E0A\u0E48 \u2192 \u0E14\u0E39 noun \u0E19\u0E31\u0E49\u0E19\u0E17\u0E33\u0E2B\u0E19\u0E49\u0E32\u0E17\u0E35\u0E48\u0E2D\u0E30\u0E44\u0E23: \u0E2B\u0E25\u0E31\u0E07 noun \u0E21\u0E35\u0E01\u0E23\u0E34\u0E22\u0E32\u0E41\u0E17\u0E49 (has/is/will) \u2192 noun = \u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19 \u2192 \u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07 = NOUN (compound) \u0E40\u0E0A\u0E48\u0E19 Customer satisfaction has improved | \u0E2B\u0E25\u0E31\u0E07 noun \u0E08\u0E1A\u0E27\u0E25\u0E35/\u0E21\u0E35 prep/than \u2192 noun = \u0E01\u0E23\u0E23\u0E21 \u2192 \u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07 = ADJECTIVE \u0E40\u0E0A\u0E48\u0E19 provided extensive training", no: "\u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 \u2192 \u0E44\u0E1B\u0E02\u0E31\u0E49\u0E19 2" },
+          { q: "\u0E02\u0E31\u0E49\u0E19 2 \u2014 \u0E14\u0E39\u0E04\u0E33\u0E0B\u0E49\u0E32\u0E22", yes: "\u0E0B\u0E49\u0E32\u0E22 = the/a/some/any/my/adj \u2192 NOUN | \u0E0B\u0E49\u0E32\u0E22 = will/has/have (+\u0E01\u0E23\u0E34\u0E22\u0E32/V3 \u0E15\u0E32\u0E21) \u2192 ADVERB (\u0E41\u0E17\u0E23\u0E01\u0E01\u0E25\u0E32\u0E07) | \u0E0B\u0E49\u0E32\u0E22 = linking verb (is/seem/prove/become/appear/remain/regarded as) \u2192 ADJECTIVE | \u0E0B\u0E49\u0E32\u0E22 = action verb + \u0E01\u0E23\u0E23\u0E21\u0E04\u0E23\u0E1A/\u0E17\u0E49\u0E32\u0E22\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04 \u2192 ADVERB" }
+        ] },
+        { type: "note", md: '\u0E01\u0E0E\u0E40\u0E2B\u0E25\u0E47\u0E01 2 \u0E02\u0E49\u0E2D:\n\u{1F947} \u0E40\u0E0A\u0E47\u0E01 "\u0E04\u0E33\u0E02\u0E27\u0E32" \u0E01\u0E48\u0E2D\u0E19\u0E40\u0E2A\u0E21\u0E2D \u2014 \u0E40\u0E2B\u0E21\u0E37\u0E2D\u0E19\u0E40\u0E0A\u0E47\u0E01\u0E15\u0E31\u0E27\u0E2A\u0E48\u0E27\u0E19 \u2260 0 \u0E01\u0E48\u0E2D\u0E19\u0E2B\u0E32\u0E23\n   \u0E02\u0E27\u0E32\u0E40\u0E1B\u0E47\u0E19 noun \u2192 adjective | \u0E02\u0E27\u0E32\u0E27\u0E48\u0E32\u0E07 + \u0E0B\u0E49\u0E32\u0E22 some/the/adj \u2192 noun | \u0E02\u0E27\u0E32\u0E27\u0E48\u0E32\u0E07 + \u0E0B\u0E49\u0E32\u0E22 verb \u2192 adverb\n\u2699\uFE0F \u0E01\u0E34\u0E48\u0E07 verb \u0E41\u0E22\u0E01 2 \u0E17\u0E32\u0E07\u0E14\u0E49\u0E27\u0E22\u0E04\u0E33\u0E16\u0E32\u0E21\u0E40\u0E14\u0E35\u0E22\u0E27: "verb \u0E19\u0E35\u0E49\u0E41\u0E17\u0E19\u0E14\u0E49\u0E27\u0E22 is/was \u0E44\u0E14\u0E49\u0E44\u0E2B\u0E21?"\n   \u0E44\u0E14\u0E49 = linking verb \u2192 ADJECTIVE | \u0E44\u0E21\u0E48\u0E44\u0E14\u0E49 = action verb \u2192 \u0E14\u0E39\u0E27\u0E48\u0E32\u0E21\u0E35\u0E01\u0E23\u0E23\u0E21 (noun) \u0E15\u0E32\u0E21\u0E44\u0E2B\u0E21' },
+        { type: "trap", md: "\u0E02\u0E49\u0E2D\u0E22\u0E01\u0E40\u0E27\u0E49\u0E19\u0E17\u0E35\u0E48 tree \u0E44\u0E21\u0E48\u0E04\u0E23\u0E2D\u0E1A: \u0E16\u0E49\u0E32\u0E40\u0E08\u0E2D more ___ than / as ___ as (comparative) \u0E2D\u0E22\u0E48\u0E32\u0E43\u0E0A\u0E49 tree \u0E15\u0E23\u0E07 \u0E46 \u2014 \u0E02\u0E49\u0E32\u0E21\u0E44\u0E1B\u0E14\u0E39\u0E40\u0E0B\u0E01\u0E0A\u0E31\u0E19 comparative \u0E14\u0E49\u0E32\u0E19\u0E25\u0E48\u0E32\u0E07" },
+        { type: "text", md: "\u{1F3F7}\uFE0F \u0E15\u0E32\u0E23\u0E32\u0E07 SUFFIX \u2192 \u0E0A\u0E19\u0E34\u0E14\u0E04\u0E33 (\u0E08\u0E33\u0E43\u0E2B\u0E49\u0E02\u0E36\u0E49\u0E19\u0E43\u0E08 \u0E43\u0E0A\u0E49\u0E15\u0E2D\u0E19\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E15\u0E31\u0E27\u0E40\u0E25\u0E37\u0E2D\u0E01)" },
+        { type: "table", headers: ["\u0E25\u0E07\u0E17\u0E49\u0E32\u0E22\u0E14\u0E49\u0E27\u0E22", "\u0E0A\u0E19\u0E34\u0E14\u0E04\u0E33", "\u0E15\u0E31\u0E27\u0E2D\u0E22\u0E48\u0E32\u0E07"], rows: [
+          ["-ize, -ise, -ate, -ify, -en \u26A0\uFE0F", "VERB", "analyze, finalize, specialize, satisfy"],
+          ["-tion, -sion, -ment, -ness, -ity, -sis, -ance/-ence", "NOUN", "decision, commitment, analysis, ability"],
+          ["-ive, -ous, -al, -ic, -ful, -able, -ant, -ary, -ent", "ADJECTIVE", "competitive, systematic, sufficient"],
+          ["-ly", "ADVERB", "clearly, highly, significantly"]
+        ] },
+        { type: "trap", md: '\u0E15\u0E31\u0E27\u0E25\u0E27\u0E07\u0E17\u0E35\u0E48\u0E15\u0E34\u0E14\u0E1A\u0E48\u0E2D\u0E22\u0E2A\u0E38\u0E14: -ize / -ate / -ify = verb (satisfy, specialize, evaluate) \u0E2B\u0E19\u0E49\u0E32\u0E15\u0E32\u0E04\u0E25\u0E49\u0E32\u0E22 noun/adj \u0E41\u0E15\u0E48\u0E40\u0E1B\u0E47\u0E19\u0E01\u0E23\u0E34\u0E22\u0E32 \u2014 \u0E16\u0E49\u0E32\u0E42\u0E08\u0E17\u0E22\u0E4C\u0E15\u0E49\u0E2D\u0E07\u0E01\u0E32\u0E23 noun/adj \u0E15\u0E31\u0E14\u0E17\u0E34\u0E49\u0E07\u0E17\u0E31\u0E19\u0E17\u0E35 \xB7 suffix \u0E0A\u0E48\u0E27\u0E22\u0E44\u0E14\u0E49\u0E41\u0E15\u0E48\u0E44\u0E21\u0E48 100% \u0E43\u0E0A\u0E49 "\u0E15\u0E33\u0E41\u0E2B\u0E19\u0E48\u0E07\u0E43\u0E19\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04" \u0E40\u0E1B\u0E47\u0E19\u0E15\u0E31\u0E27\u0E15\u0E31\u0E14\u0E2A\u0E34\u0E19\u0E2B\u0E25\u0E31\u0E01\u0E40\u0E2A\u0E21\u0E2D' },
+        { type: "text", md: "\u{1F511} \u0E15\u0E32\u0E23\u0E32\u0E07\u0E2A\u0E31\u0E0D\u0E0D\u0E32\u0E13 (KEYWORD \u2192 \u0E0A\u0E19\u0E34\u0E14\u0E04\u0E33) \u2014 \u0E2B\u0E31\u0E27\u0E43\u0E08\u0E02\u0E2D\u0E07\u0E2B\u0E21\u0E27\u0E14" },
+        { type: "table", headers: ["\u0E40\u0E2B\u0E47\u0E19\u0E04\u0E33\u0E19\u0E35\u0E49\u0E02\u0E49\u0E32\u0E07\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07", "\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E15\u0E49\u0E2D\u0E07\u0E40\u0E1B\u0E47\u0E19", "\u0E15\u0E31\u0E27\u0E2D\u0E22\u0E48\u0E32\u0E07"], rows: [
+          ["to ___", "verb (\u0E23\u0E39\u0E1B\u0E10\u0E32\u0E19)", "decided to postpone"],
+          ["will / can / should / must / do", "verb (\u0E23\u0E39\u0E1B\u0E10\u0E32\u0E19)", "will evaluate"],
+          ["have / has / had + ___ (+\u0E01\u0E23\u0E34\u0E22\u0E32\u0E15\u0E32\u0E21)", "V3", "has improved"],
+          ["a / an / the + ___ (\u0E44\u0E21\u0E48\u0E21\u0E35 noun \u0E15\u0E32\u0E21)", "noun", "the decision"],
+          ["a / the + adjective + ___", "noun", "a unanimous decision"],
+          ["my / his / her / their / your + ___", "noun", "his commitment"],
+          ["more ... than / as ... as", "\u0E14\u0E39 verb \u0E02\u0E49\u0E32\u0E07\u0E2B\u0E19\u0E49\u0E32! \u26A0\uFE0F", "(\u0E14\u0E39\u0E40\u0E0B\u0E01\u0E0A\u0E31\u0E19 comparative)"],
+          ["very / highly / extremely / quite + ___", "adjective", "extremely satisfied"],
+          ["is / am / are / was / were + ___ (\u0E44\u0E21\u0E48\u0E21\u0E35 noun \u0E15\u0E32\u0E21)", "adjective", "were clear / is efficient"],
+          ["is / are / was + ___ + noun", "adjective (\u0E02\u0E22\u0E32\u0E22 noun)", "is a competitive market"],
+          ["make / keep / find / render + \u0E01\u0E23\u0E23\u0E21 + ___", "adjective", "made it easy"],
+          ["___ + noun (\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E2B\u0E19\u0E49\u0E32\u0E04\u0E33\u0E19\u0E32\u0E21)", "adjective / \u0E15\u0E31\u0E27\u0E02\u0E22\u0E32\u0E22", "competitive environment"]
+        ] },
+        { type: "text", md: '\u2B50 \u0E15\u0E32\u0E23\u0E32\u0E07\u0E2A\u0E31\u0E0D\u0E0D\u0E32\u0E13 "\u0E41\u0E17\u0E23\u0E01\u0E01\u0E25\u0E32\u0E07" (\u0E2D\u0E2D\u0E01\u0E2A\u0E2D\u0E1A\u0E1A\u0E48\u0E2D\u0E22 \u0E1E\u0E25\u0E32\u0E14\u0E07\u0E48\u0E32\u0E22)' },
+        { type: "table", headers: ["\u0E42\u0E04\u0E23\u0E07\u0E2A\u0E23\u0E49\u0E32\u0E07", "\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07 =", "\u0E15\u0E31\u0E27\u0E2D\u0E22\u0E48\u0E32\u0E07"], rows: [
+          ["will + ___ + verb", "ADVERB", "will significantly improve"],
+          ["has / have + ___ + V3", "ADVERB", "has successfully managed"],
+          ["be + V3 + ___", "ADVERB", "was implemented consistently"],
+          ["___ + V3 + noun", "ADVERB", "a properly trained staff"]
+        ] },
+        { type: "note", md: "\u0E2B\u0E25\u0E31\u0E01\u0E08\u0E33\u0E07\u0E48\u0E32\u0E22: \u0E15\u0E31\u0E27\u0E17\u0E35\u0E48\u0E41\u0E17\u0E23\u0E01\u0E23\u0E30\u0E2B\u0E27\u0E48\u0E32\u0E07\u0E01\u0E23\u0E34\u0E22\u0E32\u0E0A\u0E48\u0E27\u0E22 (will/has) \u0E01\u0E31\u0E1A\u0E01\u0E23\u0E34\u0E22\u0E32\u0E2B\u0E25\u0E31\u0E01/V3 \u2192 \u0E02\u0E22\u0E32\u0E22 verb \u2192 adverb \xB7 \u0E2D\u0E22\u0E48\u0E32\u0E40\u0E2B\u0E47\u0E19 will/has \u0E41\u0E25\u0E49\u0E27\u0E23\u0E35\u0E1A\u0E2B\u0E32 verb/V3 \u0E40\u0E0A\u0E47\u0E01\u0E01\u0E48\u0E2D\u0E19\u0E27\u0E48\u0E32\u0E01\u0E23\u0E34\u0E22\u0E32\u0E2B\u0E25\u0E31\u0E01/V3 \u0E21\u0E35\u0E2D\u0E22\u0E39\u0E48\u0E41\u0E25\u0E49\u0E27\u0E2B\u0E23\u0E37\u0E2D\u0E22\u0E31\u0E07" },
+        { type: "text", md: '\u{1F4CD} \u0E15\u0E33\u0E41\u0E2B\u0E19\u0E48\u0E07\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E40\u0E17\u0E35\u0E22\u0E1A\u0E01\u0E31\u0E1A NOUN \u2014 \u0E01\u0E0E\u0E17\u0E35\u0E48\u0E1E\u0E25\u0E32\u0E14\u0E0B\u0E49\u0E33\u0E1A\u0E48\u0E2D\u0E22\n\n\u0E16\u0E32\u0E21\u0E40\u0E2A\u0E21\u0E2D: "noun \u0E2D\u0E22\u0E39\u0E48\u0E0B\u0E49\u0E32\u0E22\u0E2B\u0E23\u0E37\u0E2D\u0E02\u0E27\u0E32\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07? \u0E2B\u0E23\u0E37\u0E2D\u0E44\u0E21\u0E48\u0E21\u0E35 noun \u0E40\u0E25\u0E22?"' },
+        { type: "table", headers: ["\u0E2A\u0E16\u0E32\u0E19\u0E01\u0E32\u0E23\u0E13\u0E4C", "\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E04\u0E37\u0E2D", "\u0E15\u0E31\u0E27\u0E2D\u0E22\u0E48\u0E32\u0E07"], rows: [
+          ["noun \u0E2D\u0E22\u0E39\u0E48\u0E02\u0E27\u0E32\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07", "adjective (\u0E02\u0E22\u0E32\u0E22 noun)", "a thorough analysis"],
+          ["\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E2D\u0E22\u0E39\u0E48\u0E02\u0E27\u0E32\u0E2A\u0E38\u0E14 (\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2D\u0E30\u0E44\u0E23\u0E15\u0E32\u0E21)", "noun (\u0E40\u0E1B\u0E47\u0E19\u0E01\u0E23\u0E23\u0E21)", "improve employee productivity"],
+          ["adj + ___ (\u0E02\u0E27\u0E32\u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 noun)", "noun", "a wide variety"],
+          ["verb + ___ + noun", "adjective", "lacked sufficient detail"],
+          ["verb + ___ (\u0E44\u0E21\u0E48\u0E21\u0E35 noun \u0E15\u0E32\u0E21)", "adverb", "worked efficiently"],
+          ["V-ing + ___ + noun", "adjective", "providing excellent service"],
+          ["some / any / much + ___ (\u0E02\u0E27\u0E32\u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 noun)", "noun (\u0E01\u0E23\u0E23\u0E21)", "offered some advice (on...)"]
+        ] },
+        { type: "trap", md: "\u0E01\u0E31\u0E1A\u0E14\u0E31\u0E01\u0E04\u0E25\u0E32\u0E2A\u0E2A\u0E34\u0E01: \u0E40\u0E2B\u0E47\u0E19 verb (face/lacked/handled) \u0E41\u0E25\u0E49\u0E27\u0E23\u0E35\u0E1A\u0E15\u0E2D\u0E1A adverb \u2014 \u0E15\u0E49\u0E2D\u0E07\u0E14\u0E39\u0E01\u0E48\u0E2D\u0E19\u0E27\u0E48\u0E32\u0E21\u0E35 noun \u0E15\u0E32\u0E21\u0E2B\u0E25\u0E31\u0E07\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E44\u0E2B\u0E21 \u0E16\u0E49\u0E32\u0E21\u0E35 = adjective \u0E02\u0E22\u0E32\u0E22 noun \xB7 \u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E17\u0E49\u0E32\u0E22\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04 (\u0E2B\u0E25\u0E31\u0E07 verb + \u0E01\u0E23\u0E23\u0E21\u0E04\u0E23\u0E1A) = adverb \u0E40\u0E2A\u0E21\u0E2D \u0E2D\u0E22\u0E48\u0E32\u0E22\u0E49\u0E2D\u0E19\u0E44\u0E1B\u0E02\u0E22\u0E32\u0E22\u0E01\u0E23\u0E23\u0E21\u0E17\u0E35\u0E48\u0E2D\u0E22\u0E39\u0E48\u0E0B\u0E49\u0E32\u0E22" },
+        { type: "note", md: '"\u0E02\u0E27\u0E32\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 noun" \u0E2B\u0E21\u0E32\u0E22\u0E16\u0E36\u0E07\u0E2D\u0E30\u0E44\u0E23? \u0E14\u0E39\u0E41\u0E04\u0E48\u0E04\u0E33\u0E17\u0E35\u0E48\u0E15\u0E34\u0E14\u0E02\u0E27\u0E32\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E04\u0E33\u0E40\u0E14\u0E35\u0E22\u0E27 \u0E44\u0E21\u0E48\u0E15\u0E49\u0E2D\u0E07\u0E2A\u0E19\u0E27\u0E48\u0E32\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\u0E08\u0E1A\u0E2B\u0E23\u0E37\u0E2D\u0E22\u0E31\u0E07 \u0E16\u0E49\u0E32\u0E02\u0E27\u0E32\u0E40\u0E1B\u0E47\u0E19\u0E2D\u0E22\u0E48\u0E32\u0E07\u0E43\u0E14\u0E2D\u0E22\u0E48\u0E32\u0E07\u0E2B\u0E19\u0E36\u0E48\u0E07\u0E19\u0E35\u0E49 = \u0E44\u0E21\u0E48\u0E21\u0E35 noun \u0E43\u0E2B\u0E49\u0E02\u0E22\u0E32\u0E22 \u2192 \u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E40\u0E1B\u0E47\u0E19 noun \u0E40\u0E2D\u0E07:\n\u2022 \u0E08\u0E1A\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\u0E08\u0E23\u0E34\u0E07 (.)\n\u2022 preposition (on/of/in/for/among) \u2192 some advice on...\n\u2022 \u0E01\u0E23\u0E34\u0E22\u0E32\u0E41\u0E17\u0E49 (\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19\u0E08\u0E1A\u0E41\u0E25\u0E49\u0E27) \u2192 some changes were made\n\u2022 conjunction / that \u2192 some concern that...\n\u0E15\u0E23\u0E07\u0E02\u0E49\u0E32\u0E21: \u0E02\u0E27\u0E32\u0E40\u0E1B\u0E47\u0E19 noun \u2192 \u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07 = adjective (some valuable suggestions)' },
+        { type: "text", md: "\u2795 ADJECTIVE vs ADVERB \u2014 \u0E2A\u0E23\u0E38\u0E1B\u0E41\u0E19\u0E48\u0E19\n\nadverb \u0E02\u0E22\u0E32\u0E22\u0E44\u0E14\u0E49 3 \u0E2D\u0E22\u0E48\u0E32\u0E07 (\u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48\u0E41\u0E04\u0E48 verb!):\n1. verb \u2014 handled it efficiently\n2. adjective \u2B50 \u2014 extremely tired, highly competitive (\u0E2D\u0E2D\u0E01\u0E2A\u0E2D\u0E1A\u0E1A\u0E48\u0E2D\u0E22!)\n3. adverb \u0E2D\u0E37\u0E48\u0E19 \u2014 very quickly" },
+        { type: "note", md: '\u0E27\u0E34\u0E18\u0E35\u0E41\u0E22\u0E01\u0E43\u0E19\u0E02\u0E49\u0E2D\u0E2A\u0E2D\u0E1A:\n\u2022 \u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E02\u0E22\u0E32\u0E22 noun \u2192 adjective (a detailed report)\n\u2022 \u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E02\u0E22\u0E32\u0E22 verb (\u0E1A\u0E2D\u0E01 "\u0E17\u0E33\u0E22\u0E31\u0E07\u0E44\u0E07") \u2192 adverb (handled it efficiently)\n\u2022 \u0E2B\u0E25\u0E31\u0E07 very/highly/extremely/quite \u2192 adjective\n\u2022 \u0E2B\u0E25\u0E31\u0E07 is/are/was/were \u2192 adjective (were clear \u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 clearly)\n\u2022 be + ___ + enough \u2192 adjective (good enough)' },
+        { type: "text", md: '\u{1F517} LINKING VERB + ___ = ADJECTIVE (\u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 adverb!)\n\n\u0E2B\u0E25\u0E31\u0E07 linking verb \u0E2B\u0E23\u0E37\u0E2D "regarded/seen/viewed/considered as" \u2192 \u0E43\u0E0A\u0E49 adjective (\u0E2B\u0E23\u0E37\u0E2D noun) \u0E1A\u0E23\u0E23\u0E22\u0E32\u0E22\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19 \u0E2B\u0E49\u0E32\u0E21\u0E43\u0E0A\u0E49 adverb\n\nlinking verbs: be (is/are/was) \xB7 seem \xB7 become \xB7 prove \xB7 appear \xB7 remain \xB7 look \xB7 feel' },
+        { type: "note", md: '\u2022 The plan proved disruptive (adj) \u2705 \u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 disruptively\n\u2022 The remarks were regarded as superficial (adj) \u2705\n\u2022 make/keep/find/consider + \u0E01\u0E23\u0E23\u0E21 + ___ \u2192 adjective: keep the room clean\n\n\u0E17\u0E23\u0E34\u0E04\u0E41\u0E22\u0E01: "verb \u0E19\u0E35\u0E49\u0E41\u0E17\u0E19\u0E14\u0E49\u0E27\u0E22 is/was \u0E44\u0E14\u0E49\u0E44\u0E2B\u0E21?" \u0E44\u0E14\u0E49 = linking \u2192 adjective | \u0E44\u0E21\u0E48\u0E44\u0E14\u0E49 = action \u2192 \u0E14\u0E39\u0E01\u0E23\u0E23\u0E21/adverb' },
+        { type: "text", md: '\u{1F19A} "more + ___ + than" \u0E15\u0E2D\u0E1A\u0E2D\u0E30\u0E44\u0E23? \u0E02\u0E36\u0E49\u0E19\u0E01\u0E31\u0E1A VERB \u0E02\u0E49\u0E32\u0E07\u0E2B\u0E19\u0E49\u0E32 (\u0E02\u0E31\u0E49\u0E19\u0E2A\u0E39\u0E07)\n\n\u0E40\u0E2B\u0E47\u0E19 more ___ than \u0E41\u0E25\u0E49\u0E27\u0E23\u0E35\u0E1A\u0E15\u0E2D\u0E1A adjective = \u0E1C\u0E34\u0E14\u0E1A\u0E48\u0E2D\u0E22! comparative \u0E15\u0E31\u0E27\u0E40\u0E14\u0E35\u0E22\u0E27\u0E15\u0E2D\u0E1A\u0E44\u0E14\u0E49\u0E17\u0E31\u0E49\u0E07 noun/adj/adverb \u0E02\u0E36\u0E49\u0E19\u0E01\u0E31\u0E1A verb \u0E02\u0E49\u0E32\u0E07\u0E2B\u0E19\u0E49\u0E32:' },
+        { type: "table", headers: ["verb \u0E02\u0E49\u0E32\u0E07\u0E2B\u0E19\u0E49\u0E32", "\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07 =", "\u0E15\u0E31\u0E27\u0E2D\u0E22\u0E48\u0E32\u0E07"], rows: [
+          ["action verb (requires/needs/provides)", "NOUN (\u0E01\u0E23\u0E23\u0E21)", "requires more patience than"],
+          ["linking verb (proved/seemed/became)", "ADJECTIVE (\u0E1A\u0E23\u0E23\u0E22\u0E32\u0E22\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19)", "proved more disruptive than"],
+          ["action verb + \u0E44\u0E21\u0E48\u0E21\u0E35\u0E01\u0E23\u0E23\u0E21 (worked/performed)", "ADVERB (\u0E02\u0E22\u0E32\u0E22 verb)", "worked more efficiently than"]
+        ] },
+        { type: "trap", md: '\u0E40\u0E2B\u0E47\u0E19\u0E04\u0E33\u0E27\u0E48\u0E32 "than" = \u0E15\u0E49\u0E2D\u0E07\u0E43\u0E0A\u0E49\u0E23\u0E39\u0E1B comparative \u0E40\u0E2A\u0E21\u0E2D (more + \u0E04\u0E33 \u0E2B\u0E23\u0E37\u0E2D \u0E04\u0E33+er) \xB7 \u0E15\u0E31\u0E27\u0E40\u0E25\u0E37\u0E2D\u0E01 adj/adverb \u0E18\u0E23\u0E23\u0E21\u0E14\u0E32 (quickly, careful) \u0E43\u0E0A\u0E49\u0E01\u0E31\u0E1A than \u0E44\u0E21\u0E48\u0E44\u0E14\u0E49 \xB7 \u0E16\u0E49\u0E32\u0E21\u0E35\u0E17\u0E31\u0E49\u0E07 quickly \u0E41\u0E25\u0E30 more quickly + \u0E42\u0E08\u0E17\u0E22\u0E4C\u0E21\u0E35 than \u2192 \u0E40\u0E25\u0E37\u0E2D\u0E01\u0E15\u0E31\u0E27\u0E17\u0E35\u0E48\u0E21\u0E35 more' },
+        { type: "text", md: "\u{1F522} \u0E40\u0E21\u0E37\u0E48\u0E2D\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E40\u0E1B\u0E47\u0E19\u0E01\u0E23\u0E34\u0E22\u0E32\u0E41\u0E17\u0E49 \u2192 \u0E40\u0E0A\u0E47\u0E01 Subject\u2013Verb Agreement\n\n\u2022 \u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19\u0E40\u0E2D\u0E01\u0E1E\u0E08\u0E19\u0E4C (the company/a manager/it) \u2192 \u0E01\u0E23\u0E34\u0E22\u0E32\u0E40\u0E15\u0E34\u0E21 s (The company processes)\n\u2022 \u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19\u0E1E\u0E2B\u0E39\u0E1E\u0E08\u0E19\u0E4C (employees/they) \u2192 \u0E01\u0E23\u0E34\u0E22\u0E32\u0E23\u0E39\u0E1B\u0E10\u0E32\u0E19 \u0E44\u0E21\u0E48\u0E40\u0E15\u0E34\u0E21 s (Employees process)" },
+        { type: "note", md: `\u{1F6AB} \u0E2D\u0E22\u0E48\u0E32\u0E14\u0E39\u0E41\u0E04\u0E48 "The" \u0E41\u0E25\u0E49\u0E27\u0E15\u0E31\u0E14\u0E2A\u0E34\u0E19! The \u0E43\u0E0A\u0E49\u0E44\u0E14\u0E49\u0E17\u0E31\u0E49\u0E07\u0E40\u0E2D\u0E01\u0E1E\u0E08\u0E19\u0E4C/\u0E1E\u0E2B\u0E39\u0E1E\u0E08\u0E19\u0E4C \u2014 \u0E14\u0E39\u0E17\u0E35\u0E48 noun \u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19\u0E27\u0E48\u0E32\u0E40\u0E15\u0E34\u0E21 s \u0E44\u0E2B\u0E21
+\u26A0\uFE0F possessive ('s) \u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19 \u2014 \u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19\u0E08\u0E23\u0E34\u0E07\u0E04\u0E37\u0E2D noun \u0E2B\u0E25\u0E31\u0E07 's (company's products meet \u2192 \u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19 = products)
+\u{1F3AF} collective noun = \u0E40\u0E2D\u0E01\u0E1E\u0E08\u0E19\u0E4C: team \xB7 staff \xB7 committee \xB7 company \xB7 group \xB7 department \xB7 board \xB7 audience (The team responds \u2705)
+\u{1F4CC} uncountable = \u0E40\u0E2D\u0E01\u0E1E\u0E08\u0E19\u0E4C\u0E40\u0E2A\u0E21\u0E2D \u2192 was/is/has: equipment \xB7 information \xB7 furniture \xB7 advice \xB7 research \xB7 feedback \xB7 software` },
+        { type: "text", md: "\u{1F504} PASSIVE VOICE: ___ + V3 \u2192 \u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E40\u0E1B\u0E47\u0E19 be (is/are/was/were)\n\n\u0E16\u0E49\u0E32\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E15\u0E32\u0E21\u0E14\u0E49\u0E27\u0E22 V3 \u0E41\u0E25\u0E30\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19\u0E16\u0E39\u0E01\u0E01\u0E23\u0E30\u0E17\u0E33 \u2192 passive \u2192 \u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07 = be\n\u0E42\u0E04\u0E23\u0E07\u0E2A\u0E23\u0E49\u0E32\u0E07: \u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19 + be + V3 (+ by...)\n\u2022 The report was submitted yesterday\n\u2022 All applications were reviewed" },
+        { type: "note", md: "\u{1F3AF} active vs passive: have/has + V3 (active \u0E17\u0E33\u0E40\u0E2D\u0E07+\u0E21\u0E35\u0E01\u0E23\u0E23\u0E21) vs be + V3 (passive \u0E16\u0E39\u0E01\u0E01\u0E23\u0E30\u0E17\u0E33)\n   The equipment was installed \u2192 passive (\u0E2D\u0E38\u0E1B\u0E01\u0E23\u0E13\u0E4C\u0E15\u0E34\u0E14\u0E15\u0E31\u0E49\u0E07\u0E40\u0E2D\u0E07\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49) \u2705\n\u{1F3AF} passive + modal: modal + be + V3 (modal \u0E15\u0E32\u0E21\u0E14\u0E49\u0E27\u0E22 be \u0E40\u0E2A\u0E21\u0E2D) \u2014 must be submitted / should be completed\n\u{1F4A1} been \u0E43\u0E0A\u0E49\u0E40\u0E14\u0E35\u0E48\u0E22\u0E27\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49 \u0E15\u0E49\u0E2D\u0E07\u0E21\u0E35 have/has/had \u0E19\u0E33\u0E2B\u0E19\u0E49\u0E32 (has been required)" },
+        { type: "text", md: '\u{1F501} -ING vs -ED (\u0E01\u0E25\u0E38\u0E48\u0E21\u0E04\u0E27\u0E32\u0E21\u0E23\u0E39\u0E49\u0E2A\u0E36\u0E01)\n\n\u0E04\u0E33\u0E16\u0E32\u0E21\u0E2B\u0E25\u0E31\u0E01: "\u0E15\u0E31\u0E27\u0E19\u0E35\u0E49\u0E17\u0E33\u0E43\u0E2B\u0E49\u0E23\u0E39\u0E49\u0E2A\u0E36\u0E01 \u0E2B\u0E23\u0E37\u0E2D \u0E23\u0E39\u0E49\u0E2A\u0E36\u0E01\u0E40\u0E2D\u0E07?"\n\u2022 -ing = \u0E17\u0E33\u0E43\u0E2B\u0E49\u0E40\u0E01\u0E34\u0E14\u0E04\u0E27\u0E32\u0E21\u0E23\u0E39\u0E49\u0E2A\u0E36\u0E01 (\u0E1C\u0E39\u0E49\u0E01\u0E23\u0E30\u0E17\u0E33) \u2192 confusing instructions, exciting news\n\u2022 -ed = \u0E23\u0E39\u0E49\u0E2A\u0E36\u0E01\u0E41\u0E1A\u0E1A\u0E19\u0E31\u0E49\u0E19 (\u0E1C\u0E39\u0E49\u0E16\u0E39\u0E01\u0E01\u0E23\u0E30\u0E17\u0E33) \u2192 satisfied customers, bored students' },
+        { type: "note", md: "\u0E17\u0E32\u0E07\u0E25\u0E31\u0E14 (\u0E16\u0E39\u0E01 ~90%): \u0E2A\u0E34\u0E48\u0E07\u0E02\u0E2D\u0E07/\u0E40\u0E23\u0E37\u0E48\u0E2D\u0E07/\u0E2A\u0E16\u0E32\u0E19\u0E01\u0E32\u0E23\u0E13\u0E4C \u2192 -ing (\u0E23\u0E39\u0E49\u0E2A\u0E36\u0E01\u0E40\u0E2D\u0E07\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49) | \u0E04\u0E19/\u0E2A\u0E31\u0E15\u0E27\u0E4C \u2192 \u0E21\u0E31\u0E01 -ed \u0E41\u0E15\u0E48\u0E40\u0E0A\u0E47\u0E01\u0E04\u0E27\u0E32\u0E21\u0E2B\u0E21\u0E32\u0E22 (He is boring = \u0E40\u0E02\u0E32\u0E19\u0E48\u0E32\u0E40\u0E1A\u0E37\u0E48\u0E2D \u0E43\u0E0A\u0E49 -ing \u0E44\u0E14\u0E49)\n\u{1F4A1} \u0E43\u0E0A\u0E49\u0E40\u0E09\u0E1E\u0E32\u0E30\u0E04\u0E33\u0E01\u0E25\u0E38\u0E48\u0E21\u0E2D\u0E32\u0E23\u0E21\u0E13\u0E4C\u0E40\u0E17\u0E48\u0E32\u0E19\u0E31\u0E49\u0E19 \u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48\u0E17\u0E38\u0E01 -ing/-ed (has increased = has + V3, trained staff = participle \u0E02\u0E22\u0E32\u0E22 noun)" },
+        { type: "text", md: "\u{1F9F1} NOUN \u0E0B\u0E49\u0E2D\u0E19 NOUN (Compound Noun)\n\n\u0E42\u0E04\u0E23\u0E07\u0E2A\u0E23\u0E49\u0E32\u0E07 the/its + ___ + noun \u2192 \u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E40\u0E1B\u0E47\u0E19 noun (\u0E16\u0E49\u0E32\u0E08\u0E31\u0E1A\u0E04\u0E39\u0E48\u0E40\u0E1B\u0E47\u0E19 compound) \u0E2B\u0E23\u0E37\u0E2D adjective (\u0E16\u0E49\u0E32\u0E02\u0E22\u0E32\u0E22) \u2014 \u0E15\u0E31\u0E14\u0E14\u0E49\u0E27\u0E22\u0E04\u0E27\u0E32\u0E21\u0E2B\u0E21\u0E32\u0E22\n\n\u0E17\u0E35\u0E48\u0E40\u0E08\u0E2D\u0E1A\u0E48\u0E2D\u0E22: customer satisfaction \xB7 employee productivity \xB7 training session \xB7 reception desk \xB7 accounting department" },
+        { type: "note", md: '\u{1F4A1} \u0E40\u0E21\u0E37\u0E48\u0E2D\u0E17\u0E31\u0E49\u0E07 noun \u0E41\u0E25\u0E30 adj \u0E27\u0E32\u0E07\u0E2B\u0E19\u0E49\u0E32 noun \u0E44\u0E14\u0E49\u0E17\u0E32\u0E07\u0E44\u0E27\u0E22\u0E32\u0E01\u0E23\u0E13\u0E4C \u2192 \u0E15\u0E31\u0E14\u0E14\u0E49\u0E27\u0E22\u0E04\u0E27\u0E32\u0E21\u0E2B\u0E21\u0E32\u0E22 \u0E16\u0E32\u0E21 "noun + noun \u0E15\u0E31\u0E27\u0E19\u0E35\u0E49\u0E43\u0E0A\u0E49\u0E08\u0E23\u0E34\u0E07\u0E44\u0E2B\u0E21?" \u2014 reception desk \u2713 | receptive desk \u2717' },
+        { type: "text", md: '\u{1F6AB} \u0E01\u0E31\u0E1A\u0E14\u0E31\u0E01 "to / V-ing" \u2014 \u0E2D\u0E22\u0E48\u0E32\u0E40\u0E2B\u0E47\u0E19 to \u0E41\u0E25\u0E49\u0E27\u0E15\u0E2D\u0E1A verb \u0E40\u0E2A\u0E21\u0E2D' },
+        { type: "table", headers: ["\u0E42\u0E04\u0E23\u0E07\u0E2A\u0E23\u0E49\u0E32\u0E07", "to \u0E19\u0E35\u0E49\u0E04\u0E37\u0E2D", "\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07 ="], rows: [
+          ["decided / want / plan + to + ___", "to-infinitive", "verb (postpone)"],
+          ["committed / dedicated / look forward + to + V-ing", "preposition", "V-ing (providing)"],
+          ["committed to providing + ___ + noun", "\u2014", "adjective (excellent)"]
+        ] },
+        { type: "text", md: "\u{1FAA4} \u0E01\u0E31\u0E1A\u0E14\u0E31\u0E01\u0E0B\u0E48\u0E2D\u0E19: \u0E04\u0E33\u0E17\u0E35\u0E48\u0E40\u0E1B\u0E47\u0E19\u0E44\u0E14\u0E49\u0E17\u0E31\u0E49\u0E07 NOUN \u0E41\u0E25\u0E30 VERB\n\n\u0E04\u0E33\u0E01\u0E25\u0E38\u0E48\u0E21\u0E19\u0E35\u0E49\u0E2B\u0E19\u0E49\u0E32\u0E15\u0E32\u0E40\u0E2B\u0E21\u0E37\u0E2D\u0E19 verb \u0E41\u0E15\u0E48\u0E43\u0E19\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\u0E2D\u0E32\u0E08\u0E40\u0E1B\u0E47\u0E19 noun: support \xB7 increase \xB7 report \xB7 review \xB7 request \xB7 change \xB7 access \xB7 need \xB7 use \xB7 benefit \xB7 concern \xB7 interest" },
+        { type: "note", md: '\u0E27\u0E34\u0E18\u0E35\u0E40\u0E0A\u0E47\u0E01 (\u0E04\u0E33\u0E16\u0E32\u0E21\u0E40\u0E14\u0E35\u0E22\u0E27): "\u0E43\u0E19\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\u0E21\u0E35\u0E01\u0E23\u0E34\u0E22\u0E32\u0E2B\u0E25\u0E31\u0E01\u0E41\u0E25\u0E49\u0E27\u0E2B\u0E23\u0E37\u0E2D\u0E22\u0E31\u0E07?"\n\u2022 \u0E21\u0E35\u0E01\u0E23\u0E34\u0E22\u0E32\u0E2B\u0E25\u0E31\u0E01\u0E41\u0E25\u0E49\u0E27 (provided/made/offered) \u2192 \u0E04\u0E33\u0E19\u0E35\u0E49 = NOUN (\u0E01\u0E23\u0E23\u0E21): provided support, made a request\n\u2022 \u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E21\u0E35\u0E01\u0E23\u0E34\u0E22\u0E32\u0E2B\u0E25\u0E31\u0E01 / \u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19 + ___ \u2192 \u0E04\u0E33\u0E19\u0E35\u0E49 = VERB: they support us, sales increased\n\u{1F4A1} provided ___ support \u2192 support \u0E40\u0E1B\u0E47\u0E19 noun (provided \u0E40\u0E1B\u0E47\u0E19\u0E01\u0E23\u0E34\u0E22\u0E32\u0E41\u0E25\u0E49\u0E27) \u2192 \u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07 = adjective' },
+        { type: "text", md: "\u2705 \u0E40\u0E0A\u0E47\u0E01\u0E25\u0E34\u0E2A\u0E15\u0E4C\u0E01\u0E48\u0E2D\u0E19\u0E01\u0E14\u0E15\u0E2D\u0E1A (\u0E17\u0E33\u0E43\u0E19\u0E2B\u0E31\u0E27\u0E17\u0E38\u0E01\u0E02\u0E49\u0E2D)" },
+        { type: "tree", steps: [
+          "\u0E04\u0E33\u0E0B\u0E49\u0E32\u0E22\u0E41\u0E25\u0E30\u0E02\u0E27\u0E32\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E04\u0E37\u0E2D\u0E2D\u0E30\u0E44\u0E23? \u0E21\u0E35 signal word \u0E44\u0E2B\u0E21?",
+          "\u0E21\u0E35 noun / verb / V3 \u0E15\u0E32\u0E21\u0E2B\u0E25\u0E31\u0E07\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E2D\u0E22\u0E39\u0E48\u0E41\u0E25\u0E49\u0E27\u0E2B\u0E23\u0E37\u0E2D\u0E22\u0E31\u0E07?",
+          "\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E2D\u0E22\u0E39\u0E48\u0E15\u0E23\u0E07\u0E44\u0E2B\u0E19? (\u0E2B\u0E19\u0E49\u0E32 noun / \u0E2B\u0E25\u0E31\u0E07 verb / \u0E2B\u0E25\u0E31\u0E07 be / \u0E41\u0E17\u0E23\u0E01\u0E01\u0E25\u0E32\u0E07\u0E01\u0E23\u0E34\u0E22\u0E32)",
+          "signal \u0E1A\u0E2D\u0E01\u0E27\u0E48\u0E32\u0E15\u0E49\u0E2D\u0E07\u0E01\u0E32\u0E23\u0E0A\u0E19\u0E34\u0E14\u0E04\u0E33\u0E2D\u0E30\u0E44\u0E23?",
+          "\u0E14\u0E39 suffix \u0E02\u0E2D\u0E07\u0E15\u0E31\u0E27\u0E40\u0E25\u0E37\u0E2D\u0E01 \u2014 \u0E15\u0E31\u0E27\u0E44\u0E2B\u0E19\u0E40\u0E1B\u0E47\u0E19\u0E0A\u0E19\u0E34\u0E14\u0E04\u0E33\u0E19\u0E31\u0E49\u0E19\u0E08\u0E23\u0E34\u0E07 \u0E46?",
+          "\u0E15\u0E31\u0E14 -ize / -ate / -ify (verb) \u0E17\u0E34\u0E49\u0E07 \u0E16\u0E49\u0E32\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49\u0E15\u0E49\u0E2D\u0E07\u0E01\u0E32\u0E23 verb",
+          '\u0E16\u0E49\u0E32\u0E40\u0E1B\u0E47\u0E19 -ing/-ed \u0E01\u0E25\u0E38\u0E48\u0E21\u0E2D\u0E32\u0E23\u0E21\u0E13\u0E4C \u2192 \u0E16\u0E32\u0E21 "\u0E17\u0E33\u0E43\u0E2B\u0E49\u0E23\u0E39\u0E49\u0E2A\u0E36\u0E01 / \u0E23\u0E39\u0E49\u0E2A\u0E36\u0E01\u0E40\u0E2D\u0E07?"'
+        ] },
+        { type: "text", md: "\u26A1 \u0E01\u0E31\u0E1A\u0E14\u0E31\u0E01\u0E17\u0E35\u0E48\u0E1E\u0E25\u0E32\u0E14\u0E1A\u0E48\u0E2D\u0E22\u0E17\u0E35\u0E48\u0E2A\u0E38\u0E14 (\u0E17\u0E1A\u0E17\u0E27\u0E19\u0E01\u0E48\u0E2D\u0E19\u0E2A\u0E2D\u0E1A)" },
+        { type: "table", headers: ["\u0E01\u0E31\u0E1A\u0E14\u0E31\u0E01", "\u0E15\u0E31\u0E27\u0E2D\u0E22\u0E48\u0E32\u0E07"], rows: [
+          ["will / has + ___ + verb/V3 \u2192 adverb", "will significantly improve"],
+          ["verb + ___ + noun \u2192 adjective", "lacked sufficient detail"],
+          ["be + ___ \u2192 adjective \u0E40\u0E2A\u0E21\u0E2D (\u0E41\u0E21\u0E49\u0E21\u0E35 enough)", "were clear enough"],
+          ["-ize / -ate / -ify = verb \u2192 \u0E15\u0E31\u0E14\u0E17\u0E34\u0E49\u0E07 \u0E16\u0E49\u0E32\u0E15\u0E49\u0E2D\u0E07\u0E01\u0E32\u0E23 noun/adj", "specialize, evaluate"],
+          ["the / a + ___ + noun \u2192 \u0E15\u0E31\u0E27\u0E02\u0E22\u0E32\u0E22", "the required training"],
+          ["some / any / much + ___ + (prep/\u0E08\u0E1A/\u0E01\u0E23\u0E34\u0E22\u0E32\u0E41\u0E17\u0E49) \u2192 noun", "offered some advice on..."],
+          ["action verb + more ___ than \u2192 noun", "requires more patience"],
+          ["linking verb (proved/seemed) + ___ \u2192 adjective", "proved disruptive"],
+          ["\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E17\u0E49\u0E32\u0E22\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04 (\u0E2B\u0E25\u0E31\u0E07 verb+\u0E01\u0E23\u0E23\u0E21) \u2192 adverb", "handled it professionally"]
+        ] },
+        { type: "trap", md: "\u0E2B\u0E25\u0E31\u0E01\u0E17\u0E2D\u0E07\u0E02\u0E49\u0E2D\u0E40\u0E14\u0E35\u0E22\u0E27\u0E17\u0E35\u0E48\u0E41\u0E01\u0E49\u0E01\u0E31\u0E1A\u0E14\u0E31\u0E01\u0E44\u0E14\u0E49\u0E04\u0E23\u0E36\u0E48\u0E07\u0E2B\u0E19\u0E36\u0E48\u0E07: \u0E14\u0E39\u0E04\u0E33\u0E02\u0E27\u0E32\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E01\u0E48\u0E2D\u0E19\u0E40\u0E2A\u0E21\u0E2D \u2014 \u0E02\u0E27\u0E32\u0E40\u0E1B\u0E47\u0E19 noun \u2192 adjective | \u0E02\u0E27\u0E32\u0E27\u0E48\u0E32\u0E07 + \u0E0B\u0E49\u0E32\u0E22 some/the/adj \u2192 noun | \u0E02\u0E27\u0E32\u0E27\u0E48\u0E32\u0E07 + \u0E0B\u0E49\u0E32\u0E22 verb \u2192 adverb" },
+        { type: "text", md: "\u{1F4DD} \u0E04\u0E33\u0E17\u0E35\u0E48\u0E2D\u0E2D\u0E01\u0E2A\u0E2D\u0E1A\u0E1A\u0E48\u0E2D\u0E22 \u2014 \u0E43\u0E0A\u0E49\u0E1D\u0E36\u0E01\u0E41\u0E22\u0E01\u0E23\u0E39\u0E1B\n\nanalyze/analysis/analyst \xB7 commit/commitment \xB7 determine/determination \xB7 satisfy/satisfied/satisfying \xB7 specialize/specialized \xB7 formal/formally/formalize \xB7 clear/clearly/clarify \xB7 efficient/efficiently/efficiency \xB7 significant/significantly/signify \xB7 sufficient/sufficiency \xB7 advise/advice/advisable \xB7 reception/receptive \xB7 complete/completion \xB7 value/valuable/valued \xB7 excel/excellent/excellence \xB7 confuse/confusion/confusing" },
+        { type: "text", md: '\u{1F9EA} SELF-TEST \u0E0A\u0E38\u0E14 1 \u2014 10 \u0E02\u0E49\u0E2D (\u0E25\u0E2D\u0E07\u0E17\u0E33\u0E40\u0E2D\u0E07\u0E01\u0E48\u0E2D\u0E19\u0E14\u0E39\u0E40\u0E09\u0E25\u0E22)\n\n\u0E27\u0E34\u0E18\u0E35\u0E1D\u0E36\u0E01: \u0E15\u0E2D\u0E1A\u0E43\u0E19\u0E23\u0E39\u0E1B\u0E41\u0E1A\u0E1A "\u0E2A\u0E31\u0E0D\u0E0D\u0E32\u0E13 \u2192 \u0E0A\u0E19\u0E34\u0E14\u0E04\u0E33 \u2192 \u0E04\u0E33\u0E15\u0E2D\u0E1A" \u0E17\u0E38\u0E01\u0E02\u0E49\u0E2D \u0E2D\u0E22\u0E48\u0E32\u0E40\u0E1E\u0E34\u0E48\u0E07\u0E40\u0E25\u0E37\u0E48\u0E2D\u0E19\u0E14\u0E39\u0E40\u0E09\u0E25\u0E22' },
+        { type: "note", md: "1. The committee will ___ review all proposals before the deadline.\n   (A) careful (B) carefully (C) care (D) careless\n\n2. Our company's products ___ the highest safety standards in the industry.\n   (A) meets (B) meet (C) meeting (D) to meet\n\n3. The new software proved far more ___ than the previous version.\n   (A) disrupt (B) disruptively (C) disruptive (D) disruption\n\n4. All applications ___ reviewed by the hiring manager last week.\n   (A) have (B) were (C) has (D) being\n\n5. The manager provided ___ training to every new employee.\n   (A) extend (B) extensively (C) extensive (D) extension\n\n6. The team handled the difficult situation ___.\n   (A) professional (B) profession (C) professionally (D) professionalism\n\n7. Customer ___ has improved significantly since the update.\n   (A) satisfy (B) satisfied (C) satisfactory (D) satisfaction\n\n8. The equipment ___ installed before the office opened.\n   (A) has (B) was (C) have (D) having\n\n9. Documents must ___ submitted no later than Friday.\n   (A) be (B) been (C) being (D) is\n\n10. The staff offered some ___ on how to improve the process.\n    (A) advise (B) advisable (C) advice (D) advised" },
+        { type: "text", md: "\u2705 \u0E40\u0E09\u0E25\u0E22\u0E0A\u0E38\u0E14 1 + \u0E40\u0E2B\u0E15\u0E38\u0E1C\u0E25\u0E17\u0E35\u0E25\u0E30\u0E02\u0E49\u0E2D" },
+        { type: "note", md: "1. (B) carefully \u2014 will ___ review \u2192 \u0E41\u0E17\u0E23\u0E01\u0E23\u0E30\u0E2B\u0E27\u0E48\u0E32\u0E07\u0E01\u0E23\u0E34\u0E22\u0E32\u0E0A\u0E48\u0E27\u0E22 (will) \u0E01\u0E31\u0E1A\u0E01\u0E23\u0E34\u0E22\u0E32\u0E2B\u0E25\u0E31\u0E01 (review) \u2192 \u0E02\u0E22\u0E32\u0E22 verb \u2192 adverb \xB7 \u0E21\u0E35\u0E41\u0E04\u0E48 carefully \u0E17\u0E35\u0E48\u0E40\u0E1B\u0E47\u0E19 adverb\n\n2. (B) meet \u2014 \u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19 + \u0E01\u0E23\u0E34\u0E22\u0E32 \u2192 \u0E40\u0E0A\u0E47\u0E01 agreement \xB7 \u0E01\u0E31\u0E1A\u0E14\u0E31\u0E01: company's \u0E40\u0E1B\u0E47\u0E19 possessive \u0E02\u0E22\u0E32\u0E22 products \u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19\u0E08\u0E23\u0E34\u0E07 = products (\u0E1E\u0E2B\u0E39\u0E1E\u0E08\u0E19\u0E4C) \u2192 \u0E44\u0E21\u0E48\u0E40\u0E15\u0E34\u0E21 s \u2192 meet\n\n3. (C) disruptive \u2014 proved more ___ than \u2192 proved = linking verb (\u0E41\u0E17\u0E19 is/was \u0E44\u0E14\u0E49) \u2192 adjective \u0E1A\u0E23\u0E23\u0E22\u0E32\u0E22\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19 \xB7 \u0E2D\u0E22\u0E48\u0E32\u0E40\u0E2B\u0E47\u0E19 more...than \u0E41\u0E25\u0E49\u0E27\u0E23\u0E35\u0E1A\u0E15\u0E2D\u0E1A adjective \u0E15\u0E49\u0E2D\u0E07\u0E40\u0E0A\u0E47\u0E01 verb \u0E01\u0E48\u0E2D\u0E19 (\u0E17\u0E35\u0E48\u0E19\u0E35\u0E48\u0E1A\u0E31\u0E07\u0E40\u0E2D\u0E34\u0E0D\u0E15\u0E23\u0E07)\n\n4. (B) were \u2014 ___ + V3 (reviewed) + applications \u0E16\u0E39\u0E01\u0E01\u0E23\u0E30\u0E17\u0E33 \u2192 passive \u2192 be \xB7 \u0E1E\u0E2B\u0E39\u0E1E\u0E08\u0E19\u0E4C + last week (\u0E2D\u0E14\u0E35\u0E15) \u2192 were \xB7 have/has = active (\u0E43\u0E1A\u0E2A\u0E21\u0E31\u0E04\u0E23\u0E16\u0E39\u0E01\u0E15\u0E23\u0E27\u0E08 \u0E44\u0E21\u0E48\u0E44\u0E14\u0E49\u0E15\u0E23\u0E27\u0E08\u0E40\u0E2D\u0E07)\n\n5. (C) extensive \u2014 provided ___ training \u2192 \u0E02\u0E27\u0E32 = training (noun) \u2192 \u0E02\u0E22\u0E32\u0E22 noun \u2192 adjective \xB7 provided \u0E40\u0E1B\u0E47\u0E19\u0E01\u0E23\u0E34\u0E22\u0E32\u0E2B\u0E25\u0E31\u0E01\u0E41\u0E25\u0E49\u0E27 training \u0E40\u0E1B\u0E47\u0E19\u0E01\u0E23\u0E23\u0E21 \u2192 \u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 adverb\n\n6. (C) professionally \u2014 handled the situation ___ \u2192 \u0E17\u0E49\u0E32\u0E22\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04 \u0E2B\u0E25\u0E31\u0E07 verb+\u0E01\u0E23\u0E23\u0E21\u0E04\u0E23\u0E1A \u2192 adverb \xB7 \u0E2D\u0E22\u0E48\u0E32\u0E22\u0E49\u0E2D\u0E19\u0E44\u0E1B\u0E02\u0E22\u0E32\u0E22 situation (\u0E01\u0E23\u0E23\u0E21\u0E0B\u0E49\u0E32\u0E22)\n\n7. (D) satisfaction \u2014 Customer ___ has improved \u2192 \u0E2B\u0E25\u0E31\u0E07\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E21\u0E35\u0E01\u0E23\u0E34\u0E22\u0E32\u0E41\u0E17\u0E49 (has) \u2192 Customer + ___ = \u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19 \u2192 noun (compound: customer satisfaction)\n\n8. (B) was \u2014 ___ + V3 (installed) + equipment \u0E16\u0E39\u0E01\u0E01\u0E23\u0E30\u0E17\u0E33 \u2192 passive \u2192 be \xB7 equipment = uncountable \u0E40\u0E2D\u0E01\u0E1E\u0E08\u0E19\u0E4C + \u0E2D\u0E14\u0E35\u0E15 \u2192 was\n\n9. (A) be \u2014 must ___ submitted \u2192 modal + ___ + V3 \u2192 modal + be + V3 \u2192 must be submitted \xB7 been \u0E43\u0E0A\u0E49\u0E40\u0E14\u0E35\u0E48\u0E22\u0E27\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49 \u2192 \u0E15\u0E31\u0E14\n\n10. (C) advice \u2014 some ___ on \u2192 \u0E02\u0E27\u0E32 = on (preposition) \u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 noun \u2192 some \u0E15\u0E49\u0E2D\u0E07\u0E01\u0E32\u0E23 noun + \u0E02\u0E27\u0E32\u0E44\u0E21\u0E48\u0E21\u0E35 noun \u0E43\u0E2B\u0E49\u0E02\u0E22\u0E32\u0E22 \u2192 noun (\u0E01\u0E23\u0E23\u0E21) \xB7 \u0E14\u0E39\u0E04\u0E33\u0E15\u0E34\u0E14\u0E02\u0E27\u0E32 (on=prep) \u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48\u0E27\u0E48\u0E32\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\u0E08\u0E1A \xB7 advice (n) \u2260 advise (v)" },
+        { type: "text", md: '\u{1F525} SELF-TEST \u0E0A\u0E38\u0E14 2 \u2014 \u0E23\u0E30\u0E14\u0E31\u0E1A\u0E42\u0E2B\u0E14 (\u0E01\u0E31\u0E1A\u0E14\u0E31\u0E01\u0E0B\u0E49\u0E2D\u0E19\u0E01\u0E31\u0E1A\u0E14\u0E31\u0E01)\n\n\u0E2B\u0E25\u0E32\u0E22\u0E02\u0E49\u0E2D\u0E21\u0E35\u0E15\u0E31\u0E27\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E17\u0E35\u0E48 "\u0E16\u0E39\u0E01\u0E17\u0E32\u0E07\u0E44\u0E27\u0E22\u0E32\u0E01\u0E23\u0E13\u0E4C" \u0E21\u0E32\u0E01\u0E01\u0E27\u0E48\u0E32 1 \u0E15\u0E31\u0E27 \u0E15\u0E49\u0E2D\u0E07\u0E15\u0E31\u0E14\u0E14\u0E49\u0E27\u0E22\u0E04\u0E27\u0E32\u0E21\u0E2B\u0E21\u0E32\u0E22 \u0E2B\u0E23\u0E37\u0E2D\u0E21\u0E2D\u0E07\u0E02\u0E49\u0E32\u0E21\u0E04\u0E33\u0E17\u0E35\u0E48\u0E21\u0E32\u0E04\u0E31\u0E48\u0E19\u0E43\u0E2B\u0E49\u0E02\u0E32\u0E14' },
+        { type: "note", md: "1. The department's new policies ___ require all staff to complete training.\n   (A) now (B) current (C) currents (D) currency\n\n2. Making the software more ___ has become the team's top priority this quarter.\n   (A) user-friendly (B) friendliness (C) friend (D) friendly user\n\n3. The board rejected the proposal because it was ___ flawed from the start.\n   (A) fundamental (B) fundamentally (C) fundamentals (D) fundamentalize\n\n4. Several ___ recommendations were submitted by the consultants last month.\n   (A) value (B) valued (C) valuable (D) values\n\n5. The new manager, along with her assistants, ___ responsible for the budget.\n   (A) are (B) is (C) were (D) being\n\n6. Once the figures have been ___ verified, the report can be released.\n   (A) independent (B) independence (C) independently (D) independents\n\n7. The renovated facility can ___ accommodate twice as many visitors.\n   (A) comfort (B) comfortable (C) comfortably (D) comforts\n\n8. The committee's decision proved more ___ than anyone had anticipated.\n   (A) controversy (B) controversial (C) controversially (D) controversies\n\n9. Employee productivity has risen sharply since the company ___ flexible hours.\n   (A) introduction (B) introduced (C) introducing (D) introductory\n\n10. The instructions were not detailed enough, which caused considerable ___ among the new hires.\n    (A) confuse (B) confusing (C) confused (D) confusion" },
+        { type: "text", md: "\u2705 \u0E40\u0E09\u0E25\u0E22\u0E0A\u0E38\u0E14 2 + \u0E40\u0E2B\u0E15\u0E38\u0E1C\u0E25\u0E17\u0E35\u0E25\u0E30\u0E02\u0E49\u0E2D" },
+        { type: "note", md: "1. (A) now \u2014 policies ___ require \u2192 \u0E41\u0E17\u0E23\u0E01\u0E23\u0E30\u0E2B\u0E27\u0E48\u0E32\u0E07\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19 (policies) \u0E01\u0E31\u0E1A\u0E01\u0E23\u0E34\u0E22\u0E32\u0E41\u0E17\u0E49 (require) \u2192 adverb \xB7 \u0E01\u0E31\u0E1A\u0E14\u0E31\u0E01: department's \u0E14\u0E36\u0E07\u0E2A\u0E32\u0E22\u0E15\u0E32\u0E40\u0E23\u0E37\u0E48\u0E2D\u0E07 agreement \u0E41\u0E15\u0E48\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19\u0E08\u0E23\u0E34\u0E07 = policies \xB7 current (adj) \u0E27\u0E32\u0E07\u0E2B\u0E19\u0E49\u0E32 require \u0E44\u0E21\u0E48\u0E44\u0E14\u0E49\n\n2. (A) user-friendly \u2014 make + \u0E01\u0E23\u0E23\u0E21 + more ___ \u2192 object complement \u2192 adjective \xB7 friendly user \u0E2A\u0E25\u0E31\u0E1A\u0E25\u0E33\u0E14\u0E31\u0E1A\u0E1C\u0E34\u0E14 (noun \u0E2D\u0E22\u0E39\u0E48\u0E2B\u0E25\u0E31\u0E07) \xB7 user-friendly = adj \u0E1B\u0E23\u0E30\u0E2A\u0E21 \u0E15\u0E23\u0E07\u0E17\u0E31\u0E49\u0E07\u0E0A\u0E19\u0E34\u0E14\u0E04\u0E33\u0E41\u0E25\u0E30\u0E04\u0E27\u0E32\u0E21\u0E2B\u0E21\u0E32\u0E22\n\n3. (B) fundamentally \u2014 was ___ flawed \u2192 ___ \u0E02\u0E22\u0E32\u0E22 flawed (adjective) \u2192 adverb \u0E02\u0E22\u0E32\u0E22 adjective \xB7 \u0E01\u0E31\u0E1A\u0E14\u0E31\u0E01\u0E42\u0E2B\u0E14: \u0E2B\u0E25\u0E31\u0E07 was \u0E2B\u0E25\u0E32\u0E22\u0E04\u0E19\u0E23\u0E35\u0E1A\u0E15\u0E2D\u0E1A adjective \u0E41\u0E15\u0E48 was \u0E08\u0E31\u0E1A\u0E04\u0E39\u0E48 flawed \u0E44\u0E1B\u0E41\u0E25\u0E49\u0E27 \xB7 adverb \u0E02\u0E22\u0E32\u0E22 adjective \u0E44\u0E14\u0E49\n\n4. (C) valuable \u2014 Several ___ recommendations \u2192 \u0E02\u0E27\u0E32 = recommendations (noun) \u2192 adjective \xB7 \u0E01\u0E31\u0E1A\u0E14\u0E31\u0E01: valued (adj) \u0E01\u0E47\u0E44\u0E14\u0E49 \u0E15\u0E31\u0E14\u0E14\u0E49\u0E27\u0E22\u0E04\u0E27\u0E32\u0E21\u0E2B\u0E21\u0E32\u0E22 (valuable = \u0E21\u0E35\u0E04\u0E38\u0E13\u0E04\u0E48\u0E32 \u2713 | valued = \u0E16\u0E39\u0E01\u0E40\u0E2B\u0E47\u0E19\u0E04\u0E38\u0E13\u0E04\u0E48\u0E32 \u2717)\n\n5. (B) is \u2014 \u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07 = \u0E01\u0E23\u0E34\u0E22\u0E32\u0E41\u0E17\u0E49 \u2192 \u0E40\u0E0A\u0E47\u0E01\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19 \xB7 \u0E01\u0E31\u0E1A\u0E14\u0E31\u0E01: along with her assistants \u0E2B\u0E25\u0E2D\u0E01\u0E27\u0E48\u0E32\u0E1E\u0E2B\u0E39\u0E1E\u0E08\u0E19\u0E4C \xB7 along with/as well as/together with \u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 and \u2192 \u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19\u0E08\u0E23\u0E34\u0E07 = The new manager (\u0E40\u0E2D\u0E01\u0E1E\u0E08\u0E19\u0E4C) \u2192 is\n\n6. (C) independently \u2014 have been ___ verified \u2192 \u0E41\u0E17\u0E23\u0E01\u0E01\u0E48\u0E2D\u0E19 V3 (verified) \u2192 \u0E02\u0E22\u0E32\u0E22\u0E01\u0E23\u0E34\u0E22\u0E32 \u2192 adverb \xB7 have been \u0E2B\u0E25\u0E2D\u0E01\u0E40\u0E23\u0E37\u0E48\u0E2D\u0E07 passive/perfect \u0E41\u0E15\u0E48\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E41\u0E04\u0E48\u0E41\u0E17\u0E23\u0E01\u0E02\u0E22\u0E32\u0E22\n\n7. (C) comfortably \u2014 can ___ accommodate \u2192 \u0E41\u0E17\u0E23\u0E01\u0E23\u0E30\u0E2B\u0E27\u0E48\u0E32\u0E07 modal (can) \u0E01\u0E31\u0E1A verb (accommodate) \u2192 adverb \xB7 renovated facility \u0E15\u0E2D\u0E19\u0E15\u0E49\u0E19\u0E44\u0E21\u0E48\u0E40\u0E01\u0E35\u0E48\u0E22\u0E27\u0E01\u0E31\u0E1A\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\n\n8. (B) controversial \u2014 proved more ___ than \u2192 proved = linking verb \u2192 adjective \xB7 \u0E01\u0E31\u0E1A\u0E14\u0E31\u0E01: controversially (adv) \u0E14\u0E39\u0E40\u0E02\u0E49\u0E32\u0E01\u0E31\u0E1A more...than \u0E41\u0E15\u0E48 linking verb \u0E15\u0E49\u0E2D\u0E07\u0E01\u0E32\u0E23 adjective\n\n9. (B) introduced \u2014 since the company ___ flexible hours \u2192 company + ___ + \u0E01\u0E23\u0E23\u0E21 (hours) \u2192 \u0E01\u0E23\u0E34\u0E22\u0E32\u0E41\u0E17\u0E49\u0E02\u0E2D\u0E07\u0E2D\u0E19\u0E38\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04 \u2192 verb \xB7 introduced = V2 \u0E40\u0E02\u0E49\u0E32\u0E01\u0E31\u0E1A since + \u0E40\u0E2B\u0E15\u0E38\u0E01\u0E32\u0E23\u0E13\u0E4C\u0E08\u0E1A\u0E41\u0E25\u0E49\u0E27 \xB7 introducing \u0E40\u0E14\u0E35\u0E48\u0E22\u0E27\u0E40\u0E1B\u0E47\u0E19\u0E01\u0E23\u0E34\u0E22\u0E32\u0E41\u0E17\u0E49\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49\n\n10. (D) confusion \u2014 considerable ___ among \u2192 \u0E0B\u0E49\u0E32\u0E22 = adj (considerable), \u0E02\u0E27\u0E32 = among (preposition) \u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 noun \u2192 adj \u0E15\u0E49\u0E2D\u0E07\u0E01\u0E32\u0E23 noun \u0E23\u0E31\u0E1A + \u0E02\u0E27\u0E32\u0E44\u0E21\u0E48\u0E21\u0E35 noun \u0E43\u0E2B\u0E49\u0E02\u0E22\u0E32\u0E22 \u2192 noun (\u0E01\u0E23\u0E23\u0E21\u0E02\u0E2D\u0E07 caused) \xB7 confusing/confused \u0E01\u0E25\u0E38\u0E48\u0E21\u0E2D\u0E32\u0E23\u0E21\u0E13\u0E4C\u0E43\u0E0A\u0E49\u0E40\u0E09\u0E1E\u0E32\u0E30\u0E15\u0E2D\u0E19\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E40\u0E1B\u0E47\u0E19 adjective \u0E17\u0E35\u0E48\u0E19\u0E35\u0E48\u0E40\u0E1B\u0E47\u0E19\u0E01\u0E23\u0E23\u0E21 \u2192 confusion" },
+        { type: "note", md: "\u{1F3AF} \u0E2A\u0E23\u0E38\u0E1B\u0E01\u0E31\u0E1A\u0E14\u0E31\u0E01\u0E43\u0E2B\u0E21\u0E48\u0E17\u0E35\u0E48\u0E0A\u0E38\u0E14 2 \u0E40\u0E1E\u0E34\u0E48\u0E21\u0E40\u0E02\u0E49\u0E32\u0E21\u0E32:\n\u2022 along with / as well as / together with \u2192 \u0E44\u0E21\u0E48\u0E17\u0E33\u0E43\u0E2B\u0E49\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19\u0E40\u0E1B\u0E47\u0E19\u0E1E\u0E2B\u0E39\u0E1E\u0E08\u0E19\u0E4C (\u0E02\u0E49\u0E2D 5)\n\u2022 adverb \u0E02\u0E22\u0E32\u0E22 adjective \u0E44\u0E14\u0E49 \u2014 fundamentally flawed, independently verified (\u0E02\u0E49\u0E2D 3, 6)\n\u2022 adjective \u0E1B\u0E23\u0E30\u0E2A\u0E21 (user-friendly) \u0E21\u0E32\u0E43\u0E19\u0E23\u0E39\u0E1B\u0E2A\u0E25\u0E31\u0E1A\u0E25\u0E33\u0E14\u0E31\u0E1A\u0E2B\u0E25\u0E2D\u0E01 (\u0E02\u0E49\u0E2D 2)\n\u2022 valued vs valuable \u2014 adj \u0E17\u0E31\u0E49\u0E07\u0E04\u0E39\u0E48 \u0E15\u0E31\u0E14\u0E14\u0E49\u0E27\u0E22\u0E04\u0E27\u0E32\u0E21\u0E2B\u0E21\u0E32\u0E22 (\u0E02\u0E49\u0E2D 4)\n\u2022 possessive ('s / department's) \u0E14\u0E36\u0E07\u0E2A\u0E32\u0E22\u0E15\u0E32\u0E2D\u0E2D\u0E01\u0E08\u0E32\u0E01\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19\u0E08\u0E23\u0E34\u0E07 (\u0E02\u0E49\u0E2D 1, 5)" },
+        { type: "text", md: "\u{1F4CA} \u0E40\u0E01\u0E13\u0E11\u0E4C\u0E1B\u0E23\u0E30\u0E40\u0E21\u0E34\u0E19\u0E15\u0E31\u0E27\u0E40\u0E2D\u0E07 (\u0E43\u0E0A\u0E49\u0E01\u0E31\u0E1A\u0E17\u0E31\u0E49\u0E07 2 \u0E0A\u0E38\u0E14) \u2014 \u0E0A\u0E38\u0E14\u0E25\u0E30 10 \u0E02\u0E49\u0E2D\n\u2022 9\u201310 \u0E02\u0E49\u0E2D \u2192 \u0E41\u0E21\u0E48\u0E19\u0E21\u0E32\u0E01 (\u0E1C\u0E48\u0E32\u0E19\u0E0A\u0E38\u0E14 1 \u2192 \u0E25\u0E2D\u0E07\u0E0A\u0E38\u0E14 2 | \u0E1C\u0E48\u0E32\u0E19\u0E0A\u0E38\u0E14 2 \u2192 \u0E02\u0E22\u0E31\u0E1A\u0E2B\u0E21\u0E27\u0E14\u0E16\u0E31\u0E14\u0E44\u0E1B)\n\u2022 7\u20138 \u0E02\u0E49\u0E2D \u2192 \u0E40\u0E02\u0E49\u0E32\u0E43\u0E08\u0E23\u0E30\u0E1A\u0E1A\u0E41\u0E25\u0E49\u0E27 \u0E40\u0E2B\u0E25\u0E37\u0E2D\u0E40\u0E01\u0E47\u0E1A\u0E01\u0E31\u0E1A\u0E14\u0E31\u0E01\u0E40\u0E09\u0E1E\u0E32\u0E30\u0E08\u0E38\u0E14\n\u2022 \u0E15\u0E48\u0E33\u0E01\u0E27\u0E48\u0E32 7 \u2192 \u0E01\u0E25\u0E31\u0E1A\u0E44\u0E1B\u0E23\u0E31\u0E19 decision tree + \u0E15\u0E32\u0E23\u0E32\u0E07\u0E2A\u0E31\u0E0D\u0E0D\u0E32\u0E13\u0E43\u0E2B\u0E49\u0E04\u0E25\u0E48\u0E2D\u0E07\u0E01\u0E48\u0E2D\u0E19" },
+        { type: "trap", md: '\u0E2A\u0E33\u0E04\u0E31\u0E0D\u0E01\u0E27\u0E48\u0E32\u0E04\u0E30\u0E41\u0E19\u0E19: \u0E15\u0E2D\u0E1A\u0E16\u0E39\u0E01\u0E41\u0E15\u0E48\u0E40\u0E2B\u0E15\u0E38\u0E1C\u0E25\u0E1C\u0E34\u0E14 \u2260 \u0E16\u0E39\u0E01\u0E08\u0E23\u0E34\u0E07 \xB7 \u0E40\u0E17\u0E35\u0E22\u0E1A "\u0E40\u0E2B\u0E15\u0E38\u0E1C\u0E25" \u0E17\u0E35\u0E48\u0E04\u0E34\u0E14\u0E01\u0E31\u0E1A\u0E40\u0E09\u0E25\u0E22\u0E17\u0E38\u0E01\u0E02\u0E49\u0E2D \u0E16\u0E49\u0E32\u0E40\u0E14\u0E32\u0E16\u0E39\u0E01\u0E41\u0E15\u0E48\u0E40\u0E2B\u0E15\u0E38\u0E1C\u0E25\u0E04\u0E19\u0E25\u0E30\u0E17\u0E32\u0E07 \u0E43\u0E2B\u0E49\u0E19\u0E31\u0E1A\u0E27\u0E48\u0E32\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E1C\u0E48\u0E32\u0E19\u0E02\u0E49\u0E2D\u0E19\u0E31\u0E49\u0E19' }
+      ]
     },
     {
       title: "Comparatives & Superlatives (\u0E02\u0E31\u0E49\u0E19\u0E01\u0E27\u0E48\u0E32/\u0E02\u0E31\u0E49\u0E19\u0E2A\u0E38\u0E14)",
@@ -8842,6 +8989,112 @@ Rules for "explain": THAI language, 1-3 sentences: why the correct choice is rig
       body: "both ... and \xB7 either ... or \xB7 neither ... nor \xB7 not only ... but also \xB7 whether ... or \u2014 \u0E43\u0E0A\u0E49\u0E04\u0E39\u0E48\u0E01\u0E31\u0E19\u0E40\u0E2A\u0E21\u0E2D \u0E41\u0E25\u0E30\u0E42\u0E04\u0E23\u0E07\u0E2A\u0E23\u0E49\u0E32\u0E07\u0E2A\u0E2D\u0E07\u0E1D\u0E31\u0E48\u0E07\u0E15\u0E49\u0E2D\u0E07\u0E02\u0E19\u0E32\u0E19\u0E01\u0E31\u0E19 (parallel)",
       examples: ["Both the manager and the staff agreed.", "You can either call or email us.", "She is not only skilled but also reliable."],
       trap: "\u0E40\u0E2B\u0E47\u0E19\u0E04\u0E23\u0E36\u0E48\u0E07\u0E41\u0E23\u0E01\u0E15\u0E49\u0E2D\u0E07\u0E40\u0E14\u0E32\u0E04\u0E23\u0E36\u0E48\u0E07\u0E2B\u0E25\u0E31\u0E07\u0E44\u0E14\u0E49 (either \u0E04\u0E39\u0E48\u0E01\u0E31\u0E1A or, neither \u0E04\u0E39\u0E48\u0E01\u0E31\u0E1A nor) \xB7 neither...nor \u0E01\u0E23\u0E34\u0E22\u0E32\u0E1C\u0E31\u0E19\u0E15\u0E32\u0E21\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19\u0E15\u0E31\u0E27\u0E17\u0E35\u0E48\u0E43\u0E01\u0E25\u0E49\u0E2A\u0E38\u0E14"
+    },
+    {
+      title: "Subjunctive (that + \u0E01\u0E23\u0E34\u0E22\u0E32\u0E23\u0E39\u0E1B\u0E10\u0E32\u0E19)",
+      point: "\u0E2B\u0E25\u0E31\u0E07\u0E01\u0E23\u0E34\u0E22\u0E32/\u0E27\u0E25\u0E35\u0E01\u0E25\u0E38\u0E48\u0E21 \u0E2A\u0E31\u0E48\u0E07/\u0E41\u0E19\u0E30\u0E19\u0E33/\u0E40\u0E23\u0E35\u0E22\u0E01\u0E23\u0E49\u0E2D\u0E07/\u0E08\u0E33\u0E40\u0E1B\u0E47\u0E19 + that \u2192 \u0E01\u0E23\u0E34\u0E22\u0E32\u0E43\u0E0A\u0E49\u0E23\u0E39\u0E1B\u0E10\u0E32\u0E19 (base form) \u0E40\u0E2A\u0E21\u0E2D \u0E44\u0E21\u0E48\u0E1C\u0E31\u0E19\u0E15\u0E32\u0E21\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19/\u0E01\u0E32\u0E25",
+      blocks: [
+        { type: "text", md: '\u0E1A\u0E32\u0E07\u0E01\u0E23\u0E34\u0E22\u0E32\u0E41\u0E25\u0E30\u0E27\u0E25\u0E35\u0E17\u0E35\u0E48\u0E2A\u0E37\u0E48\u0E2D\u0E04\u0E27\u0E32\u0E21\u0E2B\u0E21\u0E32\u0E22 "\u0E2A\u0E31\u0E48\u0E07 / \u0E41\u0E19\u0E30\u0E19\u0E33 / \u0E40\u0E23\u0E35\u0E22\u0E01\u0E23\u0E49\u0E2D\u0E07 / \u0E08\u0E33\u0E40\u0E1B\u0E47\u0E19" \u0E08\u0E30\u0E15\u0E32\u0E21\u0E14\u0E49\u0E27\u0E22\u0E42\u0E04\u0E23\u0E07\u0E2A\u0E23\u0E49\u0E32\u0E07:\n\nthat + \u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19 + \u0E01\u0E23\u0E34\u0E22\u0E32\u0E23\u0E39\u0E1B\u0E10\u0E32\u0E19 (base form)\n\n\u0E01\u0E23\u0E34\u0E22\u0E32\u0E43\u0E19\u0E0A\u0E48\u0E2D\u0E07 that \u0E44\u0E21\u0E48\u0E1C\u0E31\u0E19 \u2014 \u0E44\u0E21\u0E48\u0E40\u0E15\u0E34\u0E21 s \u0E41\u0E21\u0E49\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19\u0E40\u0E2D\u0E01\u0E1E\u0E08\u0E19\u0E4C, \u0E44\u0E21\u0E48\u0E40\u0E1B\u0E25\u0E35\u0E48\u0E22\u0E19\u0E15\u0E32\u0E21\u0E01\u0E32\u0E25, \u0E41\u0E25\u0E30\u0E44\u0E21\u0E48\u0E21\u0E35 to \u0E19\u0E33\u0E2B\u0E19\u0E49\u0E32' },
+        { type: "text", md: "\u{1F511} \u0E04\u0E33 trigger \u0E17\u0E35\u0E48\u0E15\u0E32\u0E21\u0E14\u0E49\u0E27\u0E22 that + \u0E01\u0E23\u0E34\u0E22\u0E32\u0E23\u0E39\u0E1B\u0E10\u0E32\u0E19" },
+        { type: "table", headers: ["\u0E01\u0E25\u0E38\u0E48\u0E21", "\u0E04\u0E33 trigger"], rows: [
+          ["\u0E01\u0E23\u0E34\u0E22\u0E32", "ensure \xB7 require \xB7 request \xB7 recommend \xB7 suggest \xB7 insist \xB7 demand \xB7 propose \xB7 ask \xB7 advise \xB7 urge"],
+          ["\u0E27\u0E25\u0E35 / \u0E04\u0E33\u0E04\u0E38\u0E13\u0E28\u0E31\u0E1E\u0E17\u0E4C", "it is essential / important / necessary / crucial / vital + that"]
+        ] },
+        { type: "note", md: "\u0E01\u0E0E\u0E40\u0E2B\u0E25\u0E47\u0E01 3 \u0E02\u0E49\u0E2D:\n\u2022 recommend / require / suggest + that + S + base form (\u0E44\u0E21\u0E48\u0E1C\u0E31\u0E19 \u0E44\u0E21\u0E48\u0E40\u0E15\u0E34\u0E21 s \u0E44\u0E21\u0E48\u0E21\u0E35 to)\n\u2022 \u0E23\u0E39\u0E1B passive: that + S + be + V3 (be \u0E23\u0E39\u0E1B\u0E10\u0E32\u0E19\u0E40\u0E2A\u0E21\u0E2D) \u2014 correspondence be proofread\n\u2022 \u0E1B\u0E0F\u0E34\u0E40\u0E2A\u0E18: that + S + not + base form (\u0E44\u0E21\u0E48\u0E43\u0E0A\u0E49 doesn't / don't)" },
+        { type: "example", items: [
+          "The manager requires that every report be submitted on time. (\u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 is)",
+          "We recommend that he review the contract. (\u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 reviews)",
+          "It is essential that the team not miss the deadline. (\u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 doesn't miss)"
+        ] },
+        { type: "trap", md: "\u0E40\u0E2B\u0E47\u0E19\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19\u0E40\u0E2D\u0E01\u0E1E\u0E08\u0E19\u0E4C (he / she / the report) \u0E41\u0E25\u0E49\u0E27\u0E40\u0E1C\u0E25\u0E2D\u0E40\u0E15\u0E34\u0E21 s \u0E2B\u0E23\u0E37\u0E2D\u0E43\u0E0A\u0E49 is = \u0E1C\u0E34\u0E14 \xB7 subjunctive \u0E43\u0E0A\u0E49\u0E23\u0E39\u0E1B\u0E10\u0E32\u0E19\u0E40\u0E2A\u0E21\u0E2D \xB7 is/are/was = indicative (\u0E1A\u0E2D\u0E01\u0E04\u0E27\u0E32\u0E21\u0E08\u0E23\u0E34\u0E07) \u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 subjunctive (\u0E2A\u0E31\u0E48\u0E07/\u0E41\u0E19\u0E30\u0E19\u0E33) \u2192 \u0E43\u0E19\u0E42\u0E04\u0E23\u0E07 ensure/require that \u0E15\u0E49\u0E2D\u0E07\u0E43\u0E0A\u0E49 be" },
+        { type: "note", md: "\u26A0\uFE0F \u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48\u0E17\u0E38\u0E01 that-clause \u0E40\u0E1B\u0E47\u0E19 subjunctive \u2014 \u0E40\u0E09\u0E1E\u0E32\u0E30\u0E2B\u0E25\u0E31\u0E07\u0E01\u0E23\u0E34\u0E22\u0E32/\u0E27\u0E25\u0E35\u0E01\u0E25\u0E38\u0E48\u0E21\u0E2A\u0E31\u0E48\u0E07/\u0E41\u0E19\u0E30\u0E19\u0E33/\u0E08\u0E33\u0E40\u0E1B\u0E47\u0E19\u0E40\u0E17\u0E48\u0E32\u0E19\u0E31\u0E49\u0E19\nShe said that he is late = \u0E1A\u0E2D\u0E01\u0E40\u0E25\u0E48\u0E32\u0E18\u0E23\u0E23\u0E21\u0E14\u0E32 \u0E43\u0E0A\u0E49 is \u0E1B\u0E01\u0E15\u0E34 (\u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 subjunctive)" },
+        { type: "text", md: "\u{1F9EA} \u0E21\u0E34\u0E19\u0E34\u0E40\u0E17\u0E2A\u0E15\u0E4C 3 \u0E02\u0E49\u0E2D (signal \u2192 \u0E04\u0E33\u0E15\u0E2D\u0E1A)" },
+        { type: "note", md: "1. The board requires that the CEO ___ the meeting.\n   (A) attends  (B) attend\n2. It is vital that all data ___ backed up.\n   (A) is  (B) be\n3. We suggest that she ___ reject the offer.\n   (A) does not  (B) not" },
+        { type: "note", md: "\u0E40\u0E09\u0E25\u0E22:\n1. (B) attend \u2014 require that + base form (\u0E44\u0E21\u0E48\u0E40\u0E15\u0E34\u0E21 s \u0E41\u0E21\u0E49 CEO \u0E40\u0E2D\u0E01\u0E1E\u0E08\u0E19\u0E4C)\n2. (B) be \u2014 vital that + passive (be + V3 backed up) be \u0E23\u0E39\u0E1B\u0E10\u0E32\u0E19\u0E40\u0E2A\u0E21\u0E2D\n3. (B) not \u2014 \u0E1B\u0E0F\u0E34\u0E40\u0E2A\u0E18\u0E43\u0E19 subjunctive = not + base form (she not reject) \u0E44\u0E21\u0E48\u0E43\u0E0A\u0E49 does not" },
+        { type: "note", md: "\u{1F4CC} \u0E1A\u0E17\u0E19\u0E35\u0E49\u0E40\u0E1B\u0E47\u0E19\u0E09\u0E1A\u0E31\u0E1A\u0E40\u0E23\u0E34\u0E48\u0E21\u0E15\u0E49\u0E19 \u2014 \u0E40\u0E19\u0E37\u0E49\u0E2D\u0E2B\u0E32\u0E40\u0E15\u0E47\u0E21 (decision tree, \u0E15\u0E32\u0E23\u0E32\u0E07\u0E01\u0E31\u0E1A\u0E14\u0E31\u0E01, self-test) \u0E08\u0E30\u0E15\u0E32\u0E21\u0E21\u0E32\u0E40\u0E21\u0E37\u0E48\u0E2D master sheet \u0E1E\u0E23\u0E49\u0E2D\u0E21" }
+      ]
+    },
+    {
+      title: "Word Choice / Collocation (\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E04\u0E33\u0E43\u0E2B\u0E49\u0E15\u0E23\u0E07\u0E1A\u0E23\u0E34\u0E1A\u0E17)",
+      point: "\u0E15\u0E31\u0E27\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E16\u0E39\u0E01\u0E44\u0E27\u0E22\u0E32\u0E01\u0E23\u0E13\u0E4C\u0E17\u0E31\u0E49\u0E07 4 \u2014 \u0E15\u0E49\u0E2D\u0E07\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E15\u0E31\u0E27\u0E17\u0E35\u0E48\u0E04\u0E27\u0E32\u0E21\u0E2B\u0E21\u0E32\u0E22/\u0E04\u0E33\u0E17\u0E35\u0E48\u0E43\u0E0A\u0E49\u0E04\u0E39\u0E48\u0E01\u0E31\u0E19 (collocation) \u0E15\u0E23\u0E07\u0E1A\u0E23\u0E34\u0E1A\u0E17",
+      blocks: [
+        { type: "text", md: '\u0E02\u0E49\u0E2D\u0E41\u0E1A\u0E1A\u0E19\u0E35\u0E49\u0E15\u0E31\u0E27\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E17\u0E31\u0E49\u0E07 4 \u0E40\u0E1B\u0E47\u0E19\u0E04\u0E33\u0E17\u0E35\u0E48 "\u0E16\u0E39\u0E01\u0E44\u0E27\u0E22\u0E32\u0E01\u0E23\u0E13\u0E4C" \u0E2B\u0E21\u0E14 \u0E41\u0E15\u0E48\u0E21\u0E35\u0E41\u0E04\u0E48\u0E15\u0E31\u0E27\u0E40\u0E14\u0E35\u0E22\u0E27\u0E17\u0E35\u0E48\u0E40\u0E02\u0E49\u0E32\u0E01\u0E31\u0E1A\u0E04\u0E27\u0E32\u0E21\u0E2B\u0E21\u0E32\u0E22\u0E41\u0E25\u0E30\u0E04\u0E33\u0E02\u0E49\u0E32\u0E07\u0E40\u0E04\u0E35\u0E22\u0E07 (collocation) \u0E19\u0E35\u0E48\u0E04\u0E37\u0E2D\u0E08\u0E38\u0E14\u0E17\u0E33\u0E04\u0E30\u0E41\u0E19\u0E19\u0E2B\u0E25\u0E38\u0E14\u0E02\u0E2D\u0E07\u0E04\u0E19\u0E23\u0E30\u0E14\u0E31\u0E1A 850+ \u0E40\u0E1E\u0E23\u0E32\u0E30\u0E41\u0E22\u0E01\u0E14\u0E49\u0E27\u0E22\u0E01\u0E0E\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49 \u0E15\u0E49\u0E2D\u0E07\u0E23\u0E39\u0E49\u0E27\u0E48\u0E32\u0E04\u0E33\u0E44\u0E2B\u0E19 "\u0E43\u0E0A\u0E49\u0E04\u0E39\u0E48\u0E01\u0E31\u0E1A" \u0E04\u0E33\u0E44\u0E2B\u0E19' },
+        { type: "text", md: "\u{1F511} \u0E04\u0E39\u0E48\u0E04\u0E33\u0E17\u0E35\u0E48\u0E2A\u0E31\u0E1A\u0E2A\u0E19\u0E1A\u0E48\u0E2D\u0E22 (commonly confused)" },
+        { type: "table", headers: ["\u0E04\u0E33", "\u0E43\u0E0A\u0E49\u0E40\u0E21\u0E37\u0E48\u0E2D", "\u0E15\u0E31\u0E27\u0E2D\u0E22\u0E48\u0E32\u0E07"], rows: [
+          ["make / do", "make = \u0E2A\u0E23\u0E49\u0E32\u0E07/\u0E15\u0E31\u0E14\u0E2A\u0E34\u0E19\u0E43\u0E08 \xB7 do = \u0E17\u0E33\u0E01\u0E34\u0E08\u0E01\u0E23\u0E23\u0E21", "make a decision \xB7 do research"],
+          ["raise / rise", "raise = \u0E22\u0E01 (\u0E21\u0E35\u0E01\u0E23\u0E23\u0E21) \xB7 rise = \u0E02\u0E36\u0E49\u0E19\u0E40\u0E2D\u0E07 (\u0E44\u0E21\u0E48\u0E21\u0E35\u0E01\u0E23\u0E23\u0E21)", "raise prices \xB7 prices rise"],
+          ["affect / effect", "affect = \u0E01\u0E23\u0E30\u0E17\u0E1A (\u0E01\u0E23\u0E34\u0E22\u0E32) \xB7 effect = \u0E1C\u0E25 (\u0E19\u0E32\u0E21)", "affect sales \xB7 a positive effect"],
+          ["economic / economical", "economic = \u0E40\u0E01\u0E35\u0E48\u0E22\u0E27\u0E01\u0E31\u0E1A \u0E28\u0E01. \xB7 economical = \u0E1B\u0E23\u0E30\u0E2B\u0E22\u0E31\u0E14", "economic growth \xB7 economical car"]
+        ] },
+        { type: "note", md: '\u0E27\u0E34\u0E18\u0E35\u0E04\u0E34\u0E14: \u0E40\u0E21\u0E37\u0E48\u0E2D 4 \u0E15\u0E31\u0E27\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E0A\u0E19\u0E34\u0E14\u0E04\u0E33\u0E40\u0E14\u0E35\u0E22\u0E27\u0E01\u0E31\u0E19\u0E2B\u0E21\u0E14 (\u0E40\u0E0A\u0E48\u0E19 verb \u0E17\u0E31\u0E49\u0E07 4) \u2192 \u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48\u0E02\u0E49\u0E2D word form \u0E41\u0E15\u0E48\u0E40\u0E1B\u0E47\u0E19 word choice \u2192 \u0E2D\u0E48\u0E32\u0E19\u0E04\u0E27\u0E32\u0E21\u0E2B\u0E21\u0E32\u0E22\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04 + \u0E14\u0E39\u0E04\u0E33\u0E02\u0E49\u0E32\u0E07\u0E40\u0E04\u0E35\u0E22\u0E07\u0E27\u0E48\u0E32\u0E15\u0E31\u0E27\u0E44\u0E2B\u0E19 "\u0E43\u0E0A\u0E49\u0E04\u0E39\u0E48\u0E01\u0E31\u0E19" \u0E08\u0E23\u0E34\u0E07' },
+        { type: "trap", md: '\u0E2D\u0E22\u0E48\u0E32\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E08\u0E32\u0E01 "\u0E04\u0E33\u0E17\u0E35\u0E48\u0E04\u0E38\u0E49\u0E19\u0E15\u0E32" \u2014 \u0E40\u0E25\u0E37\u0E2D\u0E01\u0E08\u0E32\u0E01\u0E04\u0E33\u0E17\u0E35\u0E48\u0E40\u0E02\u0E49\u0E32\u0E01\u0E31\u0E1A collocation \u0E08\u0E23\u0E34\u0E07 (\u0E40\u0E0A\u0E48\u0E19 conduct a survey \u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 make a survey) \xB7 \u0E04\u0E27\u0E32\u0E21\u0E2B\u0E21\u0E32\u0E22\u0E43\u0E01\u0E25\u0E49\u0E01\u0E31\u0E19\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49\u0E41\u0E1B\u0E25\u0E27\u0E48\u0E32\u0E43\u0E0A\u0E49\u0E41\u0E17\u0E19\u0E01\u0E31\u0E19\u0E44\u0E14\u0E49' },
+        { type: "note", md: "\u{1F4CC} \u0E1A\u0E17\u0E19\u0E35\u0E49\u0E40\u0E1B\u0E47\u0E19\u0E09\u0E1A\u0E31\u0E1A\u0E40\u0E23\u0E34\u0E48\u0E21\u0E15\u0E49\u0E19 \u2014 \u0E40\u0E19\u0E37\u0E49\u0E2D\u0E2B\u0E32\u0E40\u0E15\u0E47\u0E21 (\u0E15\u0E32\u0E23\u0E32\u0E07\u0E04\u0E39\u0E48\u0E04\u0E33 + collocation + self-test) \u0E08\u0E30\u0E15\u0E32\u0E21\u0E21\u0E32\u0E40\u0E21\u0E37\u0E48\u0E2D master \u0E1E\u0E23\u0E49\u0E2D\u0E21" }
+      ]
+    },
+    {
+      title: "Parallel Structure (\u0E42\u0E04\u0E23\u0E07\u0E2A\u0E23\u0E49\u0E32\u0E07\u0E02\u0E19\u0E32\u0E19)",
+      point: "\u0E2A\u0E34\u0E48\u0E07\u0E17\u0E35\u0E48\u0E2D\u0E22\u0E39\u0E48\u0E43\u0E19\u0E25\u0E34\u0E2A\u0E15\u0E4C \u0E2B\u0E23\u0E37\u0E2D\u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21\u0E14\u0E49\u0E27\u0E22 and/or/but \u0E41\u0E25\u0E30\u0E04\u0E39\u0E48\u0E04\u0E33\u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21 \u0E15\u0E49\u0E2D\u0E07\u0E40\u0E1B\u0E47\u0E19\u0E0A\u0E19\u0E34\u0E14/\u0E23\u0E39\u0E1B\u0E40\u0E14\u0E35\u0E22\u0E27\u0E01\u0E31\u0E19",
+      blocks: [
+        { type: "text", md: '\u0E40\u0E21\u0E37\u0E48\u0E2D\u0E21\u0E35\u0E02\u0E2D\u0E07\u0E2B\u0E25\u0E32\u0E22\u0E2D\u0E22\u0E48\u0E32\u0E07\u0E43\u0E19\u0E25\u0E34\u0E2A\u0E15\u0E4C (A, B, and C) \u0E2B\u0E23\u0E37\u0E2D\u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21\u0E14\u0E49\u0E27\u0E22 and/or/but \u0E2B\u0E23\u0E37\u0E2D\u0E04\u0E39\u0E48\u0E04\u0E33\u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21 (not only...but also, both...and) \u0E17\u0E38\u0E01\u0E0A\u0E34\u0E49\u0E19\u0E15\u0E49\u0E2D\u0E07\u0E40\u0E1B\u0E47\u0E19 "\u0E0A\u0E19\u0E34\u0E14\u0E04\u0E33/\u0E23\u0E39\u0E1B\u0E40\u0E14\u0E35\u0E22\u0E27\u0E01\u0E31\u0E19" \u2014 noun \u0E04\u0E39\u0E48 noun, V-ing \u0E04\u0E39\u0E48 V-ing, to-V \u0E04\u0E39\u0E48 to-V' },
+        { type: "table", headers: ["\u0E42\u0E04\u0E23\u0E07\u0E2A\u0E23\u0E49\u0E32\u0E07", "\u0E15\u0E49\u0E2D\u0E07\u0E02\u0E19\u0E32\u0E19", "\u0E15\u0E31\u0E27\u0E2D\u0E22\u0E48\u0E32\u0E07\u0E16\u0E39\u0E01"], rows: [
+          ["A, B, and C", "\u0E0A\u0E19\u0E34\u0E14\u0E40\u0E14\u0E35\u0E22\u0E27\u0E01\u0E31\u0E19\u0E17\u0E31\u0E49\u0E07 3", "fast, efficient, and reliable (adj \u0E17\u0E31\u0E49\u0E07\u0E2B\u0E21\u0E14)"],
+          ["not only X but also Y", "X \u0E01\u0E31\u0E1A Y \u0E23\u0E39\u0E1B\u0E40\u0E14\u0E35\u0E22\u0E27\u0E01\u0E31\u0E19", "not only designs but also builds"],
+          ["both X and Y", "X \u0E01\u0E31\u0E1A Y \u0E23\u0E39\u0E1B\u0E40\u0E14\u0E35\u0E22\u0E27\u0E01\u0E31\u0E19", "both writing and editing (V-ing)"],
+          ["prefer X to Y", "X \u0E01\u0E31\u0E1A Y \u0E23\u0E39\u0E1B\u0E40\u0E14\u0E35\u0E22\u0E27\u0E01\u0E31\u0E19", "prefer calling to emailing"]
+        ] },
+        { type: "note", md: '\u0E27\u0E34\u0E18\u0E35\u0E04\u0E34\u0E14: \u0E2B\u0E32\u0E04\u0E33\u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21 (and/or/but/not only...but also) \u2192 \u0E14\u0E39\u0E27\u0E48\u0E32 "\u0E1D\u0E31\u0E48\u0E07\u0E0B\u0E49\u0E32\u0E22" \u0E40\u0E1B\u0E47\u0E19\u0E23\u0E39\u0E1B\u0E2D\u0E30\u0E44\u0E23 \u2192 \u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E1D\u0E31\u0E48\u0E07\u0E02\u0E27\u0E32\u0E15\u0E49\u0E2D\u0E07\u0E23\u0E39\u0E1B\u0E40\u0E14\u0E35\u0E22\u0E27\u0E01\u0E31\u0E19 \u0E40\u0E0A\u0E48\u0E19 \u0E0B\u0E49\u0E32\u0E22\u0E40\u0E1B\u0E47\u0E19 V-ing \u2192 \u0E02\u0E27\u0E32\u0E15\u0E49\u0E2D\u0E07 V-ing' },
+        { type: "trap", md: "\u0E01\u0E31\u0E1A\u0E14\u0E31\u0E01: \u0E42\u0E08\u0E17\u0E22\u0E4C\u0E21\u0E31\u0E01\u0E43\u0E2B\u0E49\u0E15\u0E31\u0E27\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E2B\u0E25\u0E32\u0E22\u0E23\u0E39\u0E1B (manage / managing / to manage / managed) \u0E17\u0E35\u0E48\u0E16\u0E39\u0E01\u0E44\u0E27\u0E22\u0E32\u0E01\u0E23\u0E13\u0E4C \u2014 \u0E15\u0E49\u0E2D\u0E07\u0E14\u0E39\u0E1D\u0E31\u0E48\u0E07\u0E15\u0E23\u0E07\u0E02\u0E49\u0E32\u0E21\u0E02\u0E2D\u0E07\u0E04\u0E33\u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21\u0E27\u0E48\u0E32\u0E43\u0E0A\u0E49\u0E23\u0E39\u0E1B\u0E44\u0E2B\u0E19 \u0E41\u0E25\u0E49\u0E27\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E43\u0E2B\u0E49\u0E02\u0E19\u0E32\u0E19" },
+        { type: "note", md: "\u{1F4CC} \u0E1A\u0E17\u0E19\u0E35\u0E49\u0E40\u0E1B\u0E47\u0E19\u0E09\u0E1A\u0E31\u0E1A\u0E40\u0E23\u0E34\u0E48\u0E21\u0E15\u0E49\u0E19 \u2014 \u0E40\u0E19\u0E37\u0E49\u0E2D\u0E2B\u0E32\u0E40\u0E15\u0E47\u0E21 (decision tree + self-test) \u0E08\u0E30\u0E15\u0E32\u0E21\u0E21\u0E32\u0E40\u0E21\u0E37\u0E48\u0E2D master \u0E1E\u0E23\u0E49\u0E2D\u0E21" }
+      ]
+    },
+    {
+      title: "Participle / Reduced Clauses (\u0E01\u0E32\u0E23\u0E25\u0E14\u0E23\u0E39\u0E1B\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04)",
+      point: "\u0E25\u0E14 relative/adverbial clause \u0E43\u0E2B\u0E49\u0E2A\u0E31\u0E49\u0E19\u0E14\u0E49\u0E27\u0E22 participle (V-ing = active, V3 = passive)",
+      blocks: [
+        { type: "text", md: "\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\u0E22\u0E48\u0E2D\u0E22 (relative/adverbial clause) \u0E25\u0E14\u0E23\u0E39\u0E1B\u0E43\u0E2B\u0E49\u0E2A\u0E31\u0E49\u0E19\u0E44\u0E14\u0E49\u0E14\u0E49\u0E27\u0E22 participle:\n\u2022 active \u2192 V-ing (the man who waits \u2192 the man waiting)\n\u2022 passive \u2192 V3 (the report that was sent \u2192 the report sent)\n\n\u0E41\u0E25\u0E30 participle \u0E02\u0E36\u0E49\u0E19\u0E15\u0E49\u0E19\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\u0E44\u0E14\u0E49 (Walking home, she... = \u0E02\u0E13\u0E30\u0E40\u0E14\u0E34\u0E19\u0E01\u0E25\u0E31\u0E1A\u0E1A\u0E49\u0E32\u0E19)" },
+        { type: "table", headers: ["\u0E23\u0E39\u0E1B\u0E40\u0E15\u0E47\u0E21", "\u0E25\u0E14\u0E23\u0E39\u0E1B", "\u0E0A\u0E19\u0E34\u0E14"], rows: [
+          ["the staff who are working", "the staff working", "V-ing (active)"],
+          ["the documents that were signed", "the documents signed", "V3 (passive)"],
+          ["Because she finished early, she left", "Finishing early, she left", "V-ing \u0E40\u0E1B\u0E34\u0E14\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04"],
+          ["When it is heated, the metal expands", "When heated, the metal expands", "V3 \u0E40\u0E1B\u0E34\u0E14\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04"]
+        ] },
+        { type: "note", md: "\u0E27\u0E34\u0E18\u0E35\u0E04\u0E34\u0E14: \u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E02\u0E22\u0E32\u0E22 noun + \u0E44\u0E21\u0E48\u0E21\u0E35\u0E01\u0E23\u0E34\u0E22\u0E32\u0E41\u0E17\u0E49 \u2192 \u0E43\u0E0A\u0E49 participle \xB7 \u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19\u0E17\u0E33\u0E40\u0E2D\u0E07 = V-ing \xB7 \u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19\u0E16\u0E39\u0E01\u0E01\u0E23\u0E30\u0E17\u0E33 = V3\n\u0E15\u0E31\u0E27\u0E2D\u0E22\u0E48\u0E32\u0E07: the equipment ___ in the lab \u2192 installed (V3, \u0E2D\u0E38\u0E1B\u0E01\u0E23\u0E13\u0E4C\u0E16\u0E39\u0E01\u0E15\u0E34\u0E14\u0E15\u0E31\u0E49\u0E07)" },
+        { type: "trap", md: "\u0E01\u0E31\u0E1A\u0E14\u0E31\u0E01: \u0E41\u0E22\u0E01 V-ing (active: \u0E17\u0E33\u0E40\u0E2D\u0E07) \u0E01\u0E31\u0E1A V3 (passive: \u0E16\u0E39\u0E01\u0E01\u0E23\u0E30\u0E17\u0E33) \u0E43\u0E2B\u0E49\u0E16\u0E39\u0E01 \u2014 the applicants selecting (\u0E1C\u0E39\u0E49\u0E2A\u0E21\u0E31\u0E04\u0E23\u0E40\u0E1B\u0E47\u0E19\u0E04\u0E19\u0E40\u0E25\u0E37\u0E2D\u0E01) \u2260 the applicants selected (\u0E1C\u0E39\u0E49\u0E2A\u0E21\u0E31\u0E04\u0E23\u0E16\u0E39\u0E01\u0E40\u0E25\u0E37\u0E2D\u0E01) \u0E04\u0E27\u0E32\u0E21\u0E2B\u0E21\u0E32\u0E22\u0E15\u0E48\u0E32\u0E07\u0E01\u0E31\u0E19\u0E2A\u0E34\u0E49\u0E19\u0E40\u0E0A\u0E34\u0E07" },
+        { type: "note", md: "\u{1F4CC} \u0E1A\u0E17\u0E19\u0E35\u0E49\u0E40\u0E1B\u0E47\u0E19\u0E09\u0E1A\u0E31\u0E1A\u0E40\u0E23\u0E34\u0E48\u0E21\u0E15\u0E49\u0E19 \u2014 \u0E40\u0E19\u0E37\u0E49\u0E2D\u0E2B\u0E32\u0E40\u0E15\u0E47\u0E21 (decision tree + self-test) \u0E08\u0E30\u0E15\u0E32\u0E21\u0E21\u0E32\u0E40\u0E21\u0E37\u0E48\u0E2D master \u0E1E\u0E23\u0E49\u0E2D\u0E21" }
+      ]
+    },
+    {
+      title: "Inversion (\u0E42\u0E04\u0E23\u0E07\u0E2A\u0E23\u0E49\u0E32\u0E07\u0E01\u0E25\u0E31\u0E1A\u0E2B\u0E31\u0E27)",
+      point: "\u0E40\u0E21\u0E37\u0E48\u0E2D\u0E02\u0E36\u0E49\u0E19\u0E15\u0E49\u0E19\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\u0E14\u0E49\u0E27\u0E22\u0E04\u0E33\u0E1B\u0E0F\u0E34\u0E40\u0E2A\u0E18/\u0E08\u0E33\u0E01\u0E31\u0E14\u0E04\u0E27\u0E32\u0E21 \u0E15\u0E49\u0E2D\u0E07\u0E2A\u0E25\u0E31\u0E1A\u0E01\u0E23\u0E34\u0E22\u0E32\u0E0A\u0E48\u0E27\u0E22\u0E21\u0E32\u0E2B\u0E19\u0E49\u0E32\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19 (\u0E40\u0E2B\u0E21\u0E37\u0E2D\u0E19\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\u0E04\u0E33\u0E16\u0E32\u0E21)",
+      blocks: [
+        { type: "text", md: "\u0E40\u0E21\u0E37\u0E48\u0E2D\u0E40\u0E2D\u0E32\u0E04\u0E33\u0E1B\u0E0F\u0E34\u0E40\u0E2A\u0E18\u0E2B\u0E23\u0E37\u0E2D\u0E08\u0E33\u0E01\u0E31\u0E14\u0E04\u0E27\u0E32\u0E21 (negative/restrictive adverbial) \u0E21\u0E32\u0E02\u0E36\u0E49\u0E19\u0E15\u0E49\u0E19\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E40\u0E19\u0E49\u0E19 \u2192 \u0E15\u0E49\u0E2D\u0E07\u0E2A\u0E25\u0E31\u0E1A\u0E01\u0E23\u0E34\u0E22\u0E32\u0E0A\u0E48\u0E27\u0E22\u0E21\u0E32\u0E01\u0E48\u0E2D\u0E19\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19 (\u0E40\u0E2B\u0E21\u0E37\u0E2D\u0E19\u0E23\u0E39\u0E1B\u0E04\u0E33\u0E16\u0E32\u0E21)\n\n\u0E1B\u0E01\u0E15\u0E34: She had hardly arrived when...\n\u0E01\u0E25\u0E31\u0E1A\u0E2B\u0E31\u0E27: Hardly had she arrived when..." },
+        { type: "table", headers: ["\u0E02\u0E36\u0E49\u0E19\u0E15\u0E49\u0E19\u0E14\u0E49\u0E27\u0E22", "\u0E15\u0E32\u0E21\u0E14\u0E49\u0E27\u0E22 (\u0E01\u0E25\u0E31\u0E1A\u0E2B\u0E31\u0E27)", "\u0E15\u0E31\u0E27\u0E2D\u0E22\u0E48\u0E32\u0E07"], rows: [
+          ["Not only", "aux + S + V", "Not only did he call, but he also emailed"],
+          ["Hardly / Scarcely ... when", "had + S + V3", "Hardly had we left when it rained"],
+          ["No sooner ... than", "had + S + V3", "No sooner had it started than it stopped"],
+          ["Seldom / Rarely / Never", "aux + S + V", "Seldom have I seen such work"],
+          ["Only + (then/after/when)", "aux + S + V", "Only then did she realize"]
+        ] },
+        { type: "note", md: "\u0E27\u0E34\u0E18\u0E35\u0E04\u0E34\u0E14: \u0E40\u0E2B\u0E47\u0E19\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\u0E02\u0E36\u0E49\u0E19\u0E15\u0E49\u0E19\u0E14\u0E49\u0E27\u0E22 Not only / Hardly / No sooner / Seldom / Never / Only then \u2192 \u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E15\u0E49\u0E2D\u0E07\u0E40\u0E1B\u0E47\u0E19\u0E01\u0E23\u0E34\u0E22\u0E32\u0E0A\u0E48\u0E27\u0E22 (do/did/have/had) \u0E21\u0E32\u0E01\u0E48\u0E2D\u0E19\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19 \u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48\u0E40\u0E23\u0E35\u0E22\u0E07\u0E1B\u0E01\u0E15\u0E34" },
+        { type: "trap", md: "\u0E01\u0E31\u0E1A\u0E14\u0E31\u0E01: \u0E2B\u0E25\u0E31\u0E07 negative adverb \u0E40\u0E1B\u0E34\u0E14\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04 \u0E2B\u0E49\u0E32\u0E21\u0E40\u0E23\u0E35\u0E22\u0E07\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19+\u0E01\u0E23\u0E34\u0E22\u0E32\u0E41\u0E1A\u0E1A\u0E1B\u0E01\u0E15\u0E34 \u2014 \u0E15\u0E49\u0E2D\u0E07\u0E01\u0E25\u0E31\u0E1A\u0E2B\u0E31\u0E27 (Never I have \u2192 Never have I) \xB7 \u0E16\u0E49\u0E32\u0E44\u0E21\u0E48\u0E01\u0E25\u0E31\u0E1A\u0E2B\u0E31\u0E27 = \u0E1C\u0E34\u0E14\u0E17\u0E31\u0E19\u0E17\u0E35" },
+        { type: "note", md: "\u{1F4CC} \u0E1A\u0E17\u0E19\u0E35\u0E49\u0E40\u0E1B\u0E47\u0E19\u0E09\u0E1A\u0E31\u0E1A\u0E40\u0E23\u0E34\u0E48\u0E21\u0E15\u0E49\u0E19 \u2014 \u0E40\u0E19\u0E37\u0E49\u0E2D\u0E2B\u0E32\u0E40\u0E15\u0E47\u0E21 (decision tree + self-test) \u0E08\u0E30\u0E15\u0E32\u0E21\u0E21\u0E32\u0E40\u0E21\u0E37\u0E48\u0E2D master \u0E1E\u0E23\u0E49\u0E2D\u0E21" }
+      ]
+    },
+    {
+      title: "Conjunctive Adverbs (however / therefore)",
+      point: "\u0E04\u0E33\u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21\u0E23\u0E30\u0E14\u0E31\u0E1A\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04 (however/therefore) \u0E40\u0E1B\u0E47\u0E19 adverb \u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 conjunction \u2014 \u0E27\u0E32\u0E07\u0E15\u0E33\u0E41\u0E2B\u0E19\u0E48\u0E07/\u0E27\u0E23\u0E23\u0E04\u0E15\u0E2D\u0E19\u0E15\u0E48\u0E32\u0E07\u0E01\u0E31\u0E19",
+      blocks: [
+        { type: "text", md: 'however, therefore, moreover, nevertheless, consequently \u0E40\u0E1B\u0E47\u0E19 "conjunctive adverb" \u2014 \u0E15\u0E48\u0E32\u0E07\u0E08\u0E32\u0E01 but/so/and \u0E15\u0E23\u0E07\u0E17\u0E35\u0E48\u0E21\u0E31\u0E19\u0E40\u0E1B\u0E47\u0E19 adverb \u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21\u0E04\u0E27\u0E32\u0E21\u0E2B\u0E21\u0E32\u0E22 \u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 conjunction \u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\n\n\u0E15\u0E48\u0E2D 2 \u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\u0E15\u0E49\u0E2D\u0E07\u0E43\u0E0A\u0E49 ; \u0E2B\u0E23\u0E37\u0E2D\u0E02\u0E36\u0E49\u0E19\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\u0E43\u0E2B\u0E21\u0E48 \u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 , \u0E40\u0E09\u0E22\u0E46' },
+        { type: "table", headers: ["\u0E04\u0E33", "\u0E04\u0E27\u0E32\u0E21\u0E2B\u0E21\u0E32\u0E22", "\u0E40\u0E17\u0E35\u0E22\u0E1A\u0E01\u0E31\u0E1A conjunction"], rows: [
+          ["however", "\u0E2D\u0E22\u0E48\u0E32\u0E07\u0E44\u0E23\u0E01\u0E47\u0E15\u0E32\u0E21 (\u0E02\u0E31\u0E14\u0E41\u0E22\u0E49\u0E07)", "= but (\u0E41\u0E15\u0E48 but \u0E40\u0E1B\u0E47\u0E19 conj)"],
+          ["therefore", "\u0E14\u0E31\u0E07\u0E19\u0E31\u0E49\u0E19 (\u0E1C\u0E25)", "= so"],
+          ["moreover / furthermore", "\u0E22\u0E34\u0E48\u0E07\u0E01\u0E27\u0E48\u0E32\u0E19\u0E31\u0E49\u0E19 (\u0E40\u0E2A\u0E23\u0E34\u0E21)", "= and (\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25)"],
+          ["nevertheless", "\u0E16\u0E36\u0E07\u0E01\u0E23\u0E30\u0E19\u0E31\u0E49\u0E19\u0E01\u0E47\u0E15\u0E32\u0E21", "= but (\u0E02\u0E31\u0E14\u0E41\u0E22\u0E49\u0E07\u0E41\u0E1A\u0E1A\u0E40\u0E19\u0E49\u0E19)"]
+        ] },
+        { type: "note", md: "\u0E42\u0E04\u0E23\u0E07\u0E2A\u0E23\u0E49\u0E32\u0E07: \u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04 A ; conjunctive adverb , \u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04 B\nThe plan was costly; however, it succeeded.\n\u0E2B\u0E23\u0E37\u0E2D\u0E02\u0E36\u0E49\u0E19\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\u0E43\u0E2B\u0E21\u0E48: ...costly. However, it succeeded." },
+        { type: "trap", md: "\u0E01\u0E31\u0E1A\u0E14\u0E31\u0E01: however \u0E43\u0E0A\u0E49\u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21 2 \u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\u0E14\u0E49\u0E27\u0E22 , \u0E40\u0E09\u0E22\u0E46 \u0E44\u0E21\u0E48\u0E44\u0E14\u0E49 (comma splice \u0E1C\u0E34\u0E14) \u0E15\u0E49\u0E2D\u0E07\u0E43\u0E0A\u0E49 ; \u0E2B\u0E23\u0E37\u0E2D . \xB7 \u0E41\u0E22\u0E01\u0E08\u0E32\u0E01 but (conjunction) \u0E17\u0E35\u0E48\u0E43\u0E0A\u0E49 , \u0E44\u0E14\u0E49 \xB7 \u0E42\u0E08\u0E17\u0E22\u0E4C\u0E21\u0E31\u0E01\u0E43\u0E2B\u0E49\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E23\u0E30\u0E2B\u0E27\u0E48\u0E32\u0E07 however \u0E01\u0E31\u0E1A but/although \u0E15\u0E32\u0E21\u0E15\u0E33\u0E41\u0E2B\u0E19\u0E48\u0E07\u0E41\u0E25\u0E30\u0E27\u0E23\u0E23\u0E04\u0E15\u0E2D\u0E19" },
+        { type: "note", md: "\u{1F4CC} \u0E1A\u0E17\u0E19\u0E35\u0E49\u0E40\u0E1B\u0E47\u0E19\u0E09\u0E1A\u0E31\u0E1A\u0E40\u0E23\u0E34\u0E48\u0E21\u0E15\u0E49\u0E19 \u2014 \u0E40\u0E19\u0E37\u0E49\u0E2D\u0E2B\u0E32\u0E40\u0E15\u0E47\u0E21 (\u0E15\u0E33\u0E41\u0E2B\u0E19\u0E48\u0E07 + \u0E27\u0E23\u0E23\u0E04\u0E15\u0E2D\u0E19 + self-test) \u0E08\u0E30\u0E15\u0E32\u0E21\u0E21\u0E32\u0E40\u0E21\u0E37\u0E48\u0E2D master \u0E1E\u0E23\u0E49\u0E2D\u0E21" }
+      ]
     }
   ];
   var STRATEGY = [
@@ -12801,6 +13054,7 @@ Shape: {"ptype":"Part 2","categories":["finance & budget","technology & IT"],"tr
     }
     const [gSection, setGSection] = (0, import_react.useState)("drill");
     const [openLesson, setOpenLesson] = (0, import_react.useState)(null);
+    const [lessonModal, setLessonModal] = (0, import_react.useState)(null);
     const [vSection, setVSection] = (0, import_react.useState)("cards");
     const [showDiff, setShowDiff] = (0, import_react.useState)(false);
     const [lSection, setLSection] = (0, import_react.useState)("strategy");
@@ -12826,6 +13080,7 @@ Shape: {"ptype":"Part 2","categories":["finance & budget","technology & IT"],"tr
     useBackToClose(confirmReset, () => setConfirmReset(false));
     useBackToClose(confirmOverwrite, () => setConfirmOverwrite(false));
     useBackToClose(copyBox !== null, () => setCopyBox(null));
+    useBackToClose(lessonModal !== null, () => setLessonModal(null));
     const [fabPos, setFabPos] = (0, import_react.useState)(null);
     const [fabDragging, setFabDragging] = (0, import_react.useState)(false);
     const [fabTucked, setFabTucked] = (0, import_react.useState)(false);
@@ -13264,10 +13519,11 @@ Shape: {"ptype":"Part 2","categories":["finance & budget","technology & IT"],"tr
       rerender();
       scrollToCards();
     }
-    function buildPassageReviewDeck(modeKey, qualifies, scopeParts) {
+    function buildPassageReviewDeck(modeKey, qualifies, scopeParts, difficultyId) {
       const st2 = M.current[modeKey];
       const now2 = Date.now();
       const passages = Object.values(st2.data || {}).filter((p) => {
+        if (difficultyId && difficultyId !== "mixed" && p.difficulty !== difficultyId) return false;
         if (scopeParts && !scopeParts.includes(p.ptype || (modeKey === "audio" ? "Part 3" : "Part 7"))) return false;
         return (p.questions || []).some((q) => qualifies(q, st2, now2));
       });
@@ -13473,6 +13729,7 @@ Shape: {"ptype":"Part 2","categories":["finance & budget","technology & IT"],"tr
       const st2 = M.current.grammar;
       let pool = Object.values(st2.data);
       if (gPoint !== "all") pool = pool.filter((x) => grammarPointGroup(x.point) === gPoint);
+      if (difficulty !== "mixed") pool = pool.filter((x) => x.difficulty === difficulty);
       if (!pool.length) return;
       st2.deck = shuffle(pool).slice(0, reviewCap("grammar")).map(shuffleForRound);
       st2.pos = 0;
@@ -14155,7 +14412,7 @@ Shape: {"ptype":"Part 2","categories":["finance & budget","technology & IT"],"tr
       setLSection("practice");
     }
     function buildReadingBankQuiz() {
-      const deck = buildPassageReviewDeck("listening", () => true, readingScopeParts());
+      const deck = buildPassageReviewDeck("listening", () => true, readingScopeParts(), difficulty);
       if (!deck.length) return;
       setLquiz({ passageId: null, ptype: "\u0E1D\u0E36\u0E01\u0E08\u0E32\u0E01\u0E04\u0E25\u0E31\u0E07", transcript: null, model: "", deck, pos: 0, picked: {}, start: Date.now(), end: null, isReview: true });
       setLSection("practice");
@@ -14275,7 +14532,7 @@ Shape: {"ptype":"Part 2","categories":["finance & budget","technology & IT"],"tr
       setAquiz({ passageId: null, ptype: "\u0E17\u0E27\u0E19\u0E02\u0E49\u0E2D\u0E17\u0E35\u0E48\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E41\u0E21\u0E48\u0E19", transcript: null, model: "", deck, pos: 0, picked: {}, start: Date.now(), end: null, isReview: true });
     }
     function buildAudioBankQuiz() {
-      const deck = buildPassageReviewDeck("audio", () => true, audioScopeParts());
+      const deck = buildPassageReviewDeck("audio", () => true, audioScopeParts(), difficulty);
       if (!deck.length) return;
       setRevealScript(false);
       setAquiz({ passageId: null, ptype: "\u0E1D\u0E36\u0E01\u0E08\u0E32\u0E01\u0E04\u0E25\u0E31\u0E07", transcript: null, model: "", deck, pos: 0, picked: {}, start: Date.now(), end: null, isReview: true });
@@ -14858,6 +15115,52 @@ ${opts}
     const emptyStudy = loaded && st.tab === "study" && st.deck.length === 0;
     const picked = card && mode === "grammar" ? st.pickedMap[card.id] : null;
     const revealed = !!picked;
+    const renderDiffSelector = () => /* @__PURE__ */ import_react.default.createElement("div", { style: { marginBottom: 14 } }, !showDiff ? /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        onClick: () => setShowDiff(true),
+        style: {
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+          background: C.card,
+          border: `1.5px solid ${C.line}`,
+          borderRadius: 11,
+          padding: "10px 13px",
+          cursor: "pointer"
+        }
+      },
+      /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 13, color: C.ink, fontWeight: 600, textAlign: "left" } }, "\u{1F3AF} \u0E23\u0E30\u0E14\u0E31\u0E1A: ", /* @__PURE__ */ import_react.default.createElement("span", { style: { color: C.accent, fontWeight: 700 } }, diffById(difficulty).icon, " ", diffById(difficulty).label), /* @__PURE__ */ import_react.default.createElement("span", { style: { color: C.sub, fontWeight: 400 } }, " \xB7 ", diffById(difficulty).band)),
+      /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 12, color: C.sub, flex: "0 0 auto" } }, "\u0E40\u0E1B\u0E25\u0E35\u0E48\u0E22\u0E19 \u25BE")
+    ) : /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 12.5, color: C.sub, fontWeight: 600 } }, "\u{1F3AF} \u0E23\u0E30\u0E14\u0E31\u0E1A\u0E04\u0E27\u0E32\u0E21\u0E22\u0E32\u0E01"), /* @__PURE__ */ import_react.default.createElement("button", { onClick: () => setShowDiff(false), style: { background: "none", border: "none", fontSize: 12, color: C.sub } }, "\u0E22\u0E48\u0E2D \u25B4")), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 } }, DIFFICULTIES.map((d) => {
+      const on = difficulty === d.id;
+      const recModelObj = (ENG.models || []).find((x) => x.id === (d.rec && d.rec[engine]));
+      const recLabel = recModelObj ? recModelObj.label : "";
+      return /* @__PURE__ */ import_react.default.createElement(
+        "button",
+        {
+          key: d.id,
+          onClick: () => {
+            applyDifficulty(d.id);
+            setShowDiff(false);
+          },
+          style: {
+            textAlign: "left",
+            border: on ? `2px solid ${C.accent}` : `1.5px solid ${C.line}`,
+            background: on ? C.accentBg : C.card,
+            borderRadius: 11,
+            padding: "9px 10px",
+            cursor: "pointer",
+            lineHeight: 1.3
+          }
+        },
+        /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: on ? C.accent : C.ink } }, d.icon, " ", d.label),
+        /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 10.5, color: C.sub, marginTop: 3 } }, d.blurb),
+        recLabel && /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 10, color: on ? C.accent : C.sub3, marginTop: 4, fontWeight: 600 } }, "\u2192 ", recLabel)
+      );
+    })), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 11, color: C.sub, marginTop: 6, lineHeight: 1.5 } }, "* \u0E40\u0E25\u0E37\u0E2D\u0E01\u0E23\u0E30\u0E14\u0E31\u0E1A\u0E41\u0E25\u0E49\u0E27\u0E41\u0E2D\u0E1B\u0E08\u0E30 ", /* @__PURE__ */ import_react.default.createElement("b", null, "\u0E2A\u0E25\u0E31\u0E1A\u0E23\u0E38\u0E48\u0E19 AI \u0E17\u0E35\u0E48\u0E41\u0E19\u0E30\u0E19\u0E33\u0E43\u0E2B\u0E49\u0E2D\u0E31\u0E15\u0E42\u0E19\u0E21\u0E31\u0E15\u0E34"), " (\u0E1B\u0E23\u0E31\u0E1A\u0E40\u0E2D\u0E07\u0E17\u0E35\u0E2B\u0E25\u0E31\u0E07\u0E44\u0E14\u0E49)")));
     return /* @__PURE__ */ import_react.default.createElement("div", { style: { minHeight: "100vh", background: C.bg, color: C.ink, fontFamily: "'Spline Sans', sans-serif", padding: "20px 14px 48px" } }, /* @__PURE__ */ import_react.default.createElement("style", null, `
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Spline+Sans:wght@400;500;600&display=swap');
         * { box-sizing: border-box; }
@@ -15377,6 +15680,16 @@ ${opts}
           "\u26A0\uFE0F \u0E43\u0E0A\u0E48 \u0E40\u0E02\u0E35\u0E22\u0E19\u0E17\u0E31\u0E1A\u0E17\u0E31\u0E49\u0E07\u0E2B\u0E21\u0E14\u0E40\u0E25\u0E22"
         )
       )
+    ), lessonModal && /* @__PURE__ */ import_react.default.createElement(
+      LessonModal,
+      {
+        ls: lessonModal,
+        onClose: () => setLessonModal(null),
+        status: M.current.grammar.ratings[lessonModal.id],
+        onRate: (s) => {
+          rate(lessonModal.id, s, false);
+        }
+      }
     ), copyBox && /* @__PURE__ */ import_react.default.createElement(
       "div",
       {
@@ -15656,52 +15969,7 @@ ${opts}
         },
         lbl
       );
-    })), !(mode === "exam" && exam) && /* @__PURE__ */ import_react.default.createElement("div", { style: { marginBottom: 14 } }, !showDiff ? /* @__PURE__ */ import_react.default.createElement(
-      "button",
-      {
-        onClick: () => setShowDiff(true),
-        style: {
-          width: "100%",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 8,
-          background: C.card,
-          border: `1.5px solid ${C.line}`,
-          borderRadius: 11,
-          padding: "10px 13px",
-          cursor: "pointer"
-        }
-      },
-      /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 13, color: C.ink, fontWeight: 600, textAlign: "left" } }, "\u{1F3AF} \u0E23\u0E30\u0E14\u0E31\u0E1A: ", /* @__PURE__ */ import_react.default.createElement("span", { style: { color: C.accent, fontWeight: 700 } }, diffById(difficulty).icon, " ", diffById(difficulty).label), /* @__PURE__ */ import_react.default.createElement("span", { style: { color: C.sub, fontWeight: 400 } }, " \xB7 ", diffById(difficulty).band)),
-      /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 12, color: C.sub, flex: "0 0 auto" } }, "\u0E40\u0E1B\u0E25\u0E35\u0E48\u0E22\u0E19 \u25BE")
-    ) : /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 12.5, color: C.sub, fontWeight: 600 } }, "\u{1F3AF} \u0E23\u0E30\u0E14\u0E31\u0E1A\u0E04\u0E27\u0E32\u0E21\u0E22\u0E32\u0E01"), /* @__PURE__ */ import_react.default.createElement("button", { onClick: () => setShowDiff(false), style: { background: "none", border: "none", fontSize: 12, color: C.sub } }, "\u0E22\u0E48\u0E2D \u25B4")), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 } }, DIFFICULTIES.map((d) => {
-      const on = difficulty === d.id;
-      const recModelObj = (ENG.models || []).find((x) => x.id === (d.rec && d.rec[engine]));
-      const recLabel = recModelObj ? recModelObj.label : "";
-      return /* @__PURE__ */ import_react.default.createElement(
-        "button",
-        {
-          key: d.id,
-          onClick: () => {
-            applyDifficulty(d.id);
-            setShowDiff(false);
-          },
-          style: {
-            textAlign: "left",
-            border: on ? `2px solid ${C.accent}` : `1.5px solid ${C.line}`,
-            background: on ? C.accentBg : C.card,
-            borderRadius: 11,
-            padding: "9px 10px",
-            cursor: "pointer",
-            lineHeight: 1.3
-          }
-        },
-        /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 13, fontWeight: 700, color: on ? C.accent : C.ink } }, d.icon, " ", d.label),
-        /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 10.5, color: C.sub, marginTop: 3 } }, d.blurb),
-        recLabel && /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 10, color: on ? C.accent : C.sub3, marginTop: 4, fontWeight: 600 } }, "\u2192 ", recLabel)
-      );
-    })), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 11, color: C.sub, marginTop: 6, lineHeight: 1.5 } }, "* \u0E40\u0E25\u0E37\u0E2D\u0E01\u0E23\u0E30\u0E14\u0E31\u0E1A\u0E41\u0E25\u0E49\u0E27\u0E41\u0E2D\u0E1B\u0E08\u0E30 ", /* @__PURE__ */ import_react.default.createElement("b", null, "\u0E2A\u0E25\u0E31\u0E1A\u0E23\u0E38\u0E48\u0E19 AI \u0E17\u0E35\u0E48\u0E41\u0E19\u0E30\u0E19\u0E33\u0E43\u0E2B\u0E49\u0E2D\u0E31\u0E15\u0E42\u0E19\u0E21\u0E31\u0E15\u0E34"), " (\u0E1B\u0E23\u0E31\u0E1A\u0E40\u0E2D\u0E07\u0E17\u0E35\u0E2B\u0E25\u0E31\u0E07\u0E44\u0E14\u0E49)"))), mode === "grammar" && /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", background: C.track2, borderRadius: 11, padding: 3, gap: 3, marginBottom: 14 } }, [["lesson", "\u{1F4D6} \u0E40\u0E23\u0E35\u0E22\u0E19 (\u0E1A\u0E17\u0E40\u0E23\u0E35\u0E22\u0E19)"], ["drill", "\u{1F4DD} \u0E17\u0E33\u0E42\u0E08\u0E17\u0E22\u0E4C"]].map(([id, lbl]) => {
+    })), mode === "grammar" && /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", background: C.track2, borderRadius: 11, padding: 3, gap: 3, marginBottom: 14 } }, [["lesson", "\u{1F4D6} \u0E40\u0E23\u0E35\u0E22\u0E19 (\u0E1A\u0E17\u0E40\u0E23\u0E35\u0E22\u0E19)"], ["drill", "\u{1F4DD} \u0E17\u0E33\u0E42\u0E08\u0E17\u0E22\u0E4C"]].map(([id, lbl]) => {
       const on = gSection === id;
       return /* @__PURE__ */ import_react.default.createElement(
         "button",
@@ -16014,18 +16282,20 @@ ${opts}
         },
         lbl
       ))), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "grid", gap: 9 } }, shown.map((ls) => {
+        const hasBlocks = Array.isArray(ls.blocks);
         const open = openLesson === ls.id;
-        return /* @__PURE__ */ import_react.default.createElement("div", { key: ls.id, style: { background: C.panel, border: `1px solid ${open ? C.accent : C.line}`, borderRadius: 12, overflow: "hidden" } }, /* @__PURE__ */ import_react.default.createElement(
+        const expanded = hasBlocks ? false : open;
+        return /* @__PURE__ */ import_react.default.createElement("div", { key: ls.id, style: { background: C.panel, border: `1px solid ${expanded ? C.accent : C.line}`, borderRadius: 12, overflow: "hidden" } }, /* @__PURE__ */ import_react.default.createElement(
           "button",
           {
-            onClick: () => setOpenLesson(open ? null : ls.id),
+            onClick: () => hasBlocks ? setLessonModal(ls) : setOpenLesson(open ? null : ls.id),
             style: { width: "100%", textAlign: "left", background: "none", border: "none", padding: "14px 15px", display: "flex", alignItems: "center", gap: 10 }
           },
           /* @__PURE__ */ import_react.default.createElement("span", { style: { flex: "0 0 auto", width: 24, height: 24, borderRadius: 7, background: C.accentSoft, color: C.accent, fontWeight: 700, fontSize: 12.5, display: "grid", placeItems: "center" } }, ls.num),
           /* @__PURE__ */ import_react.default.createElement("span", { style: { flex: 1, fontWeight: 600, fontSize: 15, color: C.ink, lineHeight: 1.35 } }, ls.title),
           /* @__PURE__ */ import_react.default.createElement(StatusBadge, { mode: "grammar", status: st2.ratings[ls.id] }),
-          /* @__PURE__ */ import_react.default.createElement("span", { style: { color: C.sub, fontSize: 18, transform: open ? "rotate(180deg)" : "none", transition: "transform .2s" } }, "\u2304")
-        ), open && /* @__PURE__ */ import_react.default.createElement("div", { className: "rise", style: { padding: "0 15px 16px 15px" } }, /* @__PURE__ */ import_react.default.createElement(LessonBody, { ls }), /* @__PURE__ */ import_react.default.createElement(RatingRow, { mode: "grammar", current: st2.ratings[ls.id], onRate: (s) => rate(ls.id, s, false), small: true })));
+          /* @__PURE__ */ import_react.default.createElement("span", { style: { color: C.sub, fontSize: hasBlocks ? 15 : 18, transform: expanded ? "rotate(180deg)" : "none", transition: "transform .2s" } }, hasBlocks ? "\u203A" : "\u2304")
+        ), expanded && /* @__PURE__ */ import_react.default.createElement("div", { className: "rise", style: { padding: "0 15px 16px 15px" } }, /* @__PURE__ */ import_react.default.createElement(LessonBody, { ls }), /* @__PURE__ */ import_react.default.createElement(RatingRow, { mode: "grammar", current: st2.ratings[ls.id], onRate: (s) => rate(ls.id, s, false), small: true })));
       }), shown.length === 0 && /* @__PURE__ */ import_react.default.createElement(Centered, null, "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E1A\u0E17\u0E40\u0E23\u0E35\u0E22\u0E19\u0E43\u0E19\u0E2B\u0E21\u0E27\u0E14\u0E19\u0E35\u0E49")), /* @__PURE__ */ import_react.default.createElement(
         "button",
         {
@@ -16107,7 +16377,7 @@ ${opts}
             /* @__PURE__ */ import_react.default.createElement("br", null),
             /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 10, fontWeight: 400, opacity: 0.75 } }, sub)
           );
-        }))), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 10 } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 12.5, color: C.sub, flex: "0 0 auto" } }, "\u0E23\u0E38\u0E48\u0E19 AI:"), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", flex: 1, background: C.track, borderRadius: 10, padding: 3, gap: 3 } }, MODELS.map((mm) => {
+        }))), !(needsKey && !hasKey) && /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 10 } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 12.5, color: C.sub, flex: "0 0 auto" } }, "\u0E23\u0E38\u0E48\u0E19 AI:"), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", flex: 1, background: C.track, borderRadius: 10, padding: 3, gap: 3 } }, MODELS.map((mm) => {
           const on = models.listening === mm.id;
           const rec = RECOMMENDED.listening === mm.id;
           return /* @__PURE__ */ import_react.default.createElement(
@@ -16133,7 +16403,7 @@ ${opts}
             /* @__PURE__ */ import_react.default.createElement("br", null),
             /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 10, fontWeight: 400, opacity: 0.75 } }, rec ? "\u2605 \u0E41\u0E19\u0E30\u0E19\u0E33" : mm.note)
           );
-        }))), /* @__PURE__ */ import_react.default.createElement("div", { style: { marginBottom: 12 } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 12.5, color: C.sub, marginBottom: 6 } }, "\u0E2B\u0E31\u0E27\u0E02\u0E49\u0E2D\u0E17\u0E35\u0E48 AI \u0E08\u0E30\u0E2A\u0E23\u0E49\u0E32\u0E07"), /* @__PURE__ */ import_react.default.createElement(
+        }))), renderDiffSelector()), /* @__PURE__ */ import_react.default.createElement("div", { style: { marginBottom: 12 } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 12.5, color: C.sub, marginBottom: 6 } }, "\u0E2B\u0E31\u0E27\u0E02\u0E49\u0E2D\u0E17\u0E35\u0E48 AI \u0E08\u0E30\u0E2A\u0E23\u0E49\u0E32\u0E07"), /* @__PURE__ */ import_react.default.createElement(
           "select",
           {
             value: genTopic.listening,
@@ -16145,7 +16415,7 @@ ${opts}
           CATEGORY_GROUP_ORDER.filter((g) => CATEGORY_GROUPS[g]).map((g) => /* @__PURE__ */ import_react.default.createElement("optgroup", { key: g, label: g }, CATEGORY_GROUPS[g].map((c) => /* @__PURE__ */ import_react.default.createElement("option", { key: c, value: c }, catShortLabel(c)))))
         )), (() => {
           const sp = readingScopeParts();
-          const ps = Object.values(st2.data || {}).filter((p) => p && p.transcript && (p.questions || []).length > 0 && sp.includes(p.ptype || "Part 7"));
+          const ps = Object.values(st2.data || {}).filter((p) => p && p.transcript && (p.questions || []).length > 0 && sp.includes(p.ptype || "Part 7") && (difficulty === "mixed" || p.difficulty === difficulty));
           const take = {};
           let nSets = 0;
           for (const p of ps) {
@@ -16524,7 +16794,7 @@ ${opts}
             /* @__PURE__ */ import_react.default.createElement("br", null),
             /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 9.5, fontWeight: 400, opacity: 0.75 } }, sub)
           );
-        }))), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 10 } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 12.5, color: C.sub, flex: "0 0 auto" } }, "\u0E23\u0E38\u0E48\u0E19 AI:"), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", flex: 1, background: C.track, borderRadius: 10, padding: 3, gap: 3 } }, MODELS.map((mm) => {
+        }))), !(needsKey && !hasKey) && /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 10 } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 12.5, color: C.sub, flex: "0 0 auto" } }, "\u0E23\u0E38\u0E48\u0E19 AI:"), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", flex: 1, background: C.track, borderRadius: 10, padding: 3, gap: 3 } }, MODELS.map((mm) => {
           const on = models.audio === mm.id;
           const rec = RECOMMENDED.audio === mm.id;
           return /* @__PURE__ */ import_react.default.createElement(
@@ -16550,7 +16820,7 @@ ${opts}
             /* @__PURE__ */ import_react.default.createElement("br", null),
             /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 10, fontWeight: 400, opacity: 0.75 } }, rec ? "\u2605 \u0E41\u0E19\u0E30\u0E19\u0E33" : mm.note)
           );
-        }))), /* @__PURE__ */ import_react.default.createElement("div", { style: { marginBottom: 12 } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 12.5, color: C.sub, marginBottom: 6 } }, "\u0E2B\u0E31\u0E27\u0E02\u0E49\u0E2D\u0E17\u0E35\u0E48 AI \u0E08\u0E30\u0E2A\u0E23\u0E49\u0E32\u0E07"), /* @__PURE__ */ import_react.default.createElement(
+        }))), renderDiffSelector()), /* @__PURE__ */ import_react.default.createElement("div", { style: { marginBottom: 12 } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 12.5, color: C.sub, marginBottom: 6 } }, "\u0E2B\u0E31\u0E27\u0E02\u0E49\u0E2D\u0E17\u0E35\u0E48 AI \u0E08\u0E30\u0E2A\u0E23\u0E49\u0E32\u0E07"), /* @__PURE__ */ import_react.default.createElement(
           "select",
           {
             value: genTopic.audio,
@@ -16562,7 +16832,7 @@ ${opts}
           CATEGORY_GROUP_ORDER.filter((g) => CATEGORY_GROUPS[g]).map((g) => /* @__PURE__ */ import_react.default.createElement("optgroup", { key: g, label: g }, CATEGORY_GROUPS[g].map((c) => /* @__PURE__ */ import_react.default.createElement("option", { key: c, value: c }, catShortLabel(c)))))
         )), (() => {
           const sp = audioScopeParts();
-          const ps = Object.values(st2.data || {}).filter((p) => p && (p.questions || []).length > 0 && (p.transcript && p.transcript.trim() || p.ptype === "Part 2") && sp.includes(p.ptype || "Part 3"));
+          const ps = Object.values(st2.data || {}).filter((p) => p && (p.questions || []).length > 0 && (p.transcript && p.transcript.trim() || p.ptype === "Part 2") && sp.includes(p.ptype || "Part 3") && (difficulty === "mixed" || p.difficulty === difficulty));
           const take = {};
           let nSets = 0;
           for (const p of ps) {
@@ -17039,7 +17309,7 @@ ${opts}
           style: { width: "100%", marginTop: 10, background: C.green, color: C.inkOn, border: "none", borderRadius: 12, padding: "13px", fontSize: 15, fontWeight: 700 }
         }
       ), /* @__PURE__ */ import_react.default.createElement("button", { onClick: quitExam, style: { width: "100%", marginTop: 8, background: "none", color: C.sub, border: "none", fontSize: 12.5, textDecoration: "underline" } }, "\u0E2D\u0E2D\u0E01\u0E08\u0E32\u0E01\u0E02\u0E49\u0E2D\u0E2A\u0E2D\u0E1A (\u0E44\u0E21\u0E48\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01)"));
-    })(), !(mode === "grammar" && gSection === "lesson") && !(mode === "vocab" && vSection === "quiz") && mode !== "listening" && mode !== "audio" && mode !== "exam" && /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", gap: 10, alignItems: "center", marginBottom: 12, fontSize: 13, color: C.sub } }, mode === "vocab" ? /* @__PURE__ */ import_react.default.createElement("span", null, "\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E44\u0E1B\u0E41\u0E25\u0E49\u0E27 ", /* @__PURE__ */ import_react.default.createElement("b", { style: { color: C.accent, fontSize: 15 } }, Object.values(st.data).filter((w) => w && (w.gen || 0) >= 1).length), " \u0E04\u0E33") : /* @__PURE__ */ import_react.default.createElement("span", null, "\u0E2A\u0E23\u0E49\u0E32\u0E07\u0E44\u0E1B\u0E41\u0E25\u0E49\u0E27 ", /* @__PURE__ */ import_react.default.createElement("b", { style: { color: C.accent, fontSize: 15 } }, distinctGenCount(st.data)), " \u0E0A\u0E38\u0E14"), /* @__PURE__ */ import_react.default.createElement("span", { style: { color: C.line } }, "\u2022"), /* @__PURE__ */ import_react.default.createElement("span", null, mode === "vocab" ? "\u0E04\u0E33\u0E2A\u0E30\u0E2A\u0E21" : "\u0E02\u0E49\u0E2D\u0E2A\u0E30\u0E2A\u0E21", " ", /* @__PURE__ */ import_react.default.createElement("b", { style: { color: C.ink } }, total))), mode !== "vocab" && /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 10 } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 12.5, color: C.sub, flex: "0 0 auto" } }, "\u0E23\u0E38\u0E48\u0E19 AI:"), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", flex: 1, background: C.track, borderRadius: 10, padding: 3, gap: 3 } }, MODELS.map((mm) => {
+    })(), !(mode === "grammar" && gSection === "lesson") && !(mode === "vocab" && vSection === "quiz") && mode !== "listening" && mode !== "audio" && mode !== "exam" && /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", gap: 10, alignItems: "center", marginBottom: 12, fontSize: 13, color: C.sub } }, mode === "vocab" ? /* @__PURE__ */ import_react.default.createElement("span", null, "\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E44\u0E1B\u0E41\u0E25\u0E49\u0E27 ", /* @__PURE__ */ import_react.default.createElement("b", { style: { color: C.accent, fontSize: 15 } }, Object.values(st.data).filter((w) => w && (w.gen || 0) >= 1).length), " \u0E04\u0E33") : /* @__PURE__ */ import_react.default.createElement("span", null, "\u0E2A\u0E23\u0E49\u0E32\u0E07\u0E44\u0E1B\u0E41\u0E25\u0E49\u0E27 ", /* @__PURE__ */ import_react.default.createElement("b", { style: { color: C.accent, fontSize: 15 } }, distinctGenCount(st.data)), " \u0E0A\u0E38\u0E14"), /* @__PURE__ */ import_react.default.createElement("span", { style: { color: C.line } }, "\u2022"), /* @__PURE__ */ import_react.default.createElement("span", null, mode === "vocab" ? "\u0E04\u0E33\u0E2A\u0E30\u0E2A\u0E21" : "\u0E02\u0E49\u0E2D\u0E2A\u0E30\u0E2A\u0E21", " ", /* @__PURE__ */ import_react.default.createElement("b", { style: { color: C.ink } }, total))), mode !== "vocab" && !(needsKey && !hasKey) && /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 10 } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 12.5, color: C.sub, flex: "0 0 auto" } }, "\u0E23\u0E38\u0E48\u0E19 AI:"), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", flex: 1, background: C.track, borderRadius: 10, padding: 3, gap: 3 } }, MODELS.map((mm) => {
       const on = models[mode] === mm.id;
       const rec = RECOMMENDED[mode] === mm.id;
       return /* @__PURE__ */ import_react.default.createElement(
@@ -17066,7 +17336,7 @@ ${opts}
         /* @__PURE__ */ import_react.default.createElement("br", null),
         /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 10, fontWeight: 400, opacity: 0.75 } }, rec ? "\u2605 \u0E41\u0E19\u0E30\u0E19\u0E33" : mm.note)
       );
-    }))), mode === "vocab" && !st.generating && /* @__PURE__ */ import_react.default.createElement("div", { style: { border: `1px solid ${C.line}`, borderRadius: 13, padding: "12px 12px 13px", marginBottom: 12, background: C.card } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 12, color: C.sub, fontWeight: 700, marginBottom: 3 } }, "\u{1F4DA} \u0E04\u0E25\u0E31\u0E07\u0E04\u0E33\u0E15\u0E32\u0E21\u0E23\u0E30\u0E14\u0E31\u0E1A ", /* @__PURE__ */ import_react.default.createElement("span", { style: { fontWeight: 400, fontSize: 11 } }, "\xB7 \u0E04\u0E33\u0E04\u0E31\u0E14\u0E21\u0E32\u0E41\u0E25\u0E49\u0E27 \u0E44\u0E21\u0E48\u0E15\u0E49\u0E2D\u0E07\u0E43\u0E0A\u0E49 AI")), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 11, color: C.sub, marginBottom: 9, lineHeight: 1.5 } }, "\u0E2B\u0E22\u0E34\u0E1A\u0E17\u0E35\u0E25\u0E30 10 \u0E04\u0E33 \u2014 \u0E04\u0E33\u0E43\u0E2B\u0E21\u0E48\u0E01\u0E48\u0E2D\u0E19 \u0E2B\u0E21\u0E14\u0E41\u0E25\u0E49\u0E27\u0E17\u0E27\u0E19\u0E04\u0E33\u0E17\u0E35\u0E48\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E41\u0E21\u0E48\u0E19 \u0E2A\u0E38\u0E14\u0E17\u0E49\u0E32\u0E22\u0E04\u0E48\u0E2D\u0E22\u0E23\u0E35\u0E04\u0E33\u0E17\u0E35\u0E48\u0E08\u0E33\u0E44\u0E14\u0E49"), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 } }, DIFFICULTIES.map((d) => {
+    }))), renderDiffSelector()), mode === "vocab" && !st.generating && /* @__PURE__ */ import_react.default.createElement("div", { style: { border: `1px solid ${C.line}`, borderRadius: 13, padding: "12px 12px 13px", marginBottom: 12, background: C.card } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 12, color: C.sub, fontWeight: 700, marginBottom: 3 } }, "\u{1F4DA} \u0E04\u0E25\u0E31\u0E07\u0E04\u0E33\u0E15\u0E32\u0E21\u0E23\u0E30\u0E14\u0E31\u0E1A ", /* @__PURE__ */ import_react.default.createElement("span", { style: { fontWeight: 400, fontSize: 11 } }, "\xB7 \u0E04\u0E33\u0E04\u0E31\u0E14\u0E21\u0E32\u0E41\u0E25\u0E49\u0E27 \u0E44\u0E21\u0E48\u0E15\u0E49\u0E2D\u0E07\u0E43\u0E0A\u0E49 AI")), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 11, color: C.sub, marginBottom: 9, lineHeight: 1.5 } }, "\u0E2B\u0E22\u0E34\u0E1A\u0E17\u0E35\u0E25\u0E30 10 \u0E04\u0E33 \u2014 \u0E04\u0E33\u0E43\u0E2B\u0E21\u0E48\u0E01\u0E48\u0E2D\u0E19 \u0E2B\u0E21\u0E14\u0E41\u0E25\u0E49\u0E27\u0E17\u0E27\u0E19\u0E04\u0E33\u0E17\u0E35\u0E48\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E41\u0E21\u0E48\u0E19 \u0E2A\u0E38\u0E14\u0E17\u0E49\u0E32\u0E22\u0E04\u0E48\u0E2D\u0E22\u0E23\u0E35\u0E04\u0E33\u0E17\u0E35\u0E48\u0E08\u0E33\u0E44\u0E14\u0E49"), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 } }, DIFFICULTIES.filter((d) => d.id !== "mixed").map((d) => {
       const tot = bankLevelTotal(d.id);
       const stt = bankLevelStatus(d.id);
       const empty = stt.kind === "empty";
@@ -17117,7 +17387,7 @@ ${opts}
       },
       lbl
     ))), !storageOk && /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 12, color: C.amber, marginBottom: 12, lineHeight: 1.5 } }, '* \u0E17\u0E35\u0E48\u0E40\u0E1B\u0E34\u0E14\u0E2D\u0E22\u0E39\u0E48\u0E19\u0E35\u0E49\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E02\u0E49\u0E32\u0E21\u0E23\u0E2D\u0E1A\u0E2D\u0E31\u0E15\u0E42\u0E19\u0E21\u0E31\u0E15\u0E34\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49 \u2014 \u0E01\u0E14 "\u0E2A\u0E33\u0E23\u0E2D\u0E07/\u0E01\u0E39\u0E49\u0E04\u0E37\u0E19" \u0E21\u0E38\u0E21\u0E02\u0E27\u0E32\u0E1A\u0E19\u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E40\u0E01\u0E47\u0E1A\u0E02\u0E49\u0E2D\u0E21\u0E39\u0E25\u0E40\u0E2D\u0E07\u0E01\u0E48\u0E2D\u0E19\u0E1B\u0E34\u0E14\u0E19\u0E30\u0E04\u0E23\u0E31\u0E1A'), !loaded && /* @__PURE__ */ import_react.default.createElement(Centered, null, "\u0E01\u0E33\u0E25\u0E31\u0E07\u0E42\u0E2B\u0E25\u0E14\u2026"), /* @__PURE__ */ import_react.default.createElement("div", { ref: cardAreaRef, style: { scrollMarginTop: 12 } }), loaded && mode === "grammar" && st.tab === "study" && (emptyStudy || sessionDone) && (() => {
-      const gAll = Object.values(M.current.grammar.data);
+      const gAll = Object.values(M.current.grammar.data).filter((x) => difficulty === "mixed" || x.difficulty === difficulty);
       const gByPoint = {};
       for (const x of gAll) {
         const k = grammarPointGroup(x.point);
@@ -17960,15 +18230,50 @@ ${opts}
     const H = 110;
     return /* @__PURE__ */ import_react.default.createElement("div", { style: { background: C.card, border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 10px 8px" } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { position: "relative", height: H } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { position: "absolute", left: 0, right: 0, bottom: "80%", borderTop: `1px dashed ${C.green}`, opacity: 0.55 } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { position: "absolute", right: 0, top: -14, fontSize: 9, color: C.green, fontWeight: 700 } }, "80%")), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "flex-end", gap: 5, height: "100%" } }, items.map((it, i) => /* @__PURE__ */ import_react.default.createElement("div", { key: i, style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" }, title: it.value + "%" }, /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 9, color: C.sub, marginBottom: 2 } }, it.value), /* @__PURE__ */ import_react.default.createElement("div", { style: { width: "100%", maxWidth: 26, height: `${Math.max(3, it.value)}%`, background: it.color, borderRadius: "4px 4px 0 0" } }))))), /* @__PURE__ */ import_react.default.createElement("div", { style: { borderTop: `1px solid ${C.line}`, marginTop: 2, paddingTop: 4, textAlign: "center", fontSize: 10, color: C.sub } }, "\u0E40\u0E01\u0E48\u0E32 \u2192 \u0E43\u0E2B\u0E21\u0E48"));
   }
-  function LessonBody({ ls }) {
+  var SECTION_HEADER_RE = /^[\u{1F000}-\u{1FAFF}\u{2190}-\u{27BF}\u{2B00}-\u{2BFF}\u{2600}-\u{26FF}]/u;
+  function splitLessonSections(ls) {
+    const blocks = Array.isArray(ls && ls.blocks) ? ls.blocks : [];
+    const out = [];
+    let cur = null;
+    for (const b of blocks) {
+      const isHeader = b && b.type === "text" && typeof b.md === "string" && SECTION_HEADER_RE.test(b.md.trim());
+      if (isHeader || !cur) {
+        const title = isHeader ? b.md.split("\n")[0].trim() : "\u0E1A\u0E17\u0E19\u0E33";
+        cur = { title, blocks: [] };
+        out.push(cur);
+      }
+      cur.blocks.push(b);
+    }
+    return out;
+  }
+  function LessonModal({ ls, onClose, status, onRate }) {
+    const [openSec, setOpenSec] = (0, import_react.useState)(0);
+    if (!ls) return null;
+    const sections = splitLessonSections(ls);
+    return /* @__PURE__ */ import_react.default.createElement("div", { onClick: onClose, style: { position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", zIndex: 70, display: "flex", flexDirection: "column" } }, /* @__PURE__ */ import_react.default.createElement("div", { onClick: (e) => e.stopPropagation(), className: "rise", style: { background: C.bg, marginTop: "auto", borderTopLeftRadius: 18, borderTopRightRadius: 18, maxHeight: "92vh", display: "flex", flexDirection: "column", boxShadow: "0 -10px 40px -10px rgba(0,0,0,.5)" } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { padding: "16px 16px 12px", borderBottom: `1px solid ${C.line}`, display: "flex", alignItems: "flex-start", gap: 10 } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontWeight: 700, fontSize: 16.5, color: C.ink, lineHeight: 1.35 } }, ls.title), ls.point && /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 12.5, color: C.accent, fontWeight: 600, marginTop: 5, lineHeight: 1.45 } }, "\u{1F449} ", ls.point)), /* @__PURE__ */ import_react.default.createElement("button", { onClick: onClose, style: { flex: "0 0 auto", width: 32, height: 32, borderRadius: 9, background: C.soft, border: `1px solid ${C.line}`, color: C.sub, fontSize: 18, lineHeight: 1, display: "grid", placeItems: "center" } }, "\u2715")), /* @__PURE__ */ import_react.default.createElement("div", { style: { overflowY: "auto", padding: "12px 14px 8px", display: "grid", gap: 8 } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 11, color: C.sub, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2 } }, "\u0E2A\u0E32\u0E23\u0E1A\u0E31\u0E0D \xB7 \u0E41\u0E15\u0E30\u0E2B\u0E31\u0E27\u0E02\u0E49\u0E2D\u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E2D\u0E48\u0E32\u0E19 (", sections.length, " \u0E2A\u0E48\u0E27\u0E19)"), sections.map((sec, i) => {
+      const open = openSec === i;
+      return /* @__PURE__ */ import_react.default.createElement("div", { key: i, style: { background: C.panel, border: `1px solid ${open ? C.accent : C.line}`, borderRadius: 11, overflow: "hidden" } }, /* @__PURE__ */ import_react.default.createElement(
+        "button",
+        {
+          onClick: () => setOpenSec(open ? -1 : i),
+          style: { width: "100%", textAlign: "left", background: "none", border: "none", padding: "12px 13px", display: "flex", alignItems: "center", gap: 9 }
+        },
+        /* @__PURE__ */ import_react.default.createElement("span", { style: { flex: "0 0 auto", minWidth: 20, height: 20, padding: "0 5px", borderRadius: 6, background: C.accentSoft, color: C.accent, fontWeight: 700, fontSize: 11, display: "grid", placeItems: "center" } }, i + 1),
+        /* @__PURE__ */ import_react.default.createElement("span", { style: { flex: 1, fontWeight: 600, fontSize: 14, color: C.ink, lineHeight: 1.35 } }, sec.title),
+        /* @__PURE__ */ import_react.default.createElement("span", { style: { color: C.sub, fontSize: 16, transform: open ? "rotate(180deg)" : "none", transition: "transform .2s" } }, "\u2304")
+      ), open && /* @__PURE__ */ import_react.default.createElement("div", { className: "rise", style: { padding: "0 13px 13px" } }, /* @__PURE__ */ import_react.default.createElement(LessonBody, { ls, blocks: sec.blocks, hidePoint: true })));
+    })), /* @__PURE__ */ import_react.default.createElement("div", { style: { borderTop: `1px solid ${C.line}`, padding: "10px 14px", background: C.bg } }, /* @__PURE__ */ import_react.default.createElement(RatingRow, { mode: "grammar", current: status, onRate, small: true }))));
+  }
+  function LessonBody({ ls, blocks, hidePoint }) {
     if (!ls) return null;
     const Examples = ({ items }) => /* @__PURE__ */ import_react.default.createElement("div", { style: { background: C.soft, border: `1px solid ${C.line}`, borderRadius: 10, padding: "11px 13px", marginBottom: 10 } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 11.5, color: C.sub, fontWeight: 600, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 } }, "\u0E15\u0E31\u0E27\u0E2D\u0E22\u0E48\u0E32\u0E07"), items.map((ex, j) => /* @__PURE__ */ import_react.default.createElement("div", { key: j, style: { fontSize: 14, color: C.ink, lineHeight: 1.5, marginBottom: j < items.length - 1 ? 5 : 0 } }, "\u2022 ", ex)));
     const Trap = ({ md }) => /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", gap: 8, alignItems: "flex-start", background: C.redBg, borderRadius: 10, padding: "10px 12px", marginBottom: 10 } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 14 } }, "\u26A0\uFE0F"), /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 13.5, color: C.ink, lineHeight: 1.55 } }, /* @__PURE__ */ import_react.default.createElement("b", { style: { color: C.red } }, "\u0E01\u0E31\u0E1A\u0E14\u0E31\u0E01:"), " ", md));
-    if (!Array.isArray(ls.blocks)) {
+    if (!Array.isArray(ls.blocks) && !Array.isArray(blocks)) {
       return /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 13.5, color: C.accent, fontWeight: 600, marginBottom: 8 } }, "\u{1F449} ", ls.point), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 14, color: C.ink, lineHeight: 1.65, marginBottom: 12 } }, ls.body), /* @__PURE__ */ import_react.default.createElement(Examples, { items: ls.examples || [] }), /* @__PURE__ */ import_react.default.createElement(Trap, { md: ls.trap }));
     }
     const lines = (s) => String(s == null ? "" : s).split("\n");
-    return /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, ls.point && /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 13.5, color: C.accent, fontWeight: 600, marginBottom: 8 } }, "\u{1F449} ", ls.point), ls.blocks.map((b, i) => {
+    const list = Array.isArray(blocks) ? blocks : ls.blocks;
+    return /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, !hidePoint && ls.point && /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 13.5, color: C.accent, fontWeight: 600, marginBottom: 8 } }, "\u{1F449} ", ls.point), list.map((b, i) => {
       const k = "blk" + i;
       if (!b || !b.type) return null;
       if (b.type === "text")
