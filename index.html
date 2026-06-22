@@ -7273,7 +7273,7 @@
   // <stdin>
   var import_react = __toESM(require_react());
   var import_client = __toESM(require_client());
-  var VERSION = "0.99.2";
+  var VERSION = "0.99.3";
   var IS_ARTIFACT = typeof window !== "undefined" && !!window.storage;
   var STORAGE = IS_ARTIFACT ? {
     async get(k) {
@@ -16378,7 +16378,7 @@ ${opts}
             /* @__PURE__ */ import_react.default.createElement("br", null),
             /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 10, fontWeight: 400, opacity: 0.75 } }, sub)
           );
-        }))), !(needsKey && !hasKey) && /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 10 } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 12.5, color: C.sub, flex: "0 0 auto" } }, "\u0E23\u0E38\u0E48\u0E19 AI:"), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", flex: 1, background: C.track, borderRadius: 10, padding: 3, gap: 3 } }, MODELS.map((mm) => {
+        }))), !(needsKey && !hasKey) && /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 10 } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 12.5, color: C.sub, flex: "0 0 auto" } }, "\u0E23\u0E38\u0E48\u0E19 AI:"), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", flex: 1, background: C.track, borderRadius: 10, padding: 3, gap: 3 } }, MODELS.map((mm) => {
           const on = models.listening === mm.id;
           const rec = RECOMMENDED.listening === mm.id;
           return /* @__PURE__ */ import_react.default.createElement(
@@ -16404,7 +16404,7 @@ ${opts}
             /* @__PURE__ */ import_react.default.createElement("br", null),
             /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 10, fontWeight: 400, opacity: 0.75 } }, rec ? "\u2605 \u0E41\u0E19\u0E30\u0E19\u0E33" : mm.note)
           );
-        }))), renderDiffSelector()), /* @__PURE__ */ import_react.default.createElement("div", { style: { marginBottom: 12 } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 12.5, color: C.sub, marginBottom: 6 } }, "\u0E2B\u0E31\u0E27\u0E02\u0E49\u0E2D\u0E17\u0E35\u0E48 AI \u0E08\u0E30\u0E2A\u0E23\u0E49\u0E32\u0E07"), /* @__PURE__ */ import_react.default.createElement(
+        }))), /* @__PURE__ */ import_react.default.createElement("div", { style: { marginBottom: 12 } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 12.5, color: C.sub, marginBottom: 6 } }, "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E2B\u0E31\u0E27\u0E02\u0E49\u0E2D"), /* @__PURE__ */ import_react.default.createElement(
           "select",
           {
             value: genTopic.listening,
@@ -16414,7 +16414,7 @@ ${opts}
           },
           /* @__PURE__ */ import_react.default.createElement("option", { value: "" }, "\u{1F3B2} \u0E2A\u0E38\u0E48\u0E21\u0E17\u0E38\u0E01\u0E2B\u0E21\u0E27\u0E14 (\u0E04\u0E25\u0E30\u0E2B\u0E31\u0E27\u0E02\u0E49\u0E2D)"),
           CATEGORY_GROUP_ORDER.filter((g) => CATEGORY_GROUPS[g]).map((g) => /* @__PURE__ */ import_react.default.createElement("optgroup", { key: g, label: g }, CATEGORY_GROUPS[g].map((c) => /* @__PURE__ */ import_react.default.createElement("option", { key: c, value: c }, catShortLabel(c)))))
-        )), (() => {
+        )), renderDiffSelector(), (() => {
           const sp = readingScopeParts();
           const ps = Object.values(st2.data || {}).filter((p) => p && p.transcript && (p.questions || []).length > 0 && sp.includes(p.ptype || "Part 7") && (difficulty === "mixed" || p.difficulty === difficulty));
           const take = {};
@@ -16795,7 +16795,7 @@ ${opts}
             /* @__PURE__ */ import_react.default.createElement("br", null),
             /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 9.5, fontWeight: 400, opacity: 0.75 } }, sub)
           );
-        }))), !(needsKey && !hasKey) && /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 10 } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 12.5, color: C.sub, flex: "0 0 auto" } }, "\u0E23\u0E38\u0E48\u0E19 AI:"), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", flex: 1, background: C.track, borderRadius: 10, padding: 3, gap: 3 } }, MODELS.map((mm) => {
+        }))), !(needsKey && !hasKey) && /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 10 } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 12.5, color: C.sub, flex: "0 0 auto" } }, "\u0E23\u0E38\u0E48\u0E19 AI:"), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", flex: 1, background: C.track, borderRadius: 10, padding: 3, gap: 3 } }, MODELS.map((mm) => {
           const on = models.audio === mm.id;
           const rec = RECOMMENDED.audio === mm.id;
           return /* @__PURE__ */ import_react.default.createElement(
@@ -16821,7 +16821,7 @@ ${opts}
             /* @__PURE__ */ import_react.default.createElement("br", null),
             /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 10, fontWeight: 400, opacity: 0.75 } }, rec ? "\u2605 \u0E41\u0E19\u0E30\u0E19\u0E33" : mm.note)
           );
-        }))), renderDiffSelector()), /* @__PURE__ */ import_react.default.createElement("div", { style: { marginBottom: 12 } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 12.5, color: C.sub, marginBottom: 6 } }, "\u0E2B\u0E31\u0E27\u0E02\u0E49\u0E2D\u0E17\u0E35\u0E48 AI \u0E08\u0E30\u0E2A\u0E23\u0E49\u0E32\u0E07"), /* @__PURE__ */ import_react.default.createElement(
+        }))), /* @__PURE__ */ import_react.default.createElement("div", { style: { marginBottom: 12 } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 12.5, color: C.sub, marginBottom: 6 } }, "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E2B\u0E31\u0E27\u0E02\u0E49\u0E2D"), /* @__PURE__ */ import_react.default.createElement(
           "select",
           {
             value: genTopic.audio,
@@ -16831,7 +16831,7 @@ ${opts}
           },
           /* @__PURE__ */ import_react.default.createElement("option", { value: "" }, "\u{1F3B2} \u0E2A\u0E38\u0E48\u0E21\u0E17\u0E38\u0E01\u0E2B\u0E21\u0E27\u0E14 (\u0E04\u0E25\u0E30\u0E2B\u0E31\u0E27\u0E02\u0E49\u0E2D)"),
           CATEGORY_GROUP_ORDER.filter((g) => CATEGORY_GROUPS[g]).map((g) => /* @__PURE__ */ import_react.default.createElement("optgroup", { key: g, label: g }, CATEGORY_GROUPS[g].map((c) => /* @__PURE__ */ import_react.default.createElement("option", { key: c, value: c }, catShortLabel(c)))))
-        )), (() => {
+        )), renderDiffSelector(), (() => {
           const sp = audioScopeParts();
           const ps = Object.values(st2.data || {}).filter((p) => p && (p.questions || []).length > 0 && (p.transcript && p.transcript.trim() || p.ptype === "Part 2") && sp.includes(p.ptype || "Part 3") && (difficulty === "mixed" || p.difficulty === difficulty));
           const take = {};
@@ -17337,24 +17337,7 @@ ${opts}
         /* @__PURE__ */ import_react.default.createElement("br", null),
         /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 10, fontWeight: 400, opacity: 0.75 } }, rec ? "\u2605 \u0E41\u0E19\u0E30\u0E19\u0E33" : mm.note)
       );
-    }))), mode === "vocab" && !st.generating && (reviewable > 0 || dueCountFor(mode) > 0) && (() => {
-      const due = dueCountFor(mode);
-      const unit = mode === "vocab" ? "\u0E04\u0E33" : "\u0E02\u0E49\u0E2D";
-      return /* @__PURE__ */ import_react.default.createElement(
-        ReviewBox,
-        {
-          due,
-          weak: reviewable,
-          sub: `\u0E23\u0E30\u0E1A\u0E1A\u0E08\u0E31\u0E14\u0E04\u0E34\u0E27${unit}\u0E17\u0E35\u0E48\u0E43\u0E01\u0E25\u0E49\u0E25\u0E37\u0E21\u0E21\u0E32\u0E01\u0E48\u0E2D\u0E19`,
-          dueLabel: `\u0E16\u0E36\u0E07\u0E01\u0E33\u0E2B\u0E19\u0E14 (${due})`,
-          weakLabel: `\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E41\u0E21\u0E48\u0E19 (${reviewable})`,
-          weakAllLabel: `\u0E17\u0E27\u0E19${unit}\u0E17\u0E35\u0E48\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E41\u0E21\u0E48\u0E19\u0E17\u0E31\u0E49\u0E07\u0E2B\u0E21\u0E14 (${reviewable} ${unit})`,
-          onDue: buildDueDeck,
-          onWeak: buildReviewDeck,
-          margin: "0 0 12px"
-        }
-      );
-    })(), st.genErr && /* @__PURE__ */ import_react.default.createElement(GenError, { err: st.genErr, raw: st.genErrRaw }), st.lastAdded != null && !st.generating && /* @__PURE__ */ import_react.default.createElement("div", { style: { color: C.green, fontSize: 13, marginBottom: 10 } }, "\u0E40\u0E1E\u0E34\u0E48\u0E21", mode === "vocab" ? "\u0E04\u0E33" : "\u0E02\u0E49\u0E2D", "\u0E43\u0E2B\u0E21\u0E48 ", st.lastAdded, " ", mode === "vocab" ? "\u0E04\u0E33" : "\u0E02\u0E49\u0E2D", "\u0E40\u0E23\u0E35\u0E22\u0E1A\u0E23\u0E49\u0E2D\u0E22 \u2713", st.lastCategory ? /* @__PURE__ */ import_react.default.createElement("span", { style: { color: C.sub } }, " \xB7 \u0E2B\u0E21\u0E27\u0E14: ", st.lastCategory) : null), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 } }, /* @__PURE__ */ import_react.default.createElement(Pill, { bg: NEW_META.bg, fg: NEW_META.color, label: `\u0E43\u0E2B\u0E21\u0E48 ${counts.new}` }), /* @__PURE__ */ import_react.default.createElement(Pill, { bg: S.forgot.bg, fg: S.forgot.color, label: `${S.forgot.short} ${counts.forgot}` }), /* @__PURE__ */ import_react.default.createElement(Pill, { bg: S.sort.bg, fg: S.sort.color, label: `${S.sort.short} ${counts.sort}` }), /* @__PURE__ */ import_react.default.createElement(Pill, { bg: S.known.bg, fg: S.known.color, label: `${S.known.short} ${counts.known}` })), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "inline-flex", background: C.track, borderRadius: 11, padding: 3, gap: 3, marginBottom: 16 } }, [["study", mode === "vocab" ? "\u0E40\u0E23\u0E35\u0E22\u0E19 (\u0E01\u0E32\u0E23\u0E4C\u0E14)" : "\u0E1D\u0E36\u0E01\u0E17\u0E33 (\u0E02\u0E49\u0E2D\u0E2A\u0E2D\u0E1A)"], ["bank", mode === "vocab" ? "\u0E04\u0E25\u0E31\u0E07\u0E04\u0E33\u0E28\u0E31\u0E1E\u0E17\u0E4C" : "\u0E04\u0E25\u0E31\u0E07\u0E02\u0E49\u0E2D\u0E2A\u0E2D\u0E1A"]].map(([id, lbl]) => /* @__PURE__ */ import_react.default.createElement(
+    }))), st.genErr && /* @__PURE__ */ import_react.default.createElement(GenError, { err: st.genErr, raw: st.genErrRaw }), st.lastAdded != null && !st.generating && /* @__PURE__ */ import_react.default.createElement("div", { style: { color: C.green, fontSize: 13, marginBottom: 10 } }, "\u0E40\u0E1E\u0E34\u0E48\u0E21", mode === "vocab" ? "\u0E04\u0E33" : "\u0E02\u0E49\u0E2D", "\u0E43\u0E2B\u0E21\u0E48 ", st.lastAdded, " ", mode === "vocab" ? "\u0E04\u0E33" : "\u0E02\u0E49\u0E2D", "\u0E40\u0E23\u0E35\u0E22\u0E1A\u0E23\u0E49\u0E2D\u0E22 \u2713", st.lastCategory ? /* @__PURE__ */ import_react.default.createElement("span", { style: { color: C.sub } }, " \xB7 \u0E2B\u0E21\u0E27\u0E14: ", st.lastCategory) : null), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 } }, /* @__PURE__ */ import_react.default.createElement(Pill, { bg: NEW_META.bg, fg: NEW_META.color, label: `\u0E43\u0E2B\u0E21\u0E48 ${counts.new}` }), /* @__PURE__ */ import_react.default.createElement(Pill, { bg: S.forgot.bg, fg: S.forgot.color, label: `${S.forgot.short} ${counts.forgot}` }), /* @__PURE__ */ import_react.default.createElement(Pill, { bg: S.sort.bg, fg: S.sort.color, label: `${S.sort.short} ${counts.sort}` }), /* @__PURE__ */ import_react.default.createElement(Pill, { bg: S.known.bg, fg: S.known.color, label: `${S.known.short} ${counts.known}` })), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "inline-flex", background: C.track, borderRadius: 11, padding: 3, gap: 3, marginBottom: 16 } }, [["study", mode === "vocab" ? "\u0E40\u0E23\u0E35\u0E22\u0E19 (\u0E01\u0E32\u0E23\u0E4C\u0E14)" : "\u0E1D\u0E36\u0E01\u0E17\u0E33 (\u0E02\u0E49\u0E2D\u0E2A\u0E2D\u0E1A)"], ["bank", mode === "vocab" ? "\u0E04\u0E25\u0E31\u0E07\u0E04\u0E33\u0E28\u0E31\u0E1E\u0E17\u0E4C" : "\u0E04\u0E25\u0E31\u0E07\u0E02\u0E49\u0E2D\u0E2A\u0E2D\u0E1A"]].map(([id, lbl]) => /* @__PURE__ */ import_react.default.createElement(
       "button",
       {
         key: id,
@@ -17479,7 +17462,23 @@ ${opts}
         /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 12.5, fontWeight: 700, color: C.ink } }, d.icon, " ", d.label, d.cefr && /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 9.5, fontWeight: 700, color: C.accent, background: C.accentSoft, padding: "1px 6px", borderRadius: 8, marginLeft: 6, letterSpacing: 0.2, verticalAlign: "middle" } }, d.cefr)),
         /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 10.5, color: empty ? C.sub : tierColor, marginTop: 2, fontWeight: 600 } }, empty ? `${tot} \u0E04\u0E33` : stt.label)
       );
-    }))), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 12.5, color: C.sub, textAlign: "center", lineHeight: 1.6, padding: "4px 8px" } }, total === 0 ? `\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E23\u0E30\u0E14\u0E31\u0E1A\u0E14\u0E49\u0E32\u0E19\u0E1A\u0E19\u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E40\u0E23\u0E34\u0E48\u0E21\u0E40\u0E23\u0E35\u0E22\u0E19\u0E01\u0E32\u0E23\u0E4C\u0E14\u0E0A\u0E38\u0E14\u0E41\u0E23\u0E01\u0E44\u0E14\u0E49\u0E40\u0E25\u0E22\u0E04\u0E23\u0E31\u0E1A` : "\u0E2B\u0E23\u0E37\u0E2D \u{1F501} \u0E17\u0E27\u0E19\u0E02\u0E2D\u0E07\u0E40\u0E01\u0E48\u0E32\u0E17\u0E35\u0E48\u0E1B\u0E38\u0E48\u0E21\u0E14\u0E49\u0E32\u0E19\u0E1A\u0E19")), loaded && mode === "vocab" && st.tab === "study" && !emptyStudy && !sessionDone && card && /* @__PURE__ */ import_react.default.createElement("div", { className: "rise", key: st.pos }, /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, color: C.sub, marginBottom: 8 } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 7 } }, "\u0E01\u0E32\u0E23\u0E4C\u0E14 ", st.pos + 1, "/", st.deck.length), /* @__PURE__ */ import_react.default.createElement(StatusBadge, { mode, status: st.ratings[card.w] })), /* @__PURE__ */ import_react.default.createElement(Progress, { pos: st.pos, len: st.deck.length }), /* @__PURE__ */ import_react.default.createElement("div", { className: "flip", onClick: setFlip, style: { cursor: "pointer", marginBottom: 16 } }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flip-inner" + (st.flipped ? " is-flipped" : ""), style: { minHeight: 230 } }, /* @__PURE__ */ import_react.default.createElement("div", { className: "face", style: faceStyle() }, /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 8 } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 11, letterSpacing: 1, textTransform: "uppercase", color: C.accent, fontWeight: 600 } }, "\u0E04\u0E33\u0E28\u0E31\u0E1E\u0E17\u0E4C"), card.cefr && /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 10, fontWeight: 700, color: C.accent, background: C.accentSoft, padding: "2px 7px", borderRadius: 9, letterSpacing: 0.3 } }, card.cefr), /* @__PURE__ */ import_react.default.createElement(
+    }))), (reviewable > 0 || dueCountFor("vocab") > 0) && (() => {
+      const due = dueCountFor("vocab");
+      return /* @__PURE__ */ import_react.default.createElement(
+        ReviewBox,
+        {
+          due,
+          weak: reviewable,
+          sub: "\u0E23\u0E30\u0E1A\u0E1A\u0E08\u0E31\u0E14\u0E04\u0E34\u0E27\u0E04\u0E33\u0E17\u0E35\u0E48\u0E43\u0E01\u0E25\u0E49\u0E25\u0E37\u0E21\u0E21\u0E32\u0E01\u0E48\u0E2D\u0E19",
+          dueLabel: `\u0E16\u0E36\u0E07\u0E01\u0E33\u0E2B\u0E19\u0E14 (${due})`,
+          weakLabel: `\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E41\u0E21\u0E48\u0E19 (${reviewable})`,
+          weakAllLabel: `\u0E17\u0E27\u0E19\u0E04\u0E33\u0E17\u0E35\u0E48\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E41\u0E21\u0E48\u0E19\u0E17\u0E31\u0E49\u0E07\u0E2B\u0E21\u0E14 (${reviewable} \u0E04\u0E33)`,
+          onDue: buildDueDeck,
+          onWeak: buildReviewDeck,
+          margin: "0 0 4px"
+        }
+      );
+    })(), total === 0 && /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 12.5, color: C.sub, textAlign: "center", lineHeight: 1.6, padding: "4px 8px" } }, "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E23\u0E30\u0E14\u0E31\u0E1A\u0E14\u0E49\u0E32\u0E19\u0E1A\u0E19\u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E40\u0E23\u0E34\u0E48\u0E21\u0E40\u0E23\u0E35\u0E22\u0E19\u0E01\u0E32\u0E23\u0E4C\u0E14\u0E0A\u0E38\u0E14\u0E41\u0E23\u0E01\u0E44\u0E14\u0E49\u0E40\u0E25\u0E22\u0E04\u0E23\u0E31\u0E1A")), loaded && mode === "vocab" && st.tab === "study" && !emptyStudy && !sessionDone && card && /* @__PURE__ */ import_react.default.createElement("div", { className: "rise", key: st.pos }, /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, color: C.sub, marginBottom: 8 } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 7 } }, "\u0E01\u0E32\u0E23\u0E4C\u0E14 ", st.pos + 1, "/", st.deck.length), /* @__PURE__ */ import_react.default.createElement(StatusBadge, { mode, status: st.ratings[card.w] })), /* @__PURE__ */ import_react.default.createElement(Progress, { pos: st.pos, len: st.deck.length }), /* @__PURE__ */ import_react.default.createElement("div", { className: "flip", onClick: setFlip, style: { cursor: "pointer", marginBottom: 16 } }, /* @__PURE__ */ import_react.default.createElement("div", { className: "flip-inner" + (st.flipped ? " is-flipped" : ""), style: { minHeight: 230 } }, /* @__PURE__ */ import_react.default.createElement("div", { className: "face", style: faceStyle() }, /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 8 } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 11, letterSpacing: 1, textTransform: "uppercase", color: C.accent, fontWeight: 600 } }, "\u0E04\u0E33\u0E28\u0E31\u0E1E\u0E17\u0E4C"), card.cefr && /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 10, fontWeight: 700, color: C.accent, background: C.accentSoft, padding: "2px 7px", borderRadius: 9, letterSpacing: 0.3 } }, card.cefr), /* @__PURE__ */ import_react.default.createElement(
       "button",
       {
         onClick: (e) => {
