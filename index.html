@@ -7273,7 +7273,7 @@
   // <stdin>
   var import_react = __toESM(require_react());
   var import_client = __toESM(require_client());
-  var VERSION = "0.99.8";
+  var VERSION = "0.101.1";
   var IS_ARTIFACT = typeof window !== "undefined" && !!window.storage;
   var STORAGE = IS_ARTIFACT ? {
     async get(k) {
@@ -7501,6 +7501,7 @@
     return C.track;
   } };
   var STORAGE_KEY = { vocab: "toeic_vocab_ai_v1", grammar: "toeic_grammar_ai_v1", listening: "toeic_listening_ai_v1", audio: "toeic_audio_ai_v1" };
+  var PAUSED_KEY = "toeic_paused_v1";
   var BATCH = { vocab: 10, grammar: 5, listening: 3, audio: 2 };
   var DAY_MS = 864e5;
   function nextSrs(prev, status, now) {
@@ -8095,10 +8096,14 @@ For each item return:
 - "ex": one natural example sentence (business or daily context) that contains the base form "w"
 - "level": exactly one of "beginner", "intermediate", "advanced", "nearnative"
 - "cefr": the CEFR level, one of "A1","A2","B1","B2","C1","C2"
-Skip a word ONLY if it is not a real English word.
+- "skip": true ONLY when the rule below says to drop the word; otherwise OMIT this field entirely
+DROP RULE (set "skip": true): the input is a TRANSPARENT compound or two-word phrase whose meaning is just the literal sum of its parts, so it is NOT worth a vocabulary card. These add no new meaning beyond words a learner already knows. Examples to DROP: "third-floor" (= third + floor), "high-volume" (= high + volume), "cloud-based" (= cloud + based), "well-known", "long-term", "full-time", "two-week", "company-wide".
+KEEP (do NOT set "skip", make a normal card) when the compound is IDIOMATIC / lexicalized \u2014 its meaning is special and not obvious from the parts, OR it is a single fixed dictionary headword. Examples to KEEP: "breakthrough", "deadline", "bottleneck", "stakeholder", "workaround", "groundbreaking", "cutting-edge", "mission-critical", "state-of-the-art", "red tape", "rule of thumb". When unsure, KEEP it (make the card) \u2014 only drop the clearly literal sum-of-parts ones.
+Also set "skip": true if the input is not a real English word or phrase.
+For a skipped item, still echo "src" and "w"; the other fields may be empty.
 Input words: [${list}]
 Respond with ONLY a valid minified JSON array, no markdown, no backticks, no preamble.
-Shape: [{"src":"...","w":"...","pos":"...","ipa":"...","th":"...","def":"...","ex":"...","level":"...","cefr":"..."}]`;
+Shape: [{"src":"...","w":"...","pos":"...","ipa":"...","th":"...","def":"...","ex":"...","level":"...","cefr":"...","skip":false}]`;
   }
   var EXAM_BANK_KEY = "toeic_exam_bank_v1";
   var FAB_POS_KEY = "toeic_fab_pos_v1";
@@ -13066,6 +13071,9 @@ Shape: {"ptype":"Part 2","categories":["finance & budget","technology & IT"],"tr
     const [aFilter, setAFilter] = (0, import_react.useState)("all");
     const [gLessonFilter, setGLessonFilter] = (0, import_react.useState)("all");
     const [vquiz, setVquiz] = (0, import_react.useState)(null);
+    const [pausedSessions, setPausedSessions] = (0, import_react.useState)({});
+    const [pauseMsg, setPauseMsg] = (0, import_react.useState)(null);
+    const justResumedRef = (0, import_react.useRef)({});
     const [qexBusy, setQexBusy] = (0, import_react.useState)(false);
     const [qexErr, setQexErr] = (0, import_react.useState)(null);
     const [captureText, setCaptureText] = (0, import_react.useState)("");
@@ -13105,6 +13113,23 @@ Shape: {"ptype":"Part 2","categories":["finance & budget","technology & IT"],"tr
       const t = setInterval(() => setNow(Date.now()), sessionActive ? 1e3 : 6e4);
       return () => clearInterval(t);
     }, [sessionActive]);
+    (0, import_react.useEffect)(() => {
+      if (!pauseMsg) return;
+      const t = setTimeout(() => setPauseMsg(null), 2500);
+      return () => clearTimeout(t);
+    }, [pauseMsg]);
+    (0, import_react.useEffect)(() => {
+      if (lquiz && lquiz.deck && lquiz.deck.length) {
+        if (justResumedRef.current.listening) justResumedRef.current.listening = false;
+        else if (pausedSessions.listening) discardPaused("listening");
+      }
+    }, [lquiz]);
+    (0, import_react.useEffect)(() => {
+      if (aquiz && aquiz.deck && aquiz.deck.length) {
+        if (justResumedRef.current.audio) justResumedRef.current.audio = false;
+        else if (pausedSessions.audio) discardPaused("audio");
+      }
+    }, [aquiz]);
     const lastAutoTx = (0, import_react.useRef)(null);
     (0, import_react.useEffect)(() => {
       if (!settings.ttsAuto || !TTS_OK) return;
@@ -13304,6 +13329,14 @@ Shape: {"ptype":"Part 2","categories":["finance & budget","technology & IT"],"tr
             if (reb) {
               const b = JSON.parse(reb);
               if (b && typeof b === "object") setExamBank(b);
+            }
+          } catch (e) {
+          }
+          try {
+            const rp = await STORAGE.get(PAUSED_KEY);
+            if (rp) {
+              const o = JSON.parse(rp);
+              if (o && typeof o === "object" && !Array.isArray(o)) setPausedSessions(o);
             }
           } catch (e) {
           }
@@ -13525,6 +13558,7 @@ Shape: {"ptype":"Part 2","categories":["finance & budget","technology & IT"],"tr
         st2.endTime = null;
         st2.logged = false;
       }
+      discardPaused(mode);
       rerender();
       scrollToCards();
     }
@@ -13700,6 +13734,7 @@ Shape: {"ptype":"Part 2","categories":["finance & budget","technology & IT"],"tr
           st2.endTime = null;
           st2.logged = false;
         }
+        if (m === "vocab" || m === "grammar") discardPaused(m);
         await persist(m);
         touchStreak();
         updateHistory();
@@ -13731,6 +13766,7 @@ Shape: {"ptype":"Part 2","categories":["finance & budget","technology & IT"],"tr
         st2.endTime = null;
         st2.logged = false;
       }
+      discardPaused(mode);
       rerender();
       scrollToCards();
     }
@@ -13749,6 +13785,7 @@ Shape: {"ptype":"Part 2","categories":["finance & budget","technology & IT"],"tr
       st2.startTime = Date.now();
       st2.endTime = null;
       st2.logged = false;
+      discardPaused("grammar");
       rerender();
       scrollToCards();
     }
@@ -13770,6 +13807,7 @@ Shape: {"ptype":"Part 2","categories":["finance & budget","technology & IT"],"tr
       v.flipped = false;
       v.pickedMap = {};
       v.tab = "study";
+      discardPaused("vocab");
       setRevealTh(false);
       rerender();
       scrollToCards();
@@ -13810,6 +13848,156 @@ Shape: {"ptype":"Part 2","categories":["finance & budget","technology & IT"],"tr
         st2.tryOne = false;
       }
       rerender();
+    }
+    async function deleteVocab(w) {
+      const st2 = M.current.vocab;
+      const key = String(w || "").toLowerCase().trim();
+      if (!key) return;
+      const data = __spreadValues({}, st2.data);
+      delete data[key];
+      st2.data = data;
+      const drop = (obj) => {
+        if (obj && obj[key] != null) {
+          const n = __spreadValues({}, obj);
+          delete n[key];
+          return n;
+        }
+        return obj;
+      };
+      st2.ratings = drop(st2.ratings);
+      st2.srs = drop(st2.srs);
+      st2.qex = drop(st2.qex);
+      st2.missQ = drop(st2.missQ);
+      if (Array.isArray(st2.deck) && st2.deck.length) {
+        const i = st2.deck.findIndex((c) => c && (c.w || "").toLowerCase() === key);
+        if (i !== -1) {
+          st2.deck = st2.deck.filter((_, idx) => idx !== i);
+          if (st2.pos > i) st2.pos = Math.max(0, st2.pos - 1);
+        }
+      }
+      try {
+        await persist("vocab");
+      } catch (e) {
+      }
+      rerender();
+    }
+    function writePaused(next) {
+      setPausedSessions(next);
+      try {
+        STORAGE.set(PAUSED_KEY, JSON.stringify(next));
+      } catch (e) {
+      }
+    }
+    function snapshotMode(m) {
+      if (m === "vocab") {
+        const st2 = M.current.vocab;
+        if (!st2.deck || !st2.deck.length) return null;
+        return { kind: "vocab", deck: st2.deck, pos: st2.pos, savedAt: Date.now() };
+      }
+      if (m === "grammar") {
+        const st2 = M.current.grammar;
+        if (!st2.deck || !st2.deck.length) return null;
+        const elapsed = (st2.endTime || Date.now()) - (st2.startTime || Date.now());
+        return { kind: "grammar", deck: st2.deck, pos: st2.pos, pickedMap: st2.pickedMap || {}, elapsed, savedAt: Date.now() };
+      }
+      if (m === "listening") {
+        if (!lquiz || !lquiz.deck || !lquiz.deck.length) return null;
+        const elapsed = (lquiz.end || Date.now()) - (lquiz.start || Date.now());
+        const { deck, pos, picked: picked2, passageId, ptype, transcript, model, isReview } = lquiz;
+        return { kind: "listening", deck, pos, picked: picked2 || {}, passageId, ptype, transcript, model, isReview: !!isReview, elapsed, savedAt: Date.now() };
+      }
+      if (m === "audio") {
+        if (!aquiz || !aquiz.deck || !aquiz.deck.length) return null;
+        const elapsed = (aquiz.end || Date.now()) - (aquiz.start || Date.now());
+        const { deck, pos, picked: picked2, passageId, ptype, transcript, model, isReview } = aquiz;
+        return { kind: "audio", deck, pos, picked: picked2 || {}, passageId, ptype, transcript, model, isReview: !!isReview, elapsed, savedAt: Date.now() };
+      }
+      return null;
+    }
+    function pauseMode(m) {
+      const snap = snapshotMode(m);
+      if (!snap) return;
+      writePaused(__spreadProps(__spreadValues({}, pausedSessions), { [m]: snap }));
+      if (m === "vocab" || m === "grammar") {
+        const st2 = M.current[m];
+        st2.deck = [];
+        st2.pos = 0;
+        if (m === "vocab") st2.flipped = false;
+        if (m === "grammar") {
+          st2.pickedMap = {};
+          st2.startTime = null;
+          st2.endTime = null;
+          st2.logged = false;
+        }
+      } else if (m === "listening") {
+        setLquiz(null);
+      } else if (m === "audio") {
+        setAquiz(null);
+      }
+      setPauseMsg('\u23F8 \u0E1E\u0E31\u0E01\u0E44\u0E27\u0E49\u0E41\u0E25\u0E49\u0E27 \u2014 \u0E01\u0E14 "\u0E17\u0E33\u0E15\u0E48\u0E2D\u0E08\u0E32\u0E01\u0E17\u0E35\u0E48\u0E04\u0E49\u0E32\u0E07" \u0E40\u0E21\u0E37\u0E48\u0E2D\u0E1E\u0E23\u0E49\u0E2D\u0E21');
+      rerender();
+    }
+    function resumeMode(m) {
+      var _a, _b, _c, _d;
+      const snap = pausedSessions[m];
+      if (!snap) return;
+      justResumedRef.current[m] = true;
+      const now2 = Date.now();
+      if (m === "vocab") {
+        const st2 = M.current.vocab;
+        st2.deck = snap.deck || [];
+        st2.pos = snap.pos || 0;
+        st2.flipped = false;
+        st2.tab = "study";
+        st2.tryOne = false;
+      } else if (m === "grammar") {
+        const st2 = M.current.grammar;
+        st2.deck = snap.deck || [];
+        st2.pos = snap.pos || 0;
+        st2.pickedMap = snap.pickedMap || {};
+        st2.tab = "study";
+        st2.tryOne = false;
+        st2.startTime = now2 - (snap.elapsed || 0);
+        st2.endTime = null;
+        st2.logged = false;
+      } else if (m === "listening") {
+        setLquiz({
+          passageId: (_a = snap.passageId) != null ? _a : null,
+          ptype: snap.ptype || "\u0E1D\u0E36\u0E01\u0E08\u0E32\u0E01\u0E04\u0E25\u0E31\u0E07",
+          transcript: (_b = snap.transcript) != null ? _b : null,
+          model: snap.model || "",
+          deck: snap.deck || [],
+          pos: snap.pos || 0,
+          picked: snap.picked || {},
+          start: now2 - (snap.elapsed || 0),
+          end: null,
+          isReview: !!snap.isReview
+        });
+      } else if (m === "audio") {
+        setAquiz({
+          passageId: (_c = snap.passageId) != null ? _c : null,
+          ptype: snap.ptype || "\u0E1D\u0E36\u0E01\u0E08\u0E32\u0E01\u0E04\u0E25\u0E31\u0E07",
+          transcript: (_d = snap.transcript) != null ? _d : null,
+          model: snap.model || "",
+          deck: snap.deck || [],
+          pos: snap.pos || 0,
+          picked: snap.picked || {},
+          start: now2 - (snap.elapsed || 0),
+          end: null,
+          isReview: !!snap.isReview
+        });
+      }
+      const next = __spreadValues({}, pausedSessions);
+      delete next[m];
+      writePaused(next);
+      setPauseMsg(null);
+      rerender();
+    }
+    function discardPaused(m) {
+      if (!pausedSessions[m]) return;
+      const next = __spreadValues({}, pausedSessions);
+      delete next[m];
+      writePaused(next);
     }
     function choose(id, key, ans) {
       const st2 = cur();
@@ -13940,6 +14128,7 @@ Shape: {"ptype":"Part 2","categories":["finance & budget","technology & IT"],"tr
         const nextData = __spreadValues({}, st2.data);
         const consumed = /* @__PURE__ */ new Set();
         let added = 0;
+        const skipped = [];
         for (const it of arr || []) {
           if (!it || !it.w) continue;
           const base = String(it.w).toLowerCase().trim().replace(/[^a-z'-]/g, "");
@@ -13948,6 +14137,10 @@ Shape: {"ptype":"Part 2","categories":["finance & budget","technology & IT"],"tr
           const src = String(it.src || "").toLowerCase().trim();
           const q = queue.find((p) => p.w === src) || queue.find((p) => p.key === key);
           if (q) consumed.add(q.key);
+          if (it.skip === true) {
+            skipped.push(q ? q.w : src || base);
+            continue;
+          }
           if (nextData[base]) continue;
           if (bankKeys.has(key)) continue;
           bankKeys.add(key);
@@ -13971,7 +14164,9 @@ Shape: {"ptype":"Part 2","categories":["finance & budget","technology & IT"],"tr
         await persist("vocab");
         touchStreak();
         updateHistory();
-        if (added) setCaptureMsg("\u2713 \u0E40\u0E1E\u0E34\u0E48\u0E21 " + added + " \u0E04\u0E33\u0E40\u0E02\u0E49\u0E32\u0E04\u0E25\u0E31\u0E07\u0E04\u0E33\u0E28\u0E31\u0E1E\u0E17\u0E4C\u0E41\u0E25\u0E49\u0E27 \u2014 \u0E40\u0E1B\u0E34\u0E14\u0E41\u0E17\u0E47\u0E1A Vocab \u2192 \u0E40\u0E23\u0E35\u0E22\u0E19 (\u0E01\u0E32\u0E23\u0E4C\u0E14) \u0E44\u0E14\u0E49\u0E40\u0E25\u0E22");
+        const skipNote = skipped.length ? ` \xB7 \u0E02\u0E49\u0E32\u0E21 ${skipped.length} \u0E04\u0E33\u0E17\u0E35\u0E48\u0E40\u0E1B\u0E47\u0E19\u0E04\u0E33\u0E1C\u0E2A\u0E21\u0E04\u0E27\u0E32\u0E21\u0E2B\u0E21\u0E32\u0E22\u0E15\u0E23\u0E07\u0E15\u0E31\u0E27 (${skipped.slice(0, 4).join(", ")}${skipped.length > 4 ? "\u2026" : ""})` : "";
+        if (added) setCaptureMsg("\u2713 \u0E40\u0E1E\u0E34\u0E48\u0E21 " + added + " \u0E04\u0E33\u0E40\u0E02\u0E49\u0E32\u0E04\u0E25\u0E31\u0E07\u0E04\u0E33\u0E28\u0E31\u0E1E\u0E17\u0E4C\u0E41\u0E25\u0E49\u0E27 \u2014 \u0E40\u0E1B\u0E34\u0E14\u0E41\u0E17\u0E47\u0E1A Vocab \u2192 \u0E40\u0E23\u0E35\u0E22\u0E19 (\u0E01\u0E32\u0E23\u0E4C\u0E14) \u0E44\u0E14\u0E49\u0E40\u0E25\u0E22" + skipNote);
+        else if (skipped.length) setCaptureMsg("\u0E02\u0E49\u0E32\u0E21 " + skipped.length + " \u0E04\u0E33\u0E17\u0E35\u0E48\u0E40\u0E1B\u0E47\u0E19\u0E04\u0E33\u0E1C\u0E2A\u0E21\u0E04\u0E27\u0E32\u0E21\u0E2B\u0E21\u0E32\u0E22\u0E15\u0E23\u0E07\u0E15\u0E31\u0E27 (" + skipped.slice(0, 6).join(", ") + (skipped.length > 6 ? "\u2026" : "") + ") \u2014 \u0E44\u0E21\u0E48\u0E44\u0E14\u0E49\u0E40\u0E1E\u0E34\u0E48\u0E21\u0E01\u0E32\u0E23\u0E4C\u0E14\u0E43\u0E2B\u0E21\u0E48");
         else setCaptureErr("\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49\u0E01\u0E32\u0E23\u0E4C\u0E14\u0E43\u0E2B\u0E21\u0E48 \u2014 AI \u0E44\u0E21\u0E48\u0E1C\u0E48\u0E32\u0E19\u0E40\u0E01\u0E13\u0E11\u0E4C \u0E2B\u0E23\u0E37\u0E2D\u0E04\u0E33\u0E17\u0E35\u0E48\u0E40\u0E2B\u0E25\u0E37\u0E2D\u0E0B\u0E49\u0E33\u0E15\u0E23\u0E30\u0E01\u0E39\u0E25\u0E01\u0E31\u0E1A\u0E04\u0E25\u0E31\u0E07\u0E17\u0E31\u0E49\u0E07\u0E2B\u0E21\u0E14");
       } catch (e) {
         setCaptureErr(String(e && e.message || e));
@@ -16410,7 +16605,7 @@ ${opts}
             /* @__PURE__ */ import_react.default.createElement("br", null),
             /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 10, fontWeight: 400, opacity: 0.75 } }, rec ? "\u2605 \u0E41\u0E19\u0E30\u0E19\u0E33" : mm.note)
           );
-        }))), /* @__PURE__ */ import_react.default.createElement("div", { style: { marginBottom: 12 } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 12.5, color: C.sub, marginBottom: 6 } }, "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E2B\u0E31\u0E27\u0E02\u0E49\u0E2D"), /* @__PURE__ */ import_react.default.createElement(
+        }))), /* @__PURE__ */ import_react.default.createElement(ResumeBar, { snap: pausedSessions.listening, onResume: () => resumeMode("listening"), onDiscard: () => discardPaused("listening") }), /* @__PURE__ */ import_react.default.createElement("div", { style: { marginBottom: 12 } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 12.5, color: C.sub, marginBottom: 6 } }, "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E2B\u0E31\u0E27\u0E02\u0E49\u0E2D"), /* @__PURE__ */ import_react.default.createElement(
           "select",
           {
             value: genTopic.listening,
@@ -16679,7 +16874,16 @@ ${opts}
             style: { flex: "0 0 auto", background: C.accent, color: C.inkOn, border: "none", borderRadius: 10, padding: "10px 18px", fontSize: 15, fontWeight: 700, boxShadow: "0 6px 16px -8px rgba(191,77,40,.8)" }
           },
           v.pos + 1 >= v.deck.length ? "\u0E08\u0E1A" : "\u2192"
-        )), /* @__PURE__ */ import_react.default.createElement("div", { style: { background: C.soft, border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", fontSize: 14, lineHeight: 1.65 } }, /* @__PURE__ */ import_react.default.createElement("b", { style: { color: C.accent } }, "\u0E2D\u0E18\u0E34\u0E1A\u0E32\u0E22:"), " ", item.explain, /* @__PURE__ */ import_react.default.createElement(AnswerKeyWarning, { item, canonical: canonicalQ("listening", item.id), onFix: (L) => fixAnswerKey("listening", item.id, L), onRepair: () => repairExplain("listening", item.id), onDelete: () => deleteQuestion("listening", item.id) })))));
+        )), /* @__PURE__ */ import_react.default.createElement("div", { style: { background: C.soft, border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", fontSize: 14, lineHeight: 1.65 } }, /* @__PURE__ */ import_react.default.createElement("b", { style: { color: C.accent } }, "\u0E2D\u0E18\u0E34\u0E1A\u0E32\u0E22:"), " ", item.explain, /* @__PURE__ */ import_react.default.createElement(AnswerKeyWarning, { item, canonical: canonicalQ("listening", item.id), onFix: (L) => fixAnswerKey("listening", item.id, L), onRepair: () => repairExplain("listening", item.id), onDelete: () => deleteQuestion("listening", item.id) })))), /* @__PURE__ */ import_react.default.createElement(
+          NavRow,
+          {
+            pos: v.pos,
+            len: v.deck.length,
+            onPrev: () => setLquiz((q) => __spreadProps(__spreadValues({}, q), { pos: Math.max(q.pos - 1, 0) })),
+            onNext: () => setLquiz((q) => __spreadProps(__spreadValues({}, q), { pos: Math.min(q.pos + 1, q.deck.length) })),
+            onPause: () => pauseMode("listening")
+          }
+        ));
       }
       let correct = 0;
       v.deck.forEach((it) => {
@@ -16827,7 +17031,7 @@ ${opts}
             /* @__PURE__ */ import_react.default.createElement("br", null),
             /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 10, fontWeight: 400, opacity: 0.75 } }, rec ? "\u2605 \u0E41\u0E19\u0E30\u0E19\u0E33" : mm.note)
           );
-        }))), /* @__PURE__ */ import_react.default.createElement("div", { style: { marginBottom: 12 } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 12.5, color: C.sub, marginBottom: 6 } }, "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E2B\u0E31\u0E27\u0E02\u0E49\u0E2D"), /* @__PURE__ */ import_react.default.createElement(
+        }))), /* @__PURE__ */ import_react.default.createElement(ResumeBar, { snap: pausedSessions.audio, onResume: () => resumeMode("audio"), onDiscard: () => discardPaused("audio") }), /* @__PURE__ */ import_react.default.createElement("div", { style: { marginBottom: 12 } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 12.5, color: C.sub, marginBottom: 6 } }, "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E2B\u0E31\u0E27\u0E02\u0E49\u0E2D"), /* @__PURE__ */ import_react.default.createElement(
           "select",
           {
             value: genTopic.audio,
@@ -17112,7 +17316,16 @@ ${opts}
             style: { flex: "0 0 auto", background: C.accent, color: C.inkOn, border: "none", borderRadius: 10, padding: "10px 18px", fontSize: 15, fontWeight: 700, boxShadow: "0 6px 16px -8px rgba(191,77,40,.8)" }
           },
           v.pos + 1 >= v.deck.length ? "\u0E08\u0E1A" : "\u2192"
-        )), /* @__PURE__ */ import_react.default.createElement("div", { style: { background: C.soft, border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", fontSize: 14, lineHeight: 1.65 } }, /* @__PURE__ */ import_react.default.createElement("b", { style: { color: C.accent } }, "\u0E2D\u0E18\u0E34\u0E1A\u0E32\u0E22:"), " ", item.explain, /* @__PURE__ */ import_react.default.createElement(AnswerKeyWarning, { item, canonical: canonicalQ("audio", item.id), onFix: (L) => fixAnswerKey("audio", item.id, L), onRepair: () => repairExplain("audio", item.id), onDelete: () => deleteQuestion("audio", item.id) })))));
+        )), /* @__PURE__ */ import_react.default.createElement("div", { style: { background: C.soft, border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", fontSize: 14, lineHeight: 1.65 } }, /* @__PURE__ */ import_react.default.createElement("b", { style: { color: C.accent } }, "\u0E2D\u0E18\u0E34\u0E1A\u0E32\u0E22:"), " ", item.explain, /* @__PURE__ */ import_react.default.createElement(AnswerKeyWarning, { item, canonical: canonicalQ("audio", item.id), onFix: (L) => fixAnswerKey("audio", item.id, L), onRepair: () => repairExplain("audio", item.id), onDelete: () => deleteQuestion("audio", item.id) })))), /* @__PURE__ */ import_react.default.createElement(
+          NavRow,
+          {
+            pos: v.pos,
+            len: v.deck.length,
+            onPrev: () => setAquiz((q) => __spreadProps(__spreadValues({}, q), { pos: Math.max(q.pos - 1, 0) })),
+            onNext: () => setAquiz((q) => __spreadProps(__spreadValues({}, q), { pos: Math.min(q.pos + 1, q.deck.length) })),
+            onPause: () => pauseMode("audio")
+          }
+        ));
       }
       let correct = 0;
       v.deck.forEach((it) => {
@@ -17371,7 +17584,7 @@ ${opts}
       const gQuizN = Math.min(reviewCap("grammar"), gPoolN);
       const due = dueCountFor("grammar");
       const pointPills = [["all", "\u0E17\u0E31\u0E49\u0E07\u0E2B\u0E21\u0E14", gAll.length]].concat(Object.entries(gByPoint).sort((a, b) => b[1] - a[1]).map(([k, n]) => [k, k, n]));
-      return /* @__PURE__ */ import_react.default.createElement("div", { className: "rise", style: { marginBottom: 16 } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 13, color: C.sub, lineHeight: 1.6, marginBottom: 12 } }, "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E2B\u0E21\u0E27\u0E14\u0E44\u0E27\u0E22\u0E32\u0E01\u0E23\u0E13\u0E4C \u0E41\u0E25\u0E49\u0E27 ", /* @__PURE__ */ import_react.default.createElement("b", null, "\u0E40\u0E23\u0E34\u0E48\u0E21\u0E17\u0E33\u0E42\u0E08\u0E17\u0E22\u0E4C\u0E08\u0E32\u0E01\u0E04\u0E25\u0E31\u0E07"), " (\u0E44\u0E21\u0E48\u0E43\u0E0A\u0E49 AI) \u2014 \u0E2B\u0E23\u0E37\u0E2D\u0E01\u0E14 \u2728 \u0E43\u0E2B\u0E49 AI \u0E2A\u0E23\u0E49\u0E32\u0E07\u0E0A\u0E38\u0E14\u0E43\u0E2B\u0E21\u0E48", /* @__PURE__ */ import_react.default.createElement("b", null, "\u0E15\u0E32\u0E21\u0E2B\u0E21\u0E27\u0E14\u0E17\u0E35\u0E48\u0E40\u0E25\u0E37\u0E2D\u0E01"), " \xB7 \u0E1E\u0E23\u0E49\u0E2D\u0E21\u0E08\u0E31\u0E1A\u0E40\u0E27\u0E25\u0E32"), renderDiffSelector(), gAll.length > 0 && /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 11, color: C.sub, fontWeight: 600, marginBottom: 5, letterSpacing: 0.2 } }, "\u0E2B\u0E21\u0E27\u0E14 (Grammar point)"), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 4, marginBottom: 12 } }, pointPills.map(([id, lbl, n]) => {
+      return /* @__PURE__ */ import_react.default.createElement("div", { className: "rise", style: { marginBottom: 16 } }, emptyStudy && /* @__PURE__ */ import_react.default.createElement(ResumeBar, { snap: pausedSessions.grammar, onResume: () => resumeMode("grammar"), onDiscard: () => discardPaused("grammar") }), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 13, color: C.sub, lineHeight: 1.6, marginBottom: 12 } }, "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E2B\u0E21\u0E27\u0E14\u0E44\u0E27\u0E22\u0E32\u0E01\u0E23\u0E13\u0E4C \u0E41\u0E25\u0E49\u0E27 ", /* @__PURE__ */ import_react.default.createElement("b", null, "\u0E40\u0E23\u0E34\u0E48\u0E21\u0E17\u0E33\u0E42\u0E08\u0E17\u0E22\u0E4C\u0E08\u0E32\u0E01\u0E04\u0E25\u0E31\u0E07"), " (\u0E44\u0E21\u0E48\u0E43\u0E0A\u0E49 AI) \u2014 \u0E2B\u0E23\u0E37\u0E2D\u0E01\u0E14 \u2728 \u0E43\u0E2B\u0E49 AI \u0E2A\u0E23\u0E49\u0E32\u0E07\u0E0A\u0E38\u0E14\u0E43\u0E2B\u0E21\u0E48", /* @__PURE__ */ import_react.default.createElement("b", null, "\u0E15\u0E32\u0E21\u0E2B\u0E21\u0E27\u0E14\u0E17\u0E35\u0E48\u0E40\u0E25\u0E37\u0E2D\u0E01"), " \xB7 \u0E1E\u0E23\u0E49\u0E2D\u0E21\u0E08\u0E31\u0E1A\u0E40\u0E27\u0E25\u0E32"), renderDiffSelector(), gAll.length > 0 && /* @__PURE__ */ import_react.default.createElement(import_react.default.Fragment, null, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 11, color: C.sub, fontWeight: 600, marginBottom: 5, letterSpacing: 0.2 } }, "\u0E2B\u0E21\u0E27\u0E14 (Grammar point)"), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", gap: 6, overflowX: "auto", WebkitOverflowScrolling: "touch", paddingBottom: 4, marginBottom: 12 } }, pointPills.map(([id, lbl, n]) => {
         const on = gPoint === id;
         return /* @__PURE__ */ import_react.default.createElement(
           "button",
@@ -17452,7 +17665,7 @@ ${opts}
           margin: "0 0 4px"
         }
       ));
-    })(), loaded && mode === "vocab" && st.tab === "study" && emptyStudy && /* @__PURE__ */ import_react.default.createElement("div", { className: "rise", style: { marginBottom: 16 } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { border: `1px solid ${C.line}`, borderRadius: 13, padding: "12px 12px 13px", marginBottom: 12, background: C.card } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 12, color: C.sub, fontWeight: 700, marginBottom: 3 } }, "\u{1F4DA} \u0E04\u0E25\u0E31\u0E07\u0E04\u0E33\u0E15\u0E32\u0E21\u0E23\u0E30\u0E14\u0E31\u0E1A ", /* @__PURE__ */ import_react.default.createElement("span", { style: { fontWeight: 400, fontSize: 11 } }, "\xB7 \u0E04\u0E33\u0E04\u0E31\u0E14\u0E21\u0E32\u0E41\u0E25\u0E49\u0E27 \u0E44\u0E21\u0E48\u0E15\u0E49\u0E2D\u0E07\u0E43\u0E0A\u0E49 AI")), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 11, color: C.sub, marginBottom: 9, lineHeight: 1.5 } }, "\u0E2B\u0E22\u0E34\u0E1A\u0E17\u0E35\u0E25\u0E30 10 \u0E04\u0E33 \u2014 \u0E04\u0E33\u0E43\u0E2B\u0E21\u0E48\u0E01\u0E48\u0E2D\u0E19 \u0E2B\u0E21\u0E14\u0E41\u0E25\u0E49\u0E27\u0E17\u0E27\u0E19\u0E04\u0E33\u0E17\u0E35\u0E48\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E41\u0E21\u0E48\u0E19 \u0E2A\u0E38\u0E14\u0E17\u0E49\u0E32\u0E22\u0E04\u0E48\u0E2D\u0E22\u0E23\u0E35\u0E04\u0E33\u0E17\u0E35\u0E48\u0E08\u0E33\u0E44\u0E14\u0E49"), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 } }, DIFFICULTIES.filter((d) => d.id !== "mixed").map((d) => {
+    })(), loaded && mode === "vocab" && st.tab === "study" && emptyStudy && /* @__PURE__ */ import_react.default.createElement("div", { className: "rise", style: { marginBottom: 16 } }, /* @__PURE__ */ import_react.default.createElement(ResumeBar, { snap: pausedSessions.vocab, onResume: () => resumeMode("vocab"), onDiscard: () => discardPaused("vocab") }), /* @__PURE__ */ import_react.default.createElement("div", { style: { border: `1px solid ${C.line}`, borderRadius: 13, padding: "12px 12px 13px", marginBottom: 12, background: C.card } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 12, color: C.sub, fontWeight: 700, marginBottom: 3 } }, "\u{1F4DA} \u0E04\u0E25\u0E31\u0E07\u0E04\u0E33\u0E15\u0E32\u0E21\u0E23\u0E30\u0E14\u0E31\u0E1A ", /* @__PURE__ */ import_react.default.createElement("span", { style: { fontWeight: 400, fontSize: 11 } }, "\xB7 \u0E04\u0E33\u0E04\u0E31\u0E14\u0E21\u0E32\u0E41\u0E25\u0E49\u0E27 \u0E44\u0E21\u0E48\u0E15\u0E49\u0E2D\u0E07\u0E43\u0E0A\u0E49 AI")), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 11, color: C.sub, marginBottom: 9, lineHeight: 1.5 } }, "\u0E2B\u0E22\u0E34\u0E1A\u0E17\u0E35\u0E25\u0E30 10 \u0E04\u0E33 \u2014 \u0E04\u0E33\u0E43\u0E2B\u0E21\u0E48\u0E01\u0E48\u0E2D\u0E19 \u0E2B\u0E21\u0E14\u0E41\u0E25\u0E49\u0E27\u0E17\u0E27\u0E19\u0E04\u0E33\u0E17\u0E35\u0E48\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E41\u0E21\u0E48\u0E19 \u0E2A\u0E38\u0E14\u0E17\u0E49\u0E32\u0E22\u0E04\u0E48\u0E2D\u0E22\u0E23\u0E35\u0E04\u0E33\u0E17\u0E35\u0E48\u0E08\u0E33\u0E44\u0E14\u0E49"), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 } }, DIFFICULTIES.filter((d) => d.id !== "mixed").map((d) => {
       const tot = bankLevelTotal(d.id);
       const stt = bankLevelStatus(d.id);
       const empty = stt.kind === "empty";
@@ -17584,7 +17797,7 @@ ${opts}
         }
       },
       "\u{1F50A}"
-    ))))), /* @__PURE__ */ import_react.default.createElement(RatingRow, { mode, current: st.ratings[card.w], onRate: (s) => rate(card.w, s, true), big: true }), /* @__PURE__ */ import_react.default.createElement(NavRow, { pos: st.pos, len: st.deck.length, onPrev: () => setPos((p) => Math.max(p - 1, 0)), onNext: () => setPos((p) => Math.min(p + 1, st.deck.length)) })), loaded && mode === "grammar" && st.tab === "study" && !emptyStudy && !sessionDone && card && /* @__PURE__ */ import_react.default.createElement("div", { className: "rise", key: card.id }, /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, color: C.sub, marginBottom: 8 } }, /* @__PURE__ */ import_react.default.createElement("span", null, "\u0E02\u0E49\u0E2D ", st.pos + 1, "/", st.deck.length), /* @__PURE__ */ import_react.default.createElement("span", { style: { display: "flex", alignItems: "center", gap: 8 } }, !settings.hideTimer && /* @__PURE__ */ import_react.default.createElement("span", { style: {
+    ))))), /* @__PURE__ */ import_react.default.createElement(RatingRow, { mode, current: st.ratings[card.w], onRate: (s) => rate(card.w, s, true), big: true }), /* @__PURE__ */ import_react.default.createElement(NavRow, { pos: st.pos, len: st.deck.length, onPrev: () => setPos((p) => Math.max(p - 1, 0)), onNext: () => setPos((p) => Math.min(p + 1, st.deck.length)), onPause: () => pauseMode("vocab") })), loaded && mode === "grammar" && st.tab === "study" && !emptyStudy && !sessionDone && card && /* @__PURE__ */ import_react.default.createElement("div", { className: "rise", key: card.id }, /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, color: C.sub, marginBottom: 8 } }, /* @__PURE__ */ import_react.default.createElement("span", null, "\u0E02\u0E49\u0E2D ", st.pos + 1, "/", st.deck.length), /* @__PURE__ */ import_react.default.createElement("span", { style: { display: "flex", alignItems: "center", gap: 8 } }, !settings.hideTimer && /* @__PURE__ */ import_react.default.createElement("span", { style: {
       display: "inline-flex",
       alignItems: "center",
       gap: 5,
@@ -17674,7 +17887,7 @@ ${opts}
         }
       },
       st.pos + 1 >= st.deck.length ? "\u0E08\u0E1A" : "\u2192"
-    )), /* @__PURE__ */ import_react.default.createElement("div", { style: { background: C.soft, border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", fontSize: 14.5, lineHeight: 1.65 } }, /* @__PURE__ */ import_react.default.createElement("b", { style: { color: C.accent } }, "\u0E2D\u0E18\u0E34\u0E1A\u0E32\u0E22:"), " ", card.explain, /* @__PURE__ */ import_react.default.createElement(AnswerKeyWarning, { item: card, canonical: canonicalQ("grammar", card.id), onFix: (L) => fixAnswerKey("grammar", card.id, L), onRepair: () => repairExplain("grammar", card.id), onDelete: () => deleteQuestion("grammar", card.id) }))))), loaded && st.tab === "study" && sessionDone && (() => {
+    )), /* @__PURE__ */ import_react.default.createElement("div", { style: { background: C.soft, border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", fontSize: 14.5, lineHeight: 1.65 } }, /* @__PURE__ */ import_react.default.createElement("b", { style: { color: C.accent } }, "\u0E2D\u0E18\u0E34\u0E1A\u0E32\u0E22:"), " ", card.explain, /* @__PURE__ */ import_react.default.createElement(AnswerKeyWarning, { item: card, canonical: canonicalQ("grammar", card.id), onFix: (L) => fixAnswerKey("grammar", card.id, L), onRepair: () => repairExplain("grammar", card.id), onDelete: () => deleteQuestion("grammar", card.id) })))), /* @__PURE__ */ import_react.default.createElement(NavRow, { pos: st.pos, len: st.deck.length, onPrev: () => setPos((p) => Math.max(p - 1, 0)), onNext: () => setPos((p) => Math.min(p + 1, st.deck.length)), onPause: () => pauseMode("grammar") })), loaded && st.tab === "study" && sessionDone && (() => {
       let correct = 0, answered = 0, totalMs = 0, n = st.deck.length;
       if (mode === "grammar") {
         st.deck.forEach((c) => {
@@ -17949,7 +18162,7 @@ ${opts}
         style: { flex: "0 0 auto", width: 28, height: 28, borderRadius: "50%", border: `1.5px solid ${C.accentSoft}`, background: C.card, color: C.accent, fontSize: 13, display: "grid", placeItems: "center", lineHeight: 1, padding: 0 }
       },
       "\u{1F4AC}"
-    )), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center", flex: "0 0 auto" } }, x.cefr ? /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 10, color: C.accent, background: C.accentSoft, padding: "2px 7px", borderRadius: 10, fontWeight: 700 } }, x.cefr) : null, x.model ? /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 10, color: C.accent, background: C.accentSoft, padding: "2px 7px", borderRadius: 10 } }, x.model) : null, /* @__PURE__ */ import_react.default.createElement(StatusBadge, { mode, status: st.ratings[x.w] }))), /* @__PURE__ */ import_react.default.createElement("div", { style: { color: C.sub, fontSize: 13, marginTop: 2 } }, x.ipa), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 14.5, color: C.accent, fontWeight: 600, marginTop: 3 } }, x.th), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 13.5, color: C.sub, marginTop: 2, lineHeight: 1.45 } }, x.def), /* @__PURE__ */ import_react.default.createElement(RatingRow, { mode, current: st.ratings[x.w], onRate: (s) => rate(x.w, s, false), small: true })) : (() => {
+    )), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center", flex: "0 0 auto" } }, x.cefr ? /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 10, color: C.accent, background: C.accentSoft, padding: "2px 7px", borderRadius: 10, fontWeight: 700 } }, x.cefr) : null, x.model ? /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 10, color: C.accent, background: C.accentSoft, padding: "2px 7px", borderRadius: 10 } }, x.model) : null, /* @__PURE__ */ import_react.default.createElement(StatusBadge, { mode, status: st.ratings[x.w] }))), /* @__PURE__ */ import_react.default.createElement("div", { style: { color: C.sub, fontSize: 13, marginTop: 2 } }, x.ipa), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 14.5, color: C.accent, fontWeight: 600, marginTop: 3 } }, x.th), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 13.5, color: C.sub, marginTop: 2, lineHeight: 1.45 } }, x.def), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginTop: 10 } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ import_react.default.createElement(RatingRow, { mode, current: st.ratings[x.w], onRate: (s) => rate(x.w, s, false), small: true, inline: true })), /* @__PURE__ */ import_react.default.createElement(ConfirmBtn, { onConfirm: () => deleteVocab(x.w), idleLabel: "\u{1F5D1}", confirmLabel: "\u0E25\u0E1A?" }))) : (() => {
       var _a;
       const hit = auditAnswerExplain(x);
       const open = settings.bankReveal === "show" || !!bankOpen[x.id];
@@ -17986,7 +18199,7 @@ ${opts}
           style: { marginTop: 8, background: C.card, color: C.accent, border: `1.5px solid ${C.accentSoft}`, borderRadius: 9, padding: "7px 12px", fontSize: 12.5, fontWeight: 600 }
         },
         "\u{1F4CB} \u0E01\u0E4A\u0E2D\u0E1B\u0E02\u0E49\u0E2D\u0E19\u0E35\u0E49\u0E44\u0E1B\u0E16\u0E32\u0E21 Coach"
-      )), /* @__PURE__ */ import_react.default.createElement(RatingRow, { mode, current: st.ratings[x.id], onRate: (s) => rate(x.id, s, false), small: true }));
+      )), /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginTop: 10 } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ import_react.default.createElement(RatingRow, { mode, current: st.ratings[x.id], onRate: (s) => rate(x.id, s, false), small: true, inline: true })), /* @__PURE__ */ import_react.default.createElement(ConfirmBtn, { onConfirm: () => deleteQuestion("grammar", x.id), idleLabel: "\u{1F5D1}", confirmLabel: "\u0E25\u0E1A?" })));
     })())), bankItems.length > bankShow && /* @__PURE__ */ import_react.default.createElement(
       "button",
       {
@@ -17997,7 +18210,23 @@ ${opts}
       bankItems.length - bankShow,
       " ",
       mode === "vocab" ? "\u0E04\u0E33" : "\u0E02\u0E49\u0E2D"
-    )))), /* @__PURE__ */ import_react.default.createElement("p", { style: { textAlign: "center", color: C.sub, fontSize: 12, marginTop: 22, lineHeight: 1.6 } }, mode === "vocab" ? `\u0E04\u0E33\u0E2A\u0E23\u0E49\u0E32\u0E07\u0E42\u0E14\u0E22 AI (${(MODELS.find((x) => x.id === models[mode]) || MODELS[0]).label}) \xB7 \u0E1F\u0E31\u0E07\u0E40\u0E2A\u0E35\u0E22\u0E07\u0E08\u0E23\u0E34\u0E07\u0E17\u0E35\u0E48 YouGlish \u0E2B\u0E23\u0E37\u0E2D dictionary` : mode === "listening" ? `\u0E1A\u0E17\u0E40\u0E23\u0E35\u0E22\u0E19/\u0E02\u0E49\u0E2D\u0E1D\u0E36\u0E01\u0E2A\u0E23\u0E49\u0E32\u0E07\u0E42\u0E14\u0E22 AI (${(MODELS.find((x) => x.id === models[mode]) || MODELS[0]).label}) \xB7 Strategy \u0E1D\u0E31\u0E48\u0E07 Reading (Part 6-7) \u2014 \u0E40\u0E17\u0E04\u0E19\u0E34\u0E04\u0E1F\u0E31\u0E07\u0E22\u0E49\u0E32\u0E22\u0E44\u0E1B\u0E2D\u0E22\u0E39\u0E48\u0E41\u0E17\u0E47\u0E1A \u{1F3A7} Listening \u0E41\u0E25\u0E49\u0E27` : `\u0E02\u0E49\u0E2D\u0E2A\u0E2D\u0E1A\u0E2A\u0E23\u0E49\u0E32\u0E07\u0E42\u0E14\u0E22 AI (${(MODELS.find((x) => x.id === models[mode]) || MODELS[0]).label}) \u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E1D\u0E36\u0E01\u0E0B\u0E49\u0E2D\u0E21`, " ", "\xB7 \u0E2A\u0E16\u0E32\u0E19\u0E30\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E2D\u0E31\u0E15\u0E42\u0E19\u0E21\u0E31\u0E15\u0E34 \u0E41\u0E22\u0E01\u0E02\u0E2D\u0E07\u0E41\u0E15\u0E48\u0E25\u0E30\u0E42\u0E2B\u0E21\u0E14"), /* @__PURE__ */ import_react.default.createElement("div", { style: { textAlign: "center", marginTop: 6, marginBottom: 4 } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 10.5, color: C.sub, background: C.track, border: `1px solid ${C.line}`, borderRadius: 20, padding: "2px 10px", fontVariantNumeric: "tabular-nums", letterSpacing: 0.3 } }, "v", VERSION, IS_ARTIFACT ? " \xB7 artifact" : ""))), !captureOpen && (() => {
+    )))), /* @__PURE__ */ import_react.default.createElement("p", { style: { textAlign: "center", color: C.sub, fontSize: 12, marginTop: 22, lineHeight: 1.6 } }, mode === "vocab" ? `\u0E04\u0E33\u0E2A\u0E23\u0E49\u0E32\u0E07\u0E42\u0E14\u0E22 AI (${(MODELS.find((x) => x.id === models[mode]) || MODELS[0]).label}) \xB7 \u0E1F\u0E31\u0E07\u0E40\u0E2A\u0E35\u0E22\u0E07\u0E08\u0E23\u0E34\u0E07\u0E17\u0E35\u0E48 YouGlish \u0E2B\u0E23\u0E37\u0E2D dictionary` : mode === "listening" ? `\u0E1A\u0E17\u0E40\u0E23\u0E35\u0E22\u0E19/\u0E02\u0E49\u0E2D\u0E1D\u0E36\u0E01\u0E2A\u0E23\u0E49\u0E32\u0E07\u0E42\u0E14\u0E22 AI (${(MODELS.find((x) => x.id === models[mode]) || MODELS[0]).label}) \xB7 Strategy \u0E1D\u0E31\u0E48\u0E07 Reading (Part 6-7) \u2014 \u0E40\u0E17\u0E04\u0E19\u0E34\u0E04\u0E1F\u0E31\u0E07\u0E22\u0E49\u0E32\u0E22\u0E44\u0E1B\u0E2D\u0E22\u0E39\u0E48\u0E41\u0E17\u0E47\u0E1A \u{1F3A7} Listening \u0E41\u0E25\u0E49\u0E27` : `\u0E02\u0E49\u0E2D\u0E2A\u0E2D\u0E1A\u0E2A\u0E23\u0E49\u0E32\u0E07\u0E42\u0E14\u0E22 AI (${(MODELS.find((x) => x.id === models[mode]) || MODELS[0]).label}) \u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E1D\u0E36\u0E01\u0E0B\u0E49\u0E2D\u0E21`, " ", "\xB7 \u0E2A\u0E16\u0E32\u0E19\u0E30\u0E1A\u0E31\u0E19\u0E17\u0E36\u0E01\u0E2D\u0E31\u0E15\u0E42\u0E19\u0E21\u0E31\u0E15\u0E34 \u0E41\u0E22\u0E01\u0E02\u0E2D\u0E07\u0E41\u0E15\u0E48\u0E25\u0E30\u0E42\u0E2B\u0E21\u0E14"), /* @__PURE__ */ import_react.default.createElement("div", { style: { textAlign: "center", marginTop: 6, marginBottom: 4 } }, /* @__PURE__ */ import_react.default.createElement("span", { style: { fontSize: 10.5, color: C.sub, background: C.track, border: `1px solid ${C.line}`, borderRadius: 20, padding: "2px 10px", fontVariantNumeric: "tabular-nums", letterSpacing: 0.3 } }, "v", VERSION, IS_ARTIFACT ? " \xB7 artifact" : ""))), pauseMsg && /* @__PURE__ */ import_react.default.createElement("div", { style: {
+      position: "fixed",
+      left: "50%",
+      bottom: 96,
+      transform: "translateX(-50%)",
+      zIndex: 90,
+      background: C.ink,
+      color: C.bg,
+      fontSize: 13,
+      fontWeight: 600,
+      padding: "10px 16px",
+      borderRadius: 22,
+      boxShadow: "0 8px 24px -6px rgba(0,0,0,.5)",
+      maxWidth: "88%",
+      textAlign: "center",
+      lineHeight: 1.4
+    } }, pauseMsg), !captureOpen && (() => {
       const p = fabRenderPos();
       const tuckedRest = fabTucked && !fabDragging;
       return /* @__PURE__ */ import_react.default.createElement(
@@ -18352,9 +18581,9 @@ ${opts}
       return null;
     }));
   }
-  function RatingRow({ mode, current, onRate, big, small }) {
+  function RatingRow({ mode, current, onRate, big, small, inline }) {
     const S = STATUS[mode];
-    return /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: small ? 6 : 8, marginTop: small ? 10 : 0 } }, ["forgot", "sort", "known"].map((s) => {
+    return /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: small ? 6 : 8, marginTop: inline ? 0 : small ? 10 : 0 } }, ["forgot", "sort", "known"].map((s) => {
       const on = current === s;
       return /* @__PURE__ */ import_react.default.createElement(
         "button",
@@ -18375,8 +18604,59 @@ ${opts}
       );
     }));
   }
-  function NavRow({ pos, len, onPrev, onNext }) {
-    return /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", justifyContent: "space-between", marginTop: 14 } }, /* @__PURE__ */ import_react.default.createElement("button", { onClick: onPrev, disabled: pos === 0, style: { background: "none", border: "none", color: pos === 0 ? C.line : C.sub, fontSize: 14 } }, "\u2190 \u0E01\u0E48\u0E2D\u0E19\u0E2B\u0E19\u0E49\u0E32"), /* @__PURE__ */ import_react.default.createElement("button", { onClick: onNext, style: { background: "none", border: "none", color: C.sub, fontSize: 14 } }, "\u0E02\u0E49\u0E32\u0E21 \u2192"));
+  function NavRow({ pos, len, onPrev, onNext, onPause }) {
+    return /* @__PURE__ */ import_react.default.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 14 } }, /* @__PURE__ */ import_react.default.createElement("button", { onClick: onPrev, disabled: pos === 0, style: { flex: "0 0 auto", background: "none", border: "none", color: pos === 0 ? C.line : C.sub, fontSize: 14 } }, "\u2190 \u0E01\u0E48\u0E2D\u0E19\u0E2B\u0E19\u0E49\u0E32"), onPause && /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        onClick: onPause,
+        title: "\u0E1E\u0E31\u0E01\u0E44\u0E27\u0E49\u0E41\u0E25\u0E49\u0E27\u0E01\u0E25\u0E31\u0E1A\u0E21\u0E32\u0E17\u0E33\u0E15\u0E48\u0E2D\u0E17\u0E35\u0E2B\u0E25\u0E31\u0E07",
+        "aria-label": "\u0E1E\u0E31\u0E01\u0E44\u0E27\u0E49",
+        style: {
+          flex: "0 0 auto",
+          background: C.accentSoft,
+          color: C.accent,
+          border: `1px solid ${C.accentSoft}`,
+          borderRadius: 20,
+          padding: "6px 14px",
+          fontSize: 13,
+          fontWeight: 700,
+          whiteSpace: "nowrap"
+        }
+      },
+      "\u23F8 \u0E1E\u0E31\u0E01\u0E44\u0E27\u0E49"
+    ), /* @__PURE__ */ import_react.default.createElement("button", { onClick: onNext, style: { flex: "0 0 auto", background: "none", border: "none", color: C.sub, fontSize: 14 } }, "\u0E02\u0E49\u0E32\u0E21 \u2192"));
+  }
+  function ResumeBar({ snap, onResume, onDiscard }) {
+    if (!snap) return null;
+    const pos = (snap.pos || 0) + 1;
+    const len = snap.deck && snap.deck.length || 0;
+    const label = snap.kind === "vocab" ? "\u0E01\u0E32\u0E23\u0E4C\u0E14\u0E04\u0E33\u0E28\u0E31\u0E1E\u0E17\u0E4C" : "\u0E02\u0E49\u0E2D\u0E2A\u0E2D\u0E1A";
+    return /* @__PURE__ */ import_react.default.createElement("div", { style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      background: C.accentSoft,
+      border: `1px solid ${C.accent}`,
+      borderRadius: 12,
+      padding: "11px 13px",
+      marginBottom: 14
+    } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { flex: 1, minWidth: 0 } }, /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 13.5, fontWeight: 700, color: C.accent } }, "\u23F8 \u0E21\u0E35", label, "\u0E04\u0E49\u0E32\u0E07\u0E2D\u0E22\u0E39\u0E48"), /* @__PURE__ */ import_react.default.createElement("div", { style: { fontSize: 12, color: C.sub, marginTop: 1 } }, "\u0E17\u0E33\u0E16\u0E36\u0E07\u0E02\u0E49\u0E2D ", pos, "/", len, " \u2014 \u0E01\u0E14\u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E17\u0E33\u0E15\u0E48\u0E2D")), /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        onClick: onResume,
+        style: { flex: "0 0 auto", background: C.accent, color: C.inkOn, border: "none", borderRadius: 9, padding: "9px 15px", fontSize: 13.5, fontWeight: 700, whiteSpace: "nowrap" }
+      },
+      "\u25B6 \u0E17\u0E33\u0E15\u0E48\u0E2D"
+    ), /* @__PURE__ */ import_react.default.createElement(
+      "button",
+      {
+        onClick: onDiscard,
+        title: "\u0E17\u0E34\u0E49\u0E07\u0E07\u0E32\u0E19\u0E04\u0E49\u0E32\u0E07",
+        "aria-label": "\u0E17\u0E34\u0E49\u0E07\u0E07\u0E32\u0E19\u0E04\u0E49\u0E32\u0E07",
+        style: { flex: "0 0 auto", background: C.card, color: C.sub, border: `1px solid ${C.line}`, borderRadius: 9, padding: "9px 11px", fontSize: 13, fontWeight: 600 }
+      },
+      "\u2715"
+    ));
   }
   function faceStyle() {
     return {
