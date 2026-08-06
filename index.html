@@ -7652,6 +7652,159 @@
     return id && MODEL_ID_MIGRATION[id] || id;
   }
   var RECOMMENDED_BY_MODE = { vocab: "fast", grammar: "balanced", listening: "balanced", audio: "balanced" };
+  // ==== v0.110.0: ดึงรายชื่อโมเดลล่าสุดจาก API ตอนรันไทม์ ====
+  // เป้าหมายคือไม่ต้องกลับมาแก้ไฟล์นี้ทุกครั้งที่ผู้ให้บริการออกรุ่นใหม่
+  // ลำดับการทำงาน: เปิดแอปใช้ค่าที่แคชไว้ (หรือ MODEL_FALLBACK) ทันที ไม่รอเน็ต
+  // แล้วค่อยดึงเบื้องหลัง ได้ผลเมื่อไหร่ค่อยทับแล้ว rerender
+  // ดึงไม่สำเร็จ/ไม่มี key = อยู่กับค่าเดิมเงียบ ๆ ไม่มี error โผล่หน้าผู้ใช้
+  var MODEL_CATALOG_KEY = "toeic_model_catalog_v1";
+  var MODEL_CATALOG_TTL_MS = 864e5;
+  var MODEL_TIERS = ["fast", "balanced", "best"];
+  var MODEL_CATALOG = { claude: MODEL_FALLBACK.claude.slice(), gemini: MODEL_FALLBACK.gemini.slice() };
+  var MODEL_CATALOG_TS = { claude: 0, gemini: 0 };
+  // engine "artifact" ใช้โมเดลชุดเดียวกับ claude
+  function catalogKeyFor(engineId) {
+    return engineId === "artifact" ? "claude" : engineId;
+  }
+  // ยอมรับเฉพาะลิสต์ที่ครบทั้ง 3 ระดับ เพราะ UI และ recommended คาดว่ามีครบ
+  // note ยึดจาก fallback เสมอ (ข้อความไทยคงที่) ส่วน label/str มาจากของที่ดึงได้
+  function sanitizeModelList(list, fallback) {
+    if (!Array.isArray(list)) return null;
+    const byId = {};
+    for (const m of list) {
+      if (!m || typeof m.str !== "string" || !m.str) continue;
+      if (MODEL_TIERS.indexOf(m.id) < 0) continue;
+      byId[m.id] = m;
+    }
+    const out = fallback.map((fb) => {
+      const m = byId[fb.id];
+      if (!m) return null;
+      return { id: fb.id, label: String(m.label || m.str), str: m.str, note: fb.note, supportsThinking: !!m.supportsThinking };
+    });
+    return out.every(Boolean) ? out : null;
+  }
+  function loadCachedCatalog() {
+    let raw = null;
+    try {
+      raw = localStorage.getItem(MODEL_CATALOG_KEY);
+    } catch (e) {
+    }
+    if (!raw) return;
+    let obj = null;
+    try {
+      obj = JSON.parse(raw);
+    } catch (e) {
+    }
+    if (!obj || typeof obj !== "object") return;
+    const now2 = Date.now();
+    for (const k of Object.keys(MODEL_CATALOG)) {
+      const ent = obj[k];
+      if (!ent || typeof ent.ts !== "number" || now2 - ent.ts > MODEL_CATALOG_TTL_MS) continue;
+      const clean = sanitizeModelList(ent.models, MODEL_FALLBACK[k]);
+      if (!clean) continue;
+      MODEL_CATALOG[k] = clean;
+      MODEL_CATALOG_TS[k] = ent.ts;
+    }
+  }
+  loadCachedCatalog();
+  function saveCachedCatalog(catKey, models) {
+    try {
+      let obj = {};
+      try {
+        obj = JSON.parse(localStorage.getItem(MODEL_CATALOG_KEY) || "{}") || {};
+      } catch (e) {
+      }
+      obj[catKey] = { ts: Date.now(), models };
+      localStorage.setItem(MODEL_CATALOG_KEY, JSON.stringify(obj));
+    } catch (e) {
+    }
+  }
+  // ระดับของ Claude ดูจากชื่อวงศ์ในโมเดล id — ตัวที่ created_at ใหม่สุดของแต่ละวงศ์ชนะ
+  var CLAUDE_TIER_MATCH = { fast: /haiku/i, balanced: /sonnet/i, best: /opus/i };
+  async function discoverClaudeModels(engineId) {
+    const headers = { "anthropic-version": "2023-06-01" };
+    if (engineId !== "artifact") {
+      const key = getKey(engineId);
+      if (!key) return null;
+      headers["x-api-key"] = key;
+      headers["anthropic-dangerous-direct-browser-access"] = "true";
+    }
+    const res = await fetchWithTimeout("https://api.anthropic.com/v1/models?limit=100", { method: "GET", headers }, 15e3);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const list = data && Array.isArray(data.data) ? data.data.slice() : null;
+    if (!list || !list.length) return null;
+    list.sort((a, b) => String(b && b.created_at || "").localeCompare(String(a && a.created_at || "")));
+    return MODEL_FALLBACK.claude.map((fb) => {
+      const re = CLAUDE_TIER_MATCH[fb.id];
+      const hit = re ? list.find((m) => m && typeof m.id === "string" && re.test(m.id)) : null;
+      if (!hit) return fb;
+      // supportsThinking ยึดตามระดับเดิม: ช่อง fast (Haiku) ไม่ต้องปิด thinking ช่องอื่นต้องปิด
+      return { id: fb.id, label: hit.display_name || hit.id, str: hit.id, note: fb.note, supportsThinking: fb.supportsThinking };
+    });
+  }
+  // ตัดรุ่นทดลอง/รุ่นเฉพาะทางออก เหลือเฉพาะรุ่นข้อความที่ใช้งานจริงได้
+  var GEMINI_SKIP_RE = /preview|-exp|experimental|tts|live|image|audio|embedding|aqa|vision|learnlm|thinking|deep-research|computer-use|robotics|gemma/i;
+  function geminiVersion(id) {
+    const m = /gemini-(\d+)(?:\.(\d+))?/.exec(id);
+    if (!m) return -1;
+    return parseInt(m[1], 10) + (m[2] ? parseInt(m[2], 10) / 100 : 0);
+  }
+  async function discoverGeminiModels(engineId) {
+    const key = getKey(engineId);
+    if (!key) return null;
+    const res = await fetchWithTimeout("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200", { method: "GET", headers: { "x-goog-api-key": key } }, 15e3);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const raw = data && Array.isArray(data.models) ? data.models : null;
+    if (!raw || !raw.length) return null;
+    const usable = [];
+    for (const m of raw) {
+      const id = m && typeof m.name === "string" ? m.name.replace(/^models\//, "") : "";
+      if (!id || id.indexOf("gemini-") !== 0) continue;
+      if (GEMINI_SKIP_RE.test(id)) continue;
+      const methods = m.supportedGenerationMethods;
+      if (Array.isArray(methods) && methods.length && methods.indexOf("generateContent") < 0) continue;
+      usable.push({ id, label: m.displayName || id, v: geminiVersion(id) });
+    }
+    const byV = (a, b) => b.v - a.v;
+    const lite = usable.filter((m) => /flash-lite/.test(m.id)).sort(byV);
+    const flash = usable.filter((m) => /flash/.test(m.id) && !/flash-lite/.test(m.id)).sort(byV);
+    const pro = usable.filter((m) => /-pro/.test(m.id)).sort(byV);
+    // "ฉลาดสุด" = Pro ตัวใหม่สุดถ้ามีรุ่นที่ไม่ใช่ preview ไม่งั้นถอยไปใช้ Flash ตัวใหม่สุด
+    // (ตอนเขียนโค้ดนี้ Gemini 3 ยังไม่มี Pro ที่ stable ช่องนี้จึงตกเป็น flash รุ่นใหม่สุด)
+    const best = pro[0] || flash[0] || null;
+    const picked = {
+      best,
+      balanced: flash.find((m) => !best || m.id !== best.id) || flash[0] || null,
+      fast: lite[0] || null
+    };
+    return MODEL_FALLBACK.gemini.map((fb) => {
+      const hit = picked[fb.id];
+      if (!hit) return fb;
+      return { id: fb.id, label: hit.label, str: hit.id, note: fb.note, supportsThinking: fb.supportsThinking };
+    });
+  }
+  var modelRefreshInFlight = {};
+  async function refreshModelCatalog(engineId, onUpdate) {
+    const catKey = catalogKeyFor(engineId);
+    if (!MODEL_CATALOG[catKey] || modelRefreshInFlight[catKey]) return;
+    if (Date.now() - (MODEL_CATALOG_TS[catKey] || 0) < MODEL_CATALOG_TTL_MS) return;
+    modelRefreshInFlight[catKey] = true;
+    try {
+      const fresh = catKey === "gemini" ? await discoverGeminiModels(engineId) : await discoverClaudeModels(engineId);
+      const clean = sanitizeModelList(fresh, MODEL_FALLBACK[catKey]);
+      if (!clean) return;
+      const changed = JSON.stringify(clean) !== JSON.stringify(MODEL_CATALOG[catKey]);
+      MODEL_CATALOG[catKey] = clean;
+      MODEL_CATALOG_TS[catKey] = Date.now();
+      saveCachedCatalog(catKey, clean);
+      if (changed && typeof onUpdate === "function") onUpdate();
+    } catch (e) {
+    } finally {
+      modelRefreshInFlight[catKey] = false;
+    }
+  }
   var ENGINES = {
     gemini: {
       id: "gemini",
@@ -7664,7 +7817,9 @@
       keyUrlLabel: "aistudio.google.com/app/apikey",
       keyLogin: "\u0E25\u0E47\u0E2D\u0E01\u0E2D\u0E34\u0E19\u0E14\u0E49\u0E27\u0E22\u0E1A\u0E31\u0E0D\u0E0A\u0E35 Google",
       keyCreate: '\u0E01\u0E14 "Create API key" \u0E41\u0E25\u0E49\u0E27\u0E01\u0E4A\u0E2D\u0E1B\u0E04\u0E35\u0E22\u0E4C\u0E21\u0E32',
-      models: MODEL_FALLBACK.gemini,
+      get models() {
+        return MODEL_CATALOG.gemini;
+      },
       recommended: RECOMMENDED_BY_MODE,
       thinkingModes: [],
       // Gemini-side thinking control not implemented yet
@@ -7727,7 +7882,9 @@
       keyLogin: "\u0E25\u0E47\u0E2D\u0E01\u0E2D\u0E34\u0E19/\u0E2A\u0E21\u0E31\u0E04\u0E23\u0E1A\u0E31\u0E0D\u0E0A\u0E35 Anthropic (\u0E15\u0E49\u0E2D\u0E07\u0E40\u0E15\u0E34\u0E21\u0E40\u0E04\u0E23\u0E14\u0E34\u0E15\u0E02\u0E31\u0E49\u0E19\u0E15\u0E48\u0E33\u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E43\u0E0A\u0E49 API)",
       keyCreate: '\u0E01\u0E14 "Create Key" \u0E41\u0E25\u0E49\u0E27\u0E01\u0E4A\u0E2D\u0E1B\u0E04\u0E35\u0E22\u0E4C\u0E21\u0E32',
       // Sonnet and Opus support Anthropic's Adaptive thinking; Haiku does not
-      models: MODEL_FALLBACK.claude,
+      get models() {
+        return MODEL_CATALOG.claude;
+      },
       recommended: RECOMMENDED_BY_MODE,
       // which app modes are eligible for the thinking toggle (vocab is excluded — gains too little)
       thinkingModes: ["grammar", "listening"],
@@ -7807,7 +7964,9 @@
       keyLogin: "",
       keyCreate: "",
       needsKey: false,
-      models: MODEL_FALLBACK.claude,
+      get models() {
+        return MODEL_CATALOG.claude;
+      },
       recommended: RECOMMENDED_BY_MODE,
       thinkingModes: ["grammar", "listening"],
       async call({ model, maxTokens, prompt, thinkingCapable }) {
@@ -13546,6 +13705,11 @@ Shape: {"ptype":"Part 2","categories":["finance & budget","technology & IT"],"tr
     const models = __spreadValues(__spreadValues({}, RECOMMENDED), modelsByEngine[engine] || {});
     const _keyDep = keyTick;
     const needsKey = !!ENG.keyStorage;
+    // v0.110.0: ดึงรายชื่อโมเดลล่าสุดเบื้องหลัง — ไม่บล็อกการเปิดแอป
+    // ยิงใหม่เมื่อสลับ engine หรือเพิ่ง/เปลี่ยน API key (keyTick)
+    (0, import_react.useEffect)(() => {
+      refreshModelCatalog(engine, rerender);
+    }, [engine, keyTick]);
     const hasKey = needsKey ? !!getKey(engine) : true;
     const mdlAudioLabel = () => (MODELS.find((x) => x.id === models.audio) || MODELS[0] || {}).label || "";
     (0, import_react.useEffect)(() => {
