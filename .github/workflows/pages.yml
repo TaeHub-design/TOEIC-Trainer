@@ -24,13 +24,35 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install pinned toolchain
+        run: npm ci
+
+      # Guard against index.html and src/app.jsx drifting apart. index.html is committed
+      # build output; if someone edits it by hand the two stop matching and this fails
+      # rather than deploying a file no source can reproduce.
+      - name: Verify index.html matches the source
+        run: npm run verify
+
+      # Only index.html is the site. Uploading the repo root would also ship src/,
+      # Version/ and node_modules, which are several MB each and serve no purpose.
+      - name: Stage the site
+        run: |
+          mkdir -p _site
+          cp index.html _site/index.html
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: _site
 
       - name: Deploy to GitHub Pages
         id: deployment
