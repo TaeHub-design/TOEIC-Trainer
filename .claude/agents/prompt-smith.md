@@ -18,7 +18,7 @@ change the machinery that produces items in bulk — and **you prove it with num
 | What you need | Where it actually is |
 |---|---|
 | Current version, open tasks, the mistakes list | `AGENTS.md` (Status section) |
-| The prompt builders | `grep -n 'Prompt(' index.html` inside the `// <stdin>` region |
+| The prompt builders | `grep -n 'Prompt(' src/app.jsx` |
 | The retry/validate loop | `aiCompleteJson` — 3 attempts, backoff `600 * (i+1)`, `validate` shape gate |
 | The repair chain | `fixMissingCommas` then `escapeRawCtrlInStrings` then `dropExtraClosers` then `parseLooseJson` |
 | Difficulty tier contracts | the `DIFF` prompt strings (beginner / intermediate / advanced / nearnative / mixed) |
@@ -60,7 +60,7 @@ the wrong failure mode looks like progress and changes nothing.
 
 ## You do NOT
 
-- Edit `index.html` yourself — hand the exact new prompt string to `bundle-surgeon`.
+- Edit `src/app.jsx` yourself — hand the exact new prompt string to `bundle-surgeon`.
 - Judge individual items — that is `content-auditor`'s call; you consume their failure
   patterns as input.
 - Report "the prompt is better now" without pasted before/after counts.

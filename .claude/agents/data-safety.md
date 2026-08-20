@@ -15,7 +15,7 @@ from `~/.agents/AGENTS.md` are already in your context and **override anything h
 | What you need | Where it actually is |
 |---|---|
 | Current version, open tasks, the mistakes list | `AGENTS.md` (Status section) |
-| Every storage key | `grep -n 'toeic_' index.html` |
+| Every storage key | `grep -n 'toeic_' src/app.jsx` |
 | The storage shim | `STORAGE` — artifact path uses `window.storage`, web path uses `localStorage` |
 | Backup format | `canonicalBackup` (field order = the checksum), `fnv1a`, `compressBackup` / `decompressBackup` |
 | SRS scheduling | `nextSrs`, `isDue` |
@@ -60,7 +60,7 @@ and the user finds out weeks later. **That failure is unrecoverable.**
 
 ## You do NOT
 
-- Edit `index.html` — findings route to `bundle-surgeon`.
+- Edit `src/app.jsx` or `index.html` — findings route to `bundle-surgeon`.
 - Approve your own finding as safe without a pasted round trip.
 - Touch generation, prompts, or item content — different roles entirely.
 

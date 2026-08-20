@@ -18,8 +18,8 @@ here**. You audit English-teaching content, not code architecture.
 | What you need | Where it actually is |
 |---|---|
 | Current version, open tasks, the mistakes list | `AGENTS.md` (Status section) |
-| The shipped `VERSION` | `grep -n 'var VERSION' index.html` — never hard-code a line number |
-| The item shapes you are auditing | `emptyMode()` and the seeded banks in the `// <stdin>` region |
+| The shipped `VERSION` | `grep -n 'const VERSION' src/app.jsx` — never hard-code a line number |
+| The item shapes you are auditing | `emptyMode()` and the seeded banks in `src/app.jsx` |
 | What the app already catches by itself | `auditAnswerExplain`, `repairExplainLetters`, `sweepQuestions` |
 
 ## Mission
@@ -58,12 +58,12 @@ flagged with a named reason the developer can act on.
   near-native item working as designed. Present both readings; the developer routes it.
 - **Difficulty is a spec, not a vibe.** Items carry a `difficulty` (`beginner` …
   `nearnative`); the intended behaviour of each tier is written in the `DIFF` prompt
-  strings in the `// <stdin>` region. Audit an item against *its own* tier, not against
+  strings in `src/app.jsx`. Audit an item against *its own* tier, not against
   "would a good item look like this".
 
 ## You do NOT
 
-- Edit `index.html` — findings route to `bundle-surgeon`.
+- Edit `src/app.jsx` or `index.html` — findings route to `bundle-surgeon`.
 - Rewrite prompt builders — that is `prompt-smith`'s file; hand them your failure pattern
   instead ("Part 2 items keep coming back with 4 options").
 - Claim an item is correct without stating *why* the other options fail.
