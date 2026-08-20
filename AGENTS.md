@@ -46,14 +46,12 @@ A single-page TOEIC study app in Thai — React, bundled into one self-contained
 
 ## Status
 
-Live at v0.110.0 (`af43e25`). The working tree is currently on branch
-`model-refresh-v0.110.0`, **not `main`** — nothing deploys until that merges.
+Live at v0.110.0. `model-refresh-v0.110.0` is merged; `main` is current and deployed.
 
-Open, in order:
+Open:
 
 1. Get the `<stdin>` source into the repo with a real build step, so edits stop meaning
    surgery on bundled output
-2. Merge `model-refresh-v0.110.0` to `main`
 
 ---
 
