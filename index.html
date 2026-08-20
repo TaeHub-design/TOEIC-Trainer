@@ -7624,22 +7624,18 @@
       clearTimeout(t);
     }
   }
-  // v0.110.0: รายชื่อโมเดลรวมไว้ที่เดียว (เดิมก๊อปซ้ำในบล็อก claude กับ artifact)
-  // ค่าที่นี่คือค่าตั้งต้น/ค่าสำรอง — ด่าน 2 จะดึงรายชื่อจริงจาก API มาทับตอนรันไทม์
-  // id ห้ามผูกกับเลขเวอร์ชัน เพราะถูกเก็บลง localStorage และต้องอยู่ข้ามการอัปเดตโมเดล
   var MODEL_FALLBACK = {
     claude: [
-      { id: "balanced", label: "Sonnet 5", str: "claude-sonnet-5", note: "สมดุล", supportsThinking: true },
-      { id: "best", label: "Opus 5", str: "claude-opus-5", note: "ฉลาดสุด", supportsThinking: true },
-      { id: "fast", label: "Haiku 4.5", str: "claude-haiku-4-5", note: "เร็ว/เบา", supportsThinking: false }
+      { id: "balanced", label: "Sonnet 5", str: "claude-sonnet-5", note: "\u0E2A\u0E21\u0E14\u0E38\u0E25", supportsThinking: true },
+      { id: "best", label: "Opus 5", str: "claude-opus-5", note: "\u0E09\u0E25\u0E32\u0E14\u0E2A\u0E38\u0E14", supportsThinking: true },
+      { id: "fast", label: "Haiku 4.5", str: "claude-haiku-4-5", note: "\u0E40\u0E23\u0E47\u0E27/\u0E40\u0E1A\u0E32", supportsThinking: false }
     ],
     gemini: [
-      { id: "balanced", label: "Flash 3.5", str: "gemini-3.5-flash", note: "สมดุล", supportsThinking: false },
-      { id: "best", label: "Flash 3.6", str: "gemini-3.6-flash", note: "ฉลาดสุด", supportsThinking: false },
-      { id: "fast", label: "Flash-Lite 3.5", str: "gemini-3.5-flash-lite", note: "เร็ว/เบา", supportsThinking: false }
+      { id: "balanced", label: "Flash 3.5", str: "gemini-3.5-flash", note: "\u0E2A\u0E21\u0E14\u0E38\u0E25", supportsThinking: false },
+      { id: "best", label: "Flash 3.6", str: "gemini-3.6-flash", note: "\u0E09\u0E25\u0E32\u0E14\u0E2A\u0E38\u0E14", supportsThinking: false },
+      { id: "fast", label: "Flash-Lite 3.5", str: "gemini-3.5-flash-lite", note: "\u0E40\u0E23\u0E47\u0E27/\u0E40\u0E1A\u0E32", supportsThinking: false }
     ]
   };
-  // แปลง id เก่าที่ผูกเวอร์ชัน -> id ใหม่ที่ผูกระดับ ไม่งั้นโมเดลที่ผู้ใช้เคยเลือกจะรีเซ็ตเงียบ ๆ
   var MODEL_ID_MIGRATION = {
     sonnet46: "balanced",
     opus48: "best",
@@ -7652,22 +7648,14 @@
     return id && MODEL_ID_MIGRATION[id] || id;
   }
   var RECOMMENDED_BY_MODE = { vocab: "fast", grammar: "balanced", listening: "balanced", audio: "balanced" };
-  // ==== v0.110.0: ดึงรายชื่อโมเดลล่าสุดจาก API ตอนรันไทม์ ====
-  // เป้าหมายคือไม่ต้องกลับมาแก้ไฟล์นี้ทุกครั้งที่ผู้ให้บริการออกรุ่นใหม่
-  // ลำดับการทำงาน: เปิดแอปใช้ค่าที่แคชไว้ (หรือ MODEL_FALLBACK) ทันที ไม่รอเน็ต
-  // แล้วค่อยดึงเบื้องหลัง ได้ผลเมื่อไหร่ค่อยทับแล้ว rerender
-  // ดึงไม่สำเร็จ/ไม่มี key = อยู่กับค่าเดิมเงียบ ๆ ไม่มี error โผล่หน้าผู้ใช้
   var MODEL_CATALOG_KEY = "toeic_model_catalog_v1";
   var MODEL_CATALOG_TTL_MS = 864e5;
   var MODEL_TIERS = ["fast", "balanced", "best"];
   var MODEL_CATALOG = { claude: MODEL_FALLBACK.claude.slice(), gemini: MODEL_FALLBACK.gemini.slice() };
   var MODEL_CATALOG_TS = { claude: 0, gemini: 0 };
-  // engine "artifact" ใช้โมเดลชุดเดียวกับ claude
   function catalogKeyFor(engineId) {
     return engineId === "artifact" ? "claude" : engineId;
   }
-  // ยอมรับเฉพาะลิสต์ที่ครบทั้ง 3 ระดับ เพราะ UI และ recommended คาดว่ามีครบ
-  // note ยึดจาก fallback เสมอ (ข้อความไทยคงที่) ส่วน label/str มาจากของที่ดึงได้
   function sanitizeModelList(list, fallback) {
     if (!Array.isArray(list)) return null;
     const byId = {};
@@ -7696,10 +7684,10 @@
     } catch (e) {
     }
     if (!obj || typeof obj !== "object") return;
-    const now2 = Date.now();
+    const now = Date.now();
     for (const k of Object.keys(MODEL_CATALOG)) {
       const ent = obj[k];
-      if (!ent || typeof ent.ts !== "number" || now2 - ent.ts > MODEL_CATALOG_TTL_MS) continue;
+      if (!ent || typeof ent.ts !== "number" || now - ent.ts > MODEL_CATALOG_TTL_MS) continue;
       const clean = sanitizeModelList(ent.models, MODEL_FALLBACK[k]);
       if (!clean) continue;
       MODEL_CATALOG[k] = clean;
@@ -7719,7 +7707,6 @@
     } catch (e) {
     }
   }
-  // ระดับของ Claude ดูจากชื่อวงศ์ในโมเดล id — ตัวที่ created_at ใหม่สุดของแต่ละวงศ์ชนะ
   var CLAUDE_TIER_MATCH = { fast: /haiku/i, balanced: /sonnet/i, best: /opus/i };
   async function discoverClaudeModels(engineId) {
     const headers = { "anthropic-version": "2023-06-01" };
@@ -7739,11 +7726,9 @@
       const re = CLAUDE_TIER_MATCH[fb.id];
       const hit = re ? list.find((m) => m && typeof m.id === "string" && re.test(m.id)) : null;
       if (!hit) return fb;
-      // supportsThinking ยึดตามระดับเดิม: ช่อง fast (Haiku) ไม่ต้องปิด thinking ช่องอื่นต้องปิด
       return { id: fb.id, label: hit.display_name || hit.id, str: hit.id, note: fb.note, supportsThinking: fb.supportsThinking };
     });
   }
-  // ตัดรุ่นทดลอง/รุ่นเฉพาะทางออก เหลือเฉพาะรุ่นข้อความที่ใช้งานจริงได้
   var GEMINI_SKIP_RE = /preview|-exp|experimental|tts|live|image|audio|embedding|aqa|vision|learnlm|thinking|deep-research|computer-use|robotics|gemma/i;
   function geminiVersion(id) {
     const m = /gemini-(\d+)(?:\.(\d+))?/.exec(id);
@@ -7753,7 +7738,11 @@
   async function discoverGeminiModels(engineId) {
     const key = getKey(engineId);
     if (!key) return null;
-    const res = await fetchWithTimeout("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200", { method: "GET", headers: { "x-goog-api-key": key } }, 15e3);
+    const res = await fetchWithTimeout(
+      "https://generativelanguage.googleapis.com/v1beta/models?pageSize=200",
+      { method: "GET", headers: { "x-goog-api-key": key } },
+      15e3
+    );
     if (!res.ok) return null;
     const data = await res.json();
     const raw = data && Array.isArray(data.models) ? data.models : null;
@@ -7771,8 +7760,6 @@
     const lite = usable.filter((m) => /flash-lite/.test(m.id)).sort(byV);
     const flash = usable.filter((m) => /flash/.test(m.id) && !/flash-lite/.test(m.id)).sort(byV);
     const pro = usable.filter((m) => /-pro/.test(m.id)).sort(byV);
-    // "ฉลาดสุด" = Pro ตัวใหม่สุดถ้ามีรุ่นที่ไม่ใช่ preview ไม่งั้นถอยไปใช้ Flash ตัวใหม่สุด
-    // (ตอนเขียนโค้ดนี้ Gemini 3 ยังไม่มี Pro ที่ stable ช่องนี้จึงตกเป็น flash รุ่นใหม่สุด)
     const best = pro[0] || flash[0] || null;
     const picked = {
       best,
@@ -7889,58 +7876,54 @@
       // which app modes are eligible for the thinking toggle (vocab is excluded — gains too little)
       thinkingModes: ["grammar", "listening"],
       async call({ model, maxTokens, prompt, key, thinkingCapable }) {
-        // v0.110.0: \u0E42\u0E21\u0E40\u0E14\u0E25\u0E17\u0E35\u0E48\u0E04\u0E34\u0E14\u0E44\u0E14\u0E49 (Opus/Sonnet \u0E23\u0E38\u0E48\u0E19 5 \u0E02\u0E36\u0E49\u0E19\u0E44\u0E1B) \u0E40\u0E1B\u0E34\u0E14 thinking \u0E40\u0E1B\u0E47\u0E19\u0E04\u0E48\u0E32\u0E40\u0E23\u0E34\u0E48\u0E21\u0E15\u0E49\u0E19
-        // \u0E16\u0E49\u0E32\u0E44\u0E21\u0E48\u0E2A\u0E48\u0E07\u0E1F\u0E34\u0E25\u0E14\u0E4C\u0E19\u0E35\u0E49 \u2014 \u0E15\u0E48\u0E32\u0E07\u0E08\u0E32\u0E01 4.8 \u0E17\u0E35\u0E48\u0E44\u0E21\u0E48\u0E40\u0E1B\u0E34\u0E14. thinking \u0E01\u0E34\u0E19\u0E42\u0E04\u0E27\u0E15\u0E32 max_tokens \u0E01\u0E49\u0E2D\u0E19\u0E40\u0E14\u0E35\u0E22\u0E27
-        // \u0E01\u0E31\u0E1A\u0E04\u0E33\u0E15\u0E2D\u0E1A \u0E17\u0E33\u0E43\u0E2B\u0E49 JSON \u0E17\u0E35\u0E48\u0E22\u0E32\u0E27\u0E2D\u0E22\u0E39\u0E48\u0E41\u0E25\u0E49\u0E27\u0E16\u0E39\u0E01\u0E15\u0E31\u0E14\u0E01\u0E25\u0E32\u0E07\u0E04\u0E31\u0E19\u0E41\u0E25\u0E49\u0E27 parse \u0E44\u0E21\u0E48\u0E1C\u0E48\u0E32\u0E19 \u0E08\u0E36\u0E07\u0E1B\u0E34\u0E14\u0E44\u0E27\u0E49
         let sendThinking = !!thinkingCapable;
         for (let attempt = 0; attempt < 2; attempt++) {
-        const body = { model, max_tokens: maxTokens, messages: [{ role: "user", content: prompt }] };
-        if (sendThinking) body.thinking = { type: "disabled" };
-        let res;
-        try {
-          res = await fetchWithTimeout("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-api-key": key,
-              "anthropic-version": "2023-06-01",
-              // required so Anthropic allows a direct call from the browser (bring-your-own-key)
-              "anthropic-dangerous-direct-browser-access": "true"
-            },
-            body: JSON.stringify(body)
-          });
-        } catch (netErr) {
-          throw new Error("\u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21\u0E15\u0E48\u0E2D Claude \u0E44\u0E21\u0E48\u0E44\u0E14\u0E49 [network] (" + (netErr && netErr.message ? netErr.message : "fetch failed") + ") \u2014 \u0E15\u0E23\u0E27\u0E08\u0E2A\u0E31\u0E0D\u0E0D\u0E32\u0E13\u0E40\u0E19\u0E47\u0E15\u0E41\u0E25\u0E49\u0E27\u0E25\u0E2D\u0E07\u0E43\u0E2B\u0E21\u0E48");
-        }
-        if (!res.ok) {
-          let body2 = "";
+          const body = { model, max_tokens: maxTokens, messages: [{ role: "user", content: prompt }] };
+          if (sendThinking) body.thinking = { type: "disabled" };
+          let res;
           try {
-            body2 = await res.text();
+            res = await fetchWithTimeout("https://api.anthropic.com/v1/messages", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "x-api-key": key,
+                "anthropic-version": "2023-06-01",
+                // required so Anthropic allows a direct call from the browser (bring-your-own-key)
+                "anthropic-dangerous-direct-browser-access": "true"
+              },
+              body: JSON.stringify(body)
+            });
+          } catch (netErr) {
+            throw new Error("\u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21\u0E15\u0E48\u0E2D Claude \u0E44\u0E21\u0E48\u0E44\u0E14\u0E49 [network] (" + (netErr && netErr.message ? netErr.message : "fetch failed") + ") \u2014 \u0E15\u0E23\u0E27\u0E08\u0E2A\u0E31\u0E0D\u0E0D\u0E32\u0E13\u0E40\u0E19\u0E47\u0E15\u0E41\u0E25\u0E49\u0E27\u0E25\u0E2D\u0E07\u0E43\u0E2B\u0E21\u0E48");
+          }
+          if (!res.ok) {
+            let body2 = "";
+            try {
+              body2 = await res.text();
+            } catch (e) {
+            }
+            if (res.status === 400 && sendThinking && /thinking/i.test(body2)) {
+              sendThinking = false;
+              continue;
+            }
+            let hint = "";
+            if (res.status === 401) hint = " (API key \u0E44\u0E21\u0E48\u0E16\u0E39\u0E01\u0E15\u0E49\u0E2D\u0E07 \u2014 \u0E40\u0E0A\u0E47\u0E01\u0E17\u0E35\u0E48 console.anthropic.com)";
+            else if (res.status === 400) hint = " (\u0E04\u0E33\u0E2A\u0E31\u0E48\u0E07\u0E1C\u0E34\u0E14\u0E23\u0E39\u0E1B\u0E41\u0E1A\u0E1A \u0E2B\u0E23\u0E37\u0E2D\u0E0A\u0E37\u0E48\u0E2D\u0E42\u0E21\u0E40\u0E14\u0E25\u0E44\u0E21\u0E48\u0E16\u0E39\u0E01)";
+            else if (res.status === 403) hint = " (key \u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E43\u0E0A\u0E49\u0E42\u0E21\u0E40\u0E14\u0E25\u0E19\u0E35\u0E49)";
+            else if (res.status === 429) hint = " (\u0E40\u0E23\u0E35\u0E22\u0E01\u0E16\u0E35\u0E48\u0E40\u0E01\u0E34\u0E19\u0E42\u0E04\u0E27\u0E15\u0E49\u0E32/\u0E40\u0E04\u0E23\u0E14\u0E34\u0E15\u0E2B\u0E21\u0E14 \u0E23\u0E2D\u0E2A\u0E31\u0E01\u0E1E\u0E31\u0E01\u0E2B\u0E23\u0E37\u0E2D\u0E40\u0E15\u0E34\u0E21\u0E40\u0E04\u0E23\u0E14\u0E34\u0E15)";
+            else if (res.status >= 500) hint = " (\u0E1D\u0E31\u0E48\u0E07 Anthropic \u0E02\u0E31\u0E14\u0E02\u0E49\u0E2D\u0E07\u0E0A\u0E31\u0E48\u0E27\u0E04\u0E23\u0E32\u0E27 \u0E25\u0E2D\u0E07\u0E43\u0E2B\u0E21\u0E48\u0E43\u0E19 1-2 \u0E19\u0E32\u0E17\u0E35)";
+            throw new Error("Claude \u0E15\u0E2D\u0E1A\u0E2A\u0E16\u0E32\u0E19\u0E30 " + res.status + hint + (body2 ? ": " + body2.slice(0, 300) : ""));
+          }
+          let data;
+          try {
+            data = await res.json();
           } catch (e) {
+            throw new Error("\u0E2D\u0E48\u0E32\u0E19\u0E04\u0E33\u0E15\u0E2D\u0E1A Claude \u0E44\u0E21\u0E48\u0E44\u0E14\u0E49 (\u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 JSON)");
           }
-          // \u0E42\u0E21\u0E40\u0E14\u0E25\u0E1A\u0E32\u0E07\u0E23\u0E38\u0E48\u0E19\u0E2D\u0E32\u0E08\u0E44\u0E21\u0E48\u0E23\u0E31\u0E1A\u0E1E\u0E32\u0E23\u0E32\u0E21\u0E34\u0E40\u0E15\u0E2D\u0E23\u0E4C thinking \u2014 \u0E22\u0E34\u0E07\u0E0B\u0E49\u0E33\u0E04\u0E23\u0E31\u0E49\u0E07\u0E40\u0E14\u0E35\u0E22\u0E27\u0E42\u0E14\u0E22\u0E15\u0E31\u0E14\u0E1F\u0E34\u0E25\u0E14\u0E4C\u0E19\u0E31\u0E49\u0E19\u0E17\u0E34\u0E49\u0E07
-          if (res.status === 400 && sendThinking && /thinking/i.test(body2)) {
-            sendThinking = false;
-            continue;
-          }
-          let hint = "";
-          if (res.status === 401) hint = " (API key \u0E44\u0E21\u0E48\u0E16\u0E39\u0E01\u0E15\u0E49\u0E2D\u0E07 \u2014 \u0E40\u0E0A\u0E47\u0E01\u0E17\u0E35\u0E48 console.anthropic.com)";
-          else if (res.status === 400) hint = " (\u0E04\u0E33\u0E2A\u0E31\u0E48\u0E07\u0E1C\u0E34\u0E14\u0E23\u0E39\u0E1B\u0E41\u0E1A\u0E1A \u0E2B\u0E23\u0E37\u0E2D\u0E0A\u0E37\u0E48\u0E2D\u0E42\u0E21\u0E40\u0E14\u0E25\u0E44\u0E21\u0E48\u0E16\u0E39\u0E01)";
-          else if (res.status === 403) hint = " (key \u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E43\u0E0A\u0E49\u0E42\u0E21\u0E40\u0E14\u0E25\u0E19\u0E35\u0E49)";
-          else if (res.status === 429) hint = " (\u0E40\u0E23\u0E35\u0E22\u0E01\u0E16\u0E35\u0E48\u0E40\u0E01\u0E34\u0E19\u0E42\u0E04\u0E27\u0E15\u0E49\u0E32/\u0E40\u0E04\u0E23\u0E14\u0E34\u0E15\u0E2B\u0E21\u0E14 \u0E23\u0E2D\u0E2A\u0E31\u0E01\u0E1E\u0E31\u0E01\u0E2B\u0E23\u0E37\u0E2D\u0E40\u0E15\u0E34\u0E21\u0E40\u0E04\u0E23\u0E14\u0E34\u0E15)";
-          else if (res.status >= 500) hint = " (\u0E1D\u0E31\u0E48\u0E07 Anthropic \u0E02\u0E31\u0E14\u0E02\u0E49\u0E2D\u0E07\u0E0A\u0E31\u0E48\u0E27\u0E04\u0E23\u0E32\u0E27 \u0E25\u0E2D\u0E07\u0E43\u0E2B\u0E21\u0E48\u0E43\u0E19 1-2 \u0E19\u0E32\u0E17\u0E35)";
-          throw new Error("Claude \u0E15\u0E2D\u0E1A\u0E2A\u0E16\u0E32\u0E19\u0E30 " + res.status + hint + (body2 ? ": " + body2.slice(0, 300) : ""));
+          if (data && data.type === "error") throw new Error("Claude error: " + ((data.error && data.error.message ? data.error.message : JSON.stringify(data.error)) + "").slice(0, 300));
+          return (data.content || []).filter((b) => b && b.type === "text" && typeof b.text === "string").map((b) => b.text).join("");
         }
-        let data;
-        try {
-          data = await res.json();
-        } catch (e) {
-          throw new Error("\u0E2D\u0E48\u0E32\u0E19\u0E04\u0E33\u0E15\u0E2D\u0E1A Claude \u0E44\u0E21\u0E48\u0E44\u0E14\u0E49 (\u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 JSON)");
-        }
-        if (data && data.type === "error") throw new Error("Claude error: " + ((data.error && data.error.message ? data.error.message : JSON.stringify(data.error)) + "").slice(0, 300));
-        return (data.content || []).filter((b) => b && b.type === "text" && typeof b.text === "string").map((b) => b.text).join("");
-        }
-        throw new Error("Claude ตอบไม่สำเร็จหลังลองใหม่แล้ว");
+        throw new Error("Claude \u0E15\u0E2D\u0E1A\u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08\u0E2B\u0E25\u0E31\u0E07\u0E25\u0E2D\u0E07\u0E43\u0E2B\u0E21\u0E48\u0E41\u0E25\u0E49\u0E27");
       }
     },
     // ==== artifact-only engine ====
@@ -7970,43 +7953,42 @@
       recommended: RECOMMENDED_BY_MODE,
       thinkingModes: ["grammar", "listening"],
       async call({ model, maxTokens, prompt, thinkingCapable }) {
-        // v0.110.0: \u0E1B\u0E34\u0E14 thinking \u0E14\u0E49\u0E27\u0E22\u0E40\u0E2B\u0E15\u0E38\u0E1C\u0E25\u0E40\u0E14\u0E35\u0E22\u0E27\u0E01\u0E31\u0E1A engine claude \u0E02\u0E49\u0E32\u0E07\u0E1A\u0E19
         let sendThinking = !!thinkingCapable;
         for (let attempt = 0; attempt < 2; attempt++) {
-        const body = { model, max_tokens: maxTokens, messages: [{ role: "user", content: prompt }] };
-        if (sendThinking) body.thinking = { type: "disabled" };
-        let res;
-        try {
-          res = await fetchWithTimeout("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body)
-          });
-        } catch (netErr) {
-          throw new Error("\u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21\u0E15\u0E48\u0E2D AI \u0E44\u0E21\u0E48\u0E44\u0E14\u0E49 [network] (" + (netErr && netErr.message ? netErr.message : "fetch failed") + ") \u2014 \u0E21\u0E31\u0E01\u0E40\u0E01\u0E34\u0E14\u0E40\u0E21\u0E37\u0E48\u0E2D\u0E40\u0E1B\u0E34\u0E14\u0E43\u0E19 '\u0E41\u0E2D\u0E1B Claude \u0E1A\u0E19\u0E21\u0E37\u0E2D\u0E16\u0E37\u0E2D' \u0E25\u0E2D\u0E07\u0E40\u0E1B\u0E34\u0E14\u0E1A\u0E19 claude.ai \u0E43\u0E19\u0E40\u0E1A\u0E23\u0E32\u0E27\u0E4C\u0E40\u0E0B\u0E2D\u0E23\u0E4C\u0E41\u0E17\u0E19");
-        }
-        if (!res.ok) {
-          let bd = "";
+          const body = { model, max_tokens: maxTokens, messages: [{ role: "user", content: prompt }] };
+          if (sendThinking) body.thinking = { type: "disabled" };
+          let res;
           try {
-            bd = await res.text();
+            res = await fetchWithTimeout("https://api.anthropic.com/v1/messages", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body)
+            });
+          } catch (netErr) {
+            throw new Error("\u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21\u0E15\u0E48\u0E2D AI \u0E44\u0E21\u0E48\u0E44\u0E14\u0E49 [network] (" + (netErr && netErr.message ? netErr.message : "fetch failed") + ") \u2014 \u0E21\u0E31\u0E01\u0E40\u0E01\u0E34\u0E14\u0E40\u0E21\u0E37\u0E48\u0E2D\u0E40\u0E1B\u0E34\u0E14\u0E43\u0E19 '\u0E41\u0E2D\u0E1B Claude \u0E1A\u0E19\u0E21\u0E37\u0E2D\u0E16\u0E37\u0E2D' \u0E25\u0E2D\u0E07\u0E40\u0E1B\u0E34\u0E14\u0E1A\u0E19 claude.ai \u0E43\u0E19\u0E40\u0E1A\u0E23\u0E32\u0E27\u0E4C\u0E40\u0E0B\u0E2D\u0E23\u0E4C\u0E41\u0E17\u0E19");
+          }
+          if (!res.ok) {
+            let bd = "";
+            try {
+              bd = await res.text();
+            } catch (e) {
+            }
+            if (res.status === 400 && sendThinking && /thinking/i.test(bd)) {
+              sendThinking = false;
+              continue;
+            }
+            throw new Error("Claude (artifact) \u0E15\u0E2D\u0E1A\u0E2A\u0E16\u0E32\u0E19\u0E30 " + res.status + (bd ? ": " + bd.slice(0, 300) : ""));
+          }
+          let data;
+          try {
+            data = await res.json();
           } catch (e) {
+            throw new Error("\u0E2D\u0E48\u0E32\u0E19\u0E04\u0E33\u0E15\u0E2D\u0E1A Claude \u0E44\u0E21\u0E48\u0E44\u0E14\u0E49 (\u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 JSON)");
           }
-          if (res.status === 400 && sendThinking && /thinking/i.test(bd)) {
-            sendThinking = false;
-            continue;
-          }
-          throw new Error("Claude (artifact) \u0E15\u0E2D\u0E1A\u0E2A\u0E16\u0E32\u0E19\u0E30 " + res.status + (bd ? ": " + bd.slice(0, 300) : ""));
+          if (data && data.type === "error") throw new Error("Claude error: " + ((data.error && data.error.message ? data.error.message : JSON.stringify(data.error)) + "").slice(0, 300));
+          return (data.content || []).filter((b) => b && b.type === "text" && typeof b.text === "string").map((b) => b.text).join("");
         }
-        let data;
-        try {
-          data = await res.json();
-        } catch (e) {
-          throw new Error("\u0E2D\u0E48\u0E32\u0E19\u0E04\u0E33\u0E15\u0E2D\u0E1A Claude \u0E44\u0E21\u0E48\u0E44\u0E14\u0E49 (\u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 JSON)");
-        }
-        if (data && data.type === "error") throw new Error("Claude error: " + ((data.error && data.error.message ? data.error.message : JSON.stringify(data.error)) + "").slice(0, 300));
-        return (data.content || []).filter((b) => b && b.type === "text" && typeof b.text === "string").map((b) => b.text).join("");
-        }
-        throw new Error("Claude ตอบไม่สำเร็จหลังลองใหม่แล้ว");
+        throw new Error("Claude \u0E15\u0E2D\u0E1A\u0E44\u0E21\u0E48\u0E2A\u0E33\u0E40\u0E23\u0E47\u0E08\u0E2B\u0E25\u0E31\u0E07\u0E25\u0E2D\u0E07\u0E43\u0E2B\u0E21\u0E48\u0E41\u0E25\u0E49\u0E27");
       }
     }
   };
@@ -8644,7 +8626,6 @@ Shape: [{"src":"...","w":"...","pos":"...","ipa":"...","th":"...","def":"...","e
       key = getKey(engineId);
       if (!key) throw new Error("\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49\u0E43\u0E2A\u0E48 " + eng.name + " API key \u2014 \u0E01\u0E14\u0E1B\u0E38\u0E48\u0E21 \u2699\uFE0F \u0E14\u0E49\u0E32\u0E19\u0E1A\u0E19\u0E40\u0E1E\u0E37\u0E48\u0E2D\u0E43\u0E2A\u0E48 key \u0E01\u0E48\u0E2D\u0E19\u0E04\u0E23\u0E31\u0E1A");
     }
-    // v0.110.0: หา entry ของโมเดลจาก str เพื่อรู้ว่าเป็นรุ่นที่คิดได้หรือไม่ (ใช้ปิด thinking)
     const mdl = (eng.models || []).find((x) => x && x.str === model) || null;
     const thinkingCapable = !!(mdl && mdl.supportsThinking);
     const raw = await eng.call({ model, maxTokens, prompt, key, thinkingCapable });
@@ -8754,8 +8735,6 @@ Shape: [{"src":"...","w":"...","pos":"...","ipa":"...","th":"...","def":"...","e
     }
     return out;
   }
-  // v0.110.0: คิดจากระดับ (id) แทนการเดาจากชื่อโมเดล — ชื่อรุ่นใหม่ไม่มีคำว่า opus/pro
-  // ให้เดาอีกแล้ว (เช่นช่อง "ฉลาดสุด" ของ Gemini คือ gemini-3.6-flash)
   function genMaxTokens(mdl) {
     const tier = mdl && mdl.id || "";
     if (tier === "best") return 16e3;
@@ -8985,6 +8964,7 @@ Rules for "explain": THAI language, 1-3 sentences: why the correct choice is rig
   }
   var LESSONS = [
     {
+      // ⚓ L1 · Tense พื้นฐาน (อดีต/ปัจจุบัน/อนาคต)
       title: "Tense \u0E1E\u0E37\u0E49\u0E19\u0E10\u0E32\u0E19 (\u0E2D\u0E14\u0E35\u0E15/\u0E1B\u0E31\u0E08\u0E08\u0E38\u0E1A\u0E31\u0E19/\u0E2D\u0E19\u0E32\u0E04\u0E15)",
       point: "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E01\u0E32\u0E25\u0E43\u0E2B\u0E49\u0E15\u0E23\u0E07\u0E01\u0E31\u0E1A\u0E40\u0E27\u0E25\u0E32\u0E43\u0E19\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04",
       body: "\u0E14\u0E39\u0E04\u0E33\u0E1A\u0E2D\u0E01\u0E40\u0E27\u0E25\u0E32\u0E43\u0E19\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\u0E40\u0E1B\u0E47\u0E19\u0E2B\u0E25\u0E31\u0E01: yesterday, last week \u2192 \u0E2D\u0E14\u0E35\u0E15 (V2) \xB7 every day, usually \u2192 \u0E1B\u0E31\u0E08\u0E08\u0E38\u0E1A\u0E31\u0E19 (V1/V-s) \xB7 tomorrow, next week \u2192 \u0E2D\u0E19\u0E32\u0E04\u0E15 (will + V1)",
@@ -8992,6 +8972,7 @@ Rules for "explain": THAI language, 1-3 sentences: why the correct choice is rig
       trap: "\u0E02\u0E49\u0E2D\u0E2A\u0E2D\u0E1A\u0E0A\u0E2D\u0E1A\u0E27\u0E32\u0E07\u0E04\u0E33\u0E1A\u0E2D\u0E01\u0E40\u0E27\u0E25\u0E32\u0E44\u0E27\u0E49\u0E44\u0E01\u0E25\u0E08\u0E32\u0E01\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07 \u0E15\u0E49\u0E2D\u0E07\u0E2D\u0E48\u0E32\u0E19\u0E17\u0E31\u0E49\u0E07\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\u0E01\u0E48\u0E2D\u0E19\u0E15\u0E2D\u0E1A"
     },
     {
+      // ⚓ L2 · Present Perfect (have/has + V3)
       title: "Present Perfect (have/has + V3)",
       point: "\u0E43\u0E0A\u0E49\u0E01\u0E31\u0E1A\u0E2A\u0E34\u0E48\u0E07\u0E17\u0E35\u0E48\u0E40\u0E01\u0E34\u0E14\u0E43\u0E19\u0E2D\u0E14\u0E35\u0E15\u0E41\u0E25\u0E30\u0E22\u0E31\u0E07\u0E40\u0E01\u0E35\u0E48\u0E22\u0E27\u0E02\u0E49\u0E2D\u0E07\u0E01\u0E31\u0E1A\u0E1B\u0E31\u0E08\u0E08\u0E38\u0E1A\u0E31\u0E19",
       body: "\u0E2A\u0E31\u0E0D\u0E0D\u0E32\u0E13\u0E17\u0E35\u0E48\u0E40\u0E08\u0E2D\u0E1A\u0E48\u0E2D\u0E22: already, yet, just, since, for, recently \u2192 \u0E21\u0E31\u0E01\u0E15\u0E2D\u0E1A have/has + V3 \u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48\u0E2D\u0E14\u0E35\u0E15\u0E18\u0E23\u0E23\u0E21\u0E14\u0E32",
@@ -8999,6 +8980,7 @@ Rules for "explain": THAI language, 1-3 sentences: why the correct choice is rig
       trap: "since + \u0E08\u0E38\u0E14\u0E40\u0E27\u0E25\u0E32 (since 2020) / for + \u0E0A\u0E48\u0E27\u0E07\u0E40\u0E27\u0E25\u0E32 (for 5 years) \u2014 \u0E2A\u0E25\u0E31\u0E1A\u0E01\u0E31\u0E19\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49"
     },
     {
+      // ⚓ L3 · Subject–Verb Agreement (ประธานกับกริยา)
       title: "Subject\u2013Verb Agreement (\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19\u0E01\u0E31\u0E1A\u0E01\u0E23\u0E34\u0E22\u0E32)",
       point: "\u0E01\u0E23\u0E34\u0E22\u0E32\u0E15\u0E49\u0E2D\u0E07\u0E1C\u0E31\u0E19\u0E15\u0E32\u0E21\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19\u0E40\u0E2D\u0E01\u0E1E\u0E08\u0E19\u0E4C/\u0E1E\u0E2B\u0E39\u0E1E\u0E08\u0E19\u0E4C",
       body: "\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19\u0E40\u0E2D\u0E01\u0E1E\u0E08\u0E19\u0E4C (he/she/it, \u0E04\u0E33\u0E19\u0E32\u0E21\u0E19\u0E31\u0E1A\u0E40\u0E2D\u0E01\u0E1E\u0E08\u0E19\u0E4C) \u2192 \u0E01\u0E23\u0E34\u0E22\u0E32\u0E40\u0E15\u0E34\u0E21 -s \xB7 \u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19\u0E1E\u0E2B\u0E39\u0E1E\u0E08\u0E19\u0E4C \u2192 \u0E44\u0E21\u0E48\u0E40\u0E15\u0E34\u0E21 \u0E23\u0E30\u0E27\u0E31\u0E07\u0E04\u0E33\u0E04\u0E31\u0E48\u0E19\u0E01\u0E25\u0E32\u0E07\u0E17\u0E35\u0E48\u0E21\u0E32\u0E2B\u0E25\u0E2D\u0E01\u0E15\u0E32",
@@ -9006,6 +8988,7 @@ Rules for "explain": THAI language, 1-3 sentences: why the correct choice is rig
       trap: "Each / Every / Everyone = \u0E40\u0E2D\u0E01\u0E1E\u0E08\u0E19\u0E4C\u0E40\u0E2A\u0E21\u0E2D (\u0E43\u0E0A\u0E49 is/has) \u0E41\u0E21\u0E49\u0E04\u0E27\u0E32\u0E21\u0E2B\u0E21\u0E32\u0E22\u0E14\u0E39\u0E40\u0E2B\u0E21\u0E37\u0E2D\u0E19\u0E2B\u0E25\u0E32\u0E22\u0E04\u0E19"
     },
     {
+      // ⚓ L4 · คำบุพบทเวลา: in / on / at
       title: "\u0E04\u0E33\u0E1A\u0E38\u0E1E\u0E1A\u0E17\u0E40\u0E27\u0E25\u0E32: in / on / at",
       point: "\u0E23\u0E30\u0E14\u0E31\u0E1A\u0E04\u0E27\u0E32\u0E21\u0E40\u0E09\u0E1E\u0E32\u0E30\u0E40\u0E08\u0E32\u0E30\u0E08\u0E07\u0E02\u0E2D\u0E07\u0E40\u0E27\u0E25\u0E32\u0E15\u0E48\u0E32\u0E07\u0E01\u0E31\u0E19",
       body: "at + \u0E40\u0E27\u0E25\u0E32\u0E19\u0E32\u0E2C\u0E34\u0E01\u0E32 (at 5 PM, at night) \xB7 on + \u0E27\u0E31\u0E19/\u0E27\u0E31\u0E19\u0E17\u0E35\u0E48 (on Monday) \xB7 in + \u0E40\u0E14\u0E37\u0E2D\u0E19/\u0E1B\u0E35/\u0E0A\u0E48\u0E27\u0E07 (in May, in 2025, in the morning)",
@@ -9013,6 +8996,7 @@ Rules for "explain": THAI language, 1-3 sentences: why the correct choice is rig
       trap: "\u0E23\u0E30\u0E27\u0E31\u0E07 at night \u0E41\u0E15\u0E48 in the morning/afternoon/evening \xB7 by (\u0E44\u0E21\u0E48\u0E40\u0E01\u0E34\u0E19) vs until (\u0E08\u0E19\u0E01\u0E23\u0E30\u0E17\u0E31\u0E48\u0E07): by Friday = \u0E2A\u0E48\u0E07\u0E01\u0E48\u0E2D\u0E19\u0E28\u0E38\u0E01\u0E23\u0E4C, until Friday = \u0E17\u0E33\u0E15\u0E48\u0E2D\u0E40\u0E19\u0E37\u0E48\u0E2D\u0E07\u0E16\u0E36\u0E07\u0E28\u0E38\u0E01\u0E23\u0E4C"
     },
     {
+      // ⚓ L5 · คำบุพบทสถานที่: in / on / at
       title: "\u0E04\u0E33\u0E1A\u0E38\u0E1E\u0E1A\u0E17\u0E2A\u0E16\u0E32\u0E19\u0E17\u0E35\u0E48: in / on / at",
       point: "\u0E02\u0E19\u0E32\u0E14\u0E02\u0E2D\u0E07\u0E1E\u0E37\u0E49\u0E19\u0E17\u0E35\u0E48\u0E15\u0E48\u0E32\u0E07\u0E01\u0E31\u0E19",
       body: "at + \u0E08\u0E38\u0E14/\u0E17\u0E35\u0E48\u0E2D\u0E22\u0E39\u0E48\u0E40\u0E09\u0E1E\u0E32\u0E30 (at the desk) \xB7 on + \u0E1E\u0E37\u0E49\u0E19\u0E1C\u0E34\u0E27 (on the wall) \xB7 in + \u0E1E\u0E37\u0E49\u0E19\u0E17\u0E35\u0E48\u0E1B\u0E34\u0E14/\u0E40\u0E21\u0E37\u0E2D\u0E07/\u0E1B\u0E23\u0E30\u0E40\u0E17\u0E28 (in the office, in Bangkok)",
@@ -9020,9 +9004,11 @@ Rules for "explain": THAI language, 1-3 sentences: why the correct choice is rig
       trap: "TOEIC \u0E0A\u0E2D\u0E1A\u0E2D\u0E2D\u0E01 at the airport / in the building / on the second floor \u2014 \u0E08\u0E33\u0E40\u0E1B\u0E47\u0E19\u0E0A\u0E38\u0E14\u0E44\u0E1B\u0E40\u0E25\u0E22"
     },
     {
+      // ⚓ L6 · Contrast Connectors (คำเชื่อมขัดแย้ง: although/despite/however)
       title: `Contrast Connectors (\u0E04\u0E33\u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21\u0E02\u0E31\u0E14\u0E41\u0E22\u0E49\u0E07: although/despite/however)`,
       point: `\u0E14\u0E39\u0E2A\u0E34\u0E48\u0E07\u0E17\u0E35\u0E48\u0E15\u0E32\u0E21\u0E2B\u0E25\u0E31\u0E07\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07: \u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\u0E40\u0E15\u0E47\u0E21 \u2192 \u0E01\u0E25\u0E38\u0E48\u0E21 although \xB7 \u0E04\u0E33\u0E19\u0E32\u0E21/V-ing \u2192 \u0E01\u0E25\u0E38\u0E48\u0E21 despite \xB7 \u0E02\u0E36\u0E49\u0E19\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\u0E43\u0E2B\u0E21\u0E48 \u2192 \u0E01\u0E25\u0E38\u0E48\u0E21 however (\u0E14\u0E39\u0E02\u0E49\u0E32\u0E07\u0E2B\u0E25\u0E31\u0E07 \u0E44\u0E21\u0E48\u0E14\u0E39\u0E04\u0E27\u0E32\u0E21\u0E2B\u0E21\u0E32\u0E22)`,
       blocks: [
+        // ⚓ L6.S0 · intro · ฟังก์ชันไม่ใช่ความจำ
         { type: "text", md: `\u{1F4D8} \u0E2A\u0E48\u0E27\u0E19\u0E17\u0E35\u0E48 0 \u2014 \u0E2B\u0E21\u0E27\u0E14\u0E19\u0E35\u0E49\u0E41\u0E01\u0E49\u0E14\u0E49\u0E27\u0E22 "\u0E1F\u0E31\u0E07\u0E01\u0E4C\u0E0A\u0E31\u0E19" \u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48\u0E04\u0E27\u0E32\u0E21\u0E08\u0E33
 
 \u0E42\u0E08\u0E17\u0E22\u0E4C\u0E08\u0E30\u0E43\u0E2B\u0E49\u0E04\u0E33\u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21\u0E17\u0E35\u0E48\u0E41\u0E1B\u0E25\u0E04\u0E25\u0E49\u0E32\u0E22\u0E01\u0E31\u0E19\u0E2B\u0E21\u0E14\u0E21\u0E32 4 \u0E15\u0E31\u0E27 \u0E40\u0E0A\u0E48\u0E19 although / despite / however / but \u0E41\u0E25\u0E49\u0E27\u0E16\u0E32\u0E21\u0E27\u0E48\u0E32\u0E15\u0E31\u0E27\u0E44\u0E2B\u0E19\u0E40\u0E15\u0E34\u0E21\u0E43\u0E19\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07
@@ -9032,6 +9018,7 @@ Rules for "explain": THAI language, 1-3 sentences: why the correct choice is rig
 \u0E14\u0E39\u0E02\u0E49\u0E32\u0E07\u0E2B\u0E25\u0E31\u0E07 \u0E44\u0E21\u0E48\u0E14\u0E39\u0E04\u0E27\u0E32\u0E21\u0E2B\u0E21\u0E32\u0E22
 
 \u23F1\uFE0F \u0E01\u0E23\u0E2D\u0E1A\u0E40\u0E27\u0E25\u0E32: \u0E2B\u0E21\u0E27\u0E14\u0E19\u0E35\u0E49\u0E04\u0E37\u0E2D\u0E02\u0E49\u0E2D\u0E40\u0E01\u0E47\u0E1A\u0E04\u0E30\u0E41\u0E19\u0E19\u0E40\u0E23\u0E47\u0E27 \u0E40\u0E25\u0E47\u0E07 ~10\u201315 \u0E27\u0E34\u0E19\u0E32\u0E17\u0E35/\u0E02\u0E49\u0E2D \u0E1E\u0E2D\u0E08\u0E31\u0E1A\u0E1F\u0E31\u0E07\u0E01\u0E4C\u0E0A\u0E31\u0E19\u0E44\u0E14\u0E49 \u0E21\u0E31\u0E19\u0E1A\u0E31\u0E07\u0E04\u0E31\u0E1A\u0E15\u0E31\u0E27\u0E40\u0E2D\u0E07 \u0E44\u0E21\u0E48\u0E15\u0E49\u0E2D\u0E07\u0E19\u0E31\u0E48\u0E07\u0E41\u0E1B\u0E25` },
+        // ⚓ L6.S0.5 · primer 3 คำ (was/is/are)
         { type: "text", md: `\u{1F4DA} \u0E2A\u0E48\u0E27\u0E19\u0E17\u0E35\u0E48 0.5 \u2014 \u0E1B\u0E39\u0E1E\u0E37\u0E49\u0E19 3 \u0E04\u0E33\u0E17\u0E35\u0E48\u0E15\u0E49\u0E2D\u0E07\u0E23\u0E39\u0E49\u0E01\u0E48\u0E2D\u0E19
 
 \u0E17\u0E31\u0E49\u0E07\u0E1A\u0E17\u0E43\u0E0A\u0E49\u0E41\u0E04\u0E48 3 \u0E04\u0E33\u0E19\u0E35\u0E49 \u0E40\u0E02\u0E49\u0E32\u0E43\u0E08\u0E04\u0E23\u0E1A = \u0E2D\u0E48\u0E32\u0E19\u0E23\u0E39\u0E49\u0E40\u0E23\u0E37\u0E48\u0E2D\u0E07\u0E17\u0E31\u0E49\u0E07\u0E1A\u0E17` },
@@ -9048,6 +9035,7 @@ Rules for "explain": THAI language, 1-3 sentences: why the correct choice is rig
 \u2192 being late (\u0E01\u0E32\u0E23\u0E21\u0E32\u0E2A\u0E32\u0E22) \xB7 working (\u0E01\u0E32\u0E23\u0E17\u0E33\u0E07\u0E32\u0E19)` },
         { type: "trap", md: `\u{1F511} \u0E08\u0E38\u0E14\u0E2A\u0E33\u0E04\u0E31\u0E0D\u0E2A\u0E38\u0E14: V-ing \u0E15\u0E31\u0E27\u0E40\u0E14\u0E35\u0E22\u0E27 \u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E19\u0E31\u0E1A\u0E40\u0E1B\u0E47\u0E19\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04 \u0E40\u0E1E\u0E23\u0E32\u0E30\u0E02\u0E32\u0E14 "\u0E43\u0E04\u0E23\u0E17\u0E33"
 (\u0E40\u0E2B\u0E47\u0E19 working / being \u0E41\u0E25\u0E49\u0E27\u0E2D\u0E22\u0E48\u0E32\u0E40\u0E1E\u0E34\u0E48\u0E07\u0E04\u0E34\u0E14\u0E27\u0E48\u0E32\u0E40\u0E1B\u0E47\u0E19\u0E01\u0E23\u0E34\u0E22\u0E32\u0E02\u0E2D\u0E07\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04)` },
+        // ⚓ L6.S1 · ฟังก์ชัน 2 ขั้น
         { type: "text", md: `\u{1F9ED} \u0E2A\u0E48\u0E27\u0E19\u0E17\u0E35\u0E48 1 \u2014 \u0E1F\u0E31\u0E07\u0E01\u0E4C\u0E0A\u0E31\u0E19 2 \u0E02\u0E31\u0E49\u0E19 (\u0E40\u0E04\u0E23\u0E37\u0E48\u0E2D\u0E07\u0E21\u0E37\u0E2D\u0E2B\u0E25\u0E31\u0E01\u0E40\u0E1E\u0E35\u0E22\u0E07\u0E15\u0E31\u0E27\u0E40\u0E14\u0E35\u0E22\u0E27)
 
 \u0E02\u0E31\u0E49\u0E19 1 \u2014 \u0E14\u0E39\u0E2A\u0E34\u0E48\u0E07\u0E17\u0E35\u0E48\u0E15\u0E32\u0E21\u0E2B\u0E25\u0E31\u0E07\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07 \u2192 \u0E44\u0E14\u0E49 "\u0E1B\u0E23\u0E30\u0E40\u0E20\u0E17\u0E04\u0E33\u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21"
@@ -9062,6 +9050,7 @@ working / being \u0E40\u0E1B\u0E25\u0E48\u0E32 \u0E46 \u0E44\u0E21\u0E48\u0E21\u
 \u0E08\u0E30\u0E40\u0E1B\u0E47\u0E19\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\u0E01\u0E47\u0E15\u0E48\u0E2D\u0E40\u0E21\u0E37\u0E48\u0E2D\u0E21\u0E35\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19 \u0E40\u0E0A\u0E48\u0E19 he was working
 
 \u0E02\u0E31\u0E49\u0E19 2 \u2014 \u0E40\u0E25\u0E37\u0E2D\u0E01\u0E1B\u0E23\u0E30\u0E40\u0E20\u0E17\u0E16\u0E39\u0E01\u0E41\u0E25\u0E49\u0E27\u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E08\u0E1A \u0E15\u0E49\u0E2D\u0E07\u0E1C\u0E48\u0E32\u0E19\u0E14\u0E48\u0E32\u0E19\u0E01\u0E31\u0E1A\u0E14\u0E31\u0E01\u0E2D\u0E35\u0E01\u0E0A\u0E31\u0E49\u0E19 (\u0E14\u0E39\u0E2A\u0E48\u0E27\u0E19\u0E17\u0E35\u0E48 3)` },
+        // ⚓ L6.S2 · เหตุผล
         { type: "text", md: `\u{1F9E0} \u0E2A\u0E48\u0E27\u0E19\u0E17\u0E35\u0E48 2 \u2014 \u0E17\u0E33\u0E44\u0E21\u0E40\u0E1B\u0E47\u0E19\u0E41\u0E1A\u0E1A\u0E19\u0E35\u0E49 (\u0E40\u0E1C\u0E37\u0E48\u0E2D\u0E0A\u0E2D\u0E1A\u0E40\u0E2B\u0E15\u0E38\u0E1C\u0E25\u0E21\u0E32\u0E01\u0E01\u0E27\u0E48\u0E32\u0E08\u0E33)
 \u0E44\u0E21\u0E48\u0E15\u0E49\u0E2D\u0E07\u0E17\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E15\u0E31\u0E27\u0E44\u0E2B\u0E19\u0E43\u0E0A\u0E49\u0E22\u0E31\u0E07\u0E44\u0E07 \u2014 \u0E40\u0E02\u0E49\u0E32\u0E43\u0E08 "\u0E0A\u0E19\u0E34\u0E14\u0E02\u0E2D\u0E07\u0E04\u0E33" \u0E41\u0E25\u0E49\u0E27\u0E21\u0E31\u0E19\u0E1A\u0E31\u0E07\u0E04\u0E31\u0E1A\u0E15\u0E31\u0E27\u0E40\u0E2D\u0E07` },
         { type: "table", headers: ["\u0E04\u0E33", "\u0E17\u0E32\u0E07\u0E44\u0E27\u0E22\u0E32\u0E01\u0E23\u0E13\u0E4C\u0E04\u0E37\u0E2D\u0E2D\u0E30\u0E44\u0E23", "\u0E08\u0E36\u0E07\u0E15\u0E49\u0E2D\u0E07\u0E15\u0E32\u0E21\u0E14\u0E49\u0E27\u0E22"], rows: [
@@ -9077,6 +9066,7 @@ working / being \u0E40\u0E1B\u0E25\u0E48\u0E32 \u0E46 \u0E44\u0E21\u0E48\u0E21\u
 \u0E04\u0E39\u0E48\u0E41\u0E1D\u0E14 (\u0E41\u0E1B\u0E25\u0E40\u0E2B\u0E21\u0E37\u0E2D\u0E19\u0E01\u0E31\u0E19\u0E40\u0E1B\u0E4A\u0E30 \u0E15\u0E48\u0E32\u0E07\u0E41\u0E04\u0E48\u0E02\u0E2D\u0E07\u0E02\u0E49\u0E32\u0E07\u0E2B\u0E25\u0E31\u0E07):
 Although it rained, we went out.  \u2190 \u0E15\u0E32\u0E21\u0E14\u0E49\u0E27\u0E22\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04 (it + rained)
 Despite the rain, we went out.    \u2190 \u0E15\u0E32\u0E21\u0E14\u0E49\u0E27\u0E22\u0E04\u0E33\u0E19\u0E32\u0E21 (the rain)` },
+        // ⚓ L6.S3 · กับดัก (traplist card)
         { type: "text", md: `\u{1FAA4} \u0E2A\u0E48\u0E27\u0E19\u0E17\u0E35\u0E48 3 \u2014 \u0E01\u0E31\u0E1A\u0E14\u0E31\u0E01\u0E17\u0E35\u0E48\u0E1E\u0E25\u0E32\u0E14\u0E1A\u0E48\u0E2D\u0E22 (\u0E2D\u0E48\u0E32\u0E19\u0E01\u0E48\u0E2D\u0E19\u0E2A\u0E2D\u0E1A)` },
         { type: "traplist", title: "5 \u0E01\u0E31\u0E1A\u0E14\u0E31\u0E01\u0E17\u0E35\u0E48\u0E1E\u0E25\u0E32\u0E14\u0E1A\u0E48\u0E2D\u0E22", sub: "\u0E2D\u0E48\u0E32\u0E19\u0E01\u0E48\u0E2D\u0E19\u0E2A\u0E2D\u0E1A", items: [
           { n: "1", star: true, tag: "\u0E04\u0E19\u0E44\u0E17\u0E22\u0E1E\u0E25\u0E32\u0E14\u0E21\u0E32\u0E01\u0E2A\u0E38\u0E14", head: "although \u0E43\u0E0A\u0E49\u0E15\u0E31\u0E27\u0E40\u0E14\u0E35\u0E22\u0E27 \u0E2B\u0E49\u0E32\u0E21\u0E21\u0E35 but \u0E15\u0E32\u0E21", lines: [
@@ -9112,6 +9102,7 @@ Despite the rain, we went out.    \u2190 \u0E15\u0E32\u0E21\u0E14\u0E49\u0E27\u0
             '\u{1FAA4} \u0E2D\u0E22\u0E48\u0E32\u0E40\u0E1C\u0E25\u0E2D\u0E04\u0E34\u0E14\u0E27\u0E48\u0E32 "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19 = \u0E15\u0E49\u0E2D\u0E07\u0E43\u0E0A\u0E49 although" \u2014 \u0E15\u0E23\u0E07\u0E02\u0E49\u0E32\u0E21\u0E40\u0E25\u0E22 \u0E44\u0E21\u0E48\u0E21\u0E35\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19 (\u0E21\u0E35\u0E41\u0E15\u0E48 V-ing) = \u0E43\u0E0A\u0E49 despite'
           ] }
         ] },
+        // ⚓ L6.S4 · ตารางสัญญาณ
         { type: "text", md: `\u{1F4E1} \u0E2A\u0E48\u0E27\u0E19\u0E17\u0E35\u0E48 4 \u2014 \u0E15\u0E32\u0E23\u0E32\u0E07\u0E2A\u0E31\u0E0D\u0E0D\u0E32\u0E13\u0E23\u0E27\u0E21 (signal \u2192 \u0E04\u0E33\u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21)
 \u0E17\u0E38\u0E01\u0E41\u0E16\u0E27\u0E2D\u0E34\u0E07\u0E1F\u0E31\u0E07\u0E01\u0E4C\u0E0A\u0E31\u0E19\u0E02\u0E31\u0E49\u0E19 1` },
         { type: "table", headers: ["\u0E40\u0E2B\u0E47\u0E19\u0E41\u0E1A\u0E1A\u0E19\u0E35\u0E49\u0E23\u0E2D\u0E1A\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07", "\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07 =", "\u0E15\u0E31\u0E27\u0E2D\u0E22\u0E48\u0E32\u0E07"], rows: [
@@ -9126,6 +9117,7 @@ Despite the rain, we went out.    \u2190 \u0E15\u0E32\u0E21\u0E14\u0E49\u0E27\u0
         ] },
         { type: "note", md: `\u{1F947} \u0E2B\u0E25\u0E31\u0E01\u0E17\u0E2D\u0E07\u0E02\u0E49\u0E2D\u0E40\u0E14\u0E35\u0E22\u0E27: \u0E14\u0E39\u0E2A\u0E34\u0E48\u0E07\u0E17\u0E35\u0E48\u0E15\u0E32\u0E21\u0E2B\u0E25\u0E31\u0E07\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E01\u0E48\u0E2D\u0E19\u0E40\u0E2A\u0E21\u0E2D
 \u0E15\u0E32\u0E21\u0E14\u0E49\u0E27\u0E22\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04 \u2192 \u0E01\u0E25\u0E38\u0E48\u0E21 although | \u0E15\u0E32\u0E21\u0E14\u0E49\u0E27\u0E22\u0E04\u0E33\u0E19\u0E32\u0E21/V-ing \u2192 \u0E01\u0E25\u0E38\u0E48\u0E21 despite | \u0E02\u0E36\u0E49\u0E19\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\u0E43\u0E2B\u0E21\u0E48 \u2192 \u0E01\u0E25\u0E38\u0E48\u0E21 however` },
+        // ⚓ L6.S5 · self-test 20 ข้อ + เฉลย
         { type: "text", md: `\u{1F4DD} \u0E2A\u0E48\u0E27\u0E19\u0E17\u0E35\u0E48 5 \u2014 SELF-TEST (20 \u0E02\u0E49\u0E2D / 2 \u0E0A\u0E31\u0E49\u0E19)
 \u0E1D\u0E36\u0E01\u0E43\u0E2B\u0E49\u0E44\u0E14\u0E49\u0E1C\u0E25: \u0E15\u0E2D\u0E1A\u0E43\u0E19\u0E43\u0E08\u0E40\u0E1B\u0E47\u0E19 "\u0E15\u0E32\u0E21\u0E2B\u0E25\u0E31\u0E07\u0E40\u0E1B\u0E47\u0E19\u0E2D\u0E30\u0E44\u0E23 \u2192 \u0E1B\u0E23\u0E30\u0E40\u0E20\u0E17 \u2192 \u0E04\u0E33\u0E15\u0E2D\u0E1A" \u0E17\u0E38\u0E01\u0E02\u0E49\u0E2D\u0E01\u0E48\u0E2D\u0E19\u0E14\u0E39\u0E40\u0E09\u0E25\u0E22
 \u0E2A\u0E33\u0E04\u0E31\u0E0D\u0E01\u0E27\u0E48\u0E32\u0E04\u0E30\u0E41\u0E19\u0E19: \u0E15\u0E2D\u0E1A\u0E16\u0E39\u0E01\u0E41\u0E15\u0E48\u0E40\u0E2B\u0E15\u0E38\u0E1C\u0E25\u0E1C\u0E34\u0E14 = \u0E22\u0E31\u0E07\u0E44\u0E21\u0E48\u0E1C\u0E48\u0E32\u0E19\u0E02\u0E49\u0E2D\u0E19\u0E31\u0E49\u0E19` },
@@ -9229,6 +9221,7 @@ Despite the rain, we went out.    \u2190 \u0E15\u0E32\u0E21\u0E14\u0E49\u0E27\u0
       ]
     },
     {
+      // ⚓ L7 · คำเชื่อมเหตุ-ผล
       title: "\u0E04\u0E33\u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21\u0E40\u0E2B\u0E15\u0E38-\u0E1C\u0E25",
       point: "because / because of / therefore / so",
       body: "because + \u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04 \xB7 because of / due to + \u0E04\u0E33\u0E19\u0E32\u0E21 \xB7 therefore/thus = \u0E14\u0E31\u0E07\u0E19\u0E31\u0E49\u0E19 (\u0E04\u0E33\u0E27\u0E34\u0E40\u0E28\u0E29\u0E13\u0E4C \u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21\u0E1C\u0E25\u0E25\u0E31\u0E1E\u0E18\u0E4C) \xB7 so + \u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04",
@@ -9236,6 +9229,7 @@ Despite the rain, we went out.    \u2190 \u0E15\u0E32\u0E21\u0E14\u0E49\u0E27\u0
       trap: "however (\u0E41\u0E15\u0E48) \u2260 therefore (\u0E14\u0E31\u0E07\u0E19\u0E31\u0E49\u0E19) \u2014 \u0E02\u0E49\u0E2D\u0E2A\u0E2D\u0E1A\u0E0A\u0E2D\u0E1A\u0E2A\u0E25\u0E31\u0E1A\u0E2A\u0E2D\u0E07\u0E15\u0E31\u0E27\u0E19\u0E35\u0E49\u0E21\u0E32\u0E2B\u0E25\u0E2D\u0E01 \u0E14\u0E39\u0E04\u0E27\u0E32\u0E21\u0E2A\u0E31\u0E21\u0E1E\u0E31\u0E19\u0E18\u0E4C\u0E02\u0E2D\u0E07\u0E2A\u0E2D\u0E07\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\u0E43\u0E2B\u0E49\u0E14\u0E35"
     },
     {
+      // ⚓ L8 · Word Forms (รูปคำ: noun/verb/adj/adverb)
       title: "Word Forms (\u0E23\u0E39\u0E1B\u0E04\u0E33: noun/verb/adj/adverb)",
       point: 'Word Form \u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 "\u0E27\u0E34\u0E0A\u0E32\u0E04\u0E27\u0E32\u0E21\u0E08\u0E33" \u0E41\u0E15\u0E48\u0E40\u0E1B\u0E47\u0E19 "\u0E1F\u0E31\u0E07\u0E01\u0E4C\u0E0A\u0E31\u0E19" \u2014 \u0E2D\u0E48\u0E32\u0E19\u0E15\u0E33\u0E41\u0E2B\u0E19\u0E48\u0E07\u0E02\u0E2D\u0E07\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E43\u0E19\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04 \u0E41\u0E25\u0E49\u0E27\u0E23\u0E31\u0E19\u0E01\u0E0E\u0E2B\u0E32\u0E0A\u0E19\u0E34\u0E14\u0E04\u0E33',
       posColor: true,
@@ -9376,6 +9370,7 @@ The team finished the report. \u2192 finished \u0E04\u0E37\u0E2D\u0E01\u0E23\u0E
       ]
     },
     {
+      // ⚓ L9 · Comparatives & Superlatives (ขั้นกว่า/ขั้นสุด)
       title: "Comparatives & Superlatives (\u0E02\u0E31\u0E49\u0E19\u0E01\u0E27\u0E48\u0E32/\u0E02\u0E31\u0E49\u0E19\u0E2A\u0E38\u0E14)",
       point: "\u0E40\u0E1B\u0E23\u0E35\u0E22\u0E1A\u0E40\u0E17\u0E35\u0E22\u0E1A 2 \u0E2A\u0E34\u0E48\u0E07 vs \u0E21\u0E32\u0E01\u0E17\u0E35\u0E48\u0E2A\u0E38\u0E14",
       body: "\u0E02\u0E31\u0E49\u0E19\u0E01\u0E27\u0E48\u0E32: adj+er / more+adj + than \xB7 \u0E02\u0E31\u0E49\u0E19\u0E2A\u0E38\u0E14: the + adj+est / the most+adj (\u0E04\u0E33\u0E2A\u0E31\u0E49\u0E19\u0E40\u0E15\u0E34\u0E21 -er/-est, \u0E04\u0E33\u0E22\u0E32\u0E27\u0E43\u0E0A\u0E49 more/most) \xB7 \u0E40\u0E17\u0E48\u0E32\u0E01\u0E31\u0E19: as + adj + as \xB7 \u0E23\u0E39\u0E1B\u0E1E\u0E34\u0E40\u0E28\u0E29: good\u2192better\u2192best, bad\u2192worse\u2192worst",
@@ -9383,6 +9378,7 @@ The team finished the report. \u2192 finished \u0E04\u0E37\u0E2D\u0E01\u0E23\u0E
       trap: "\u0E21\u0E35 than \u2192 \u0E02\u0E31\u0E49\u0E19\u0E01\u0E27\u0E48\u0E32 \xB7 \u0E21\u0E35 the\u2026est/most \u2192 \u0E02\u0E31\u0E49\u0E19\u0E2A\u0E38\u0E14 \xB7 \u0E2B\u0E49\u0E32\u0E21\u0E43\u0E0A\u0E49 more cheaper (\u0E0B\u0E49\u0E33\u0E0B\u0E49\u0E2D\u0E19) \xB7 good/bad \u0E43\u0E0A\u0E49\u0E23\u0E39\u0E1B\u0E1E\u0E34\u0E40\u0E28\u0E29 \u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 gooder/badder"
     },
     {
+      // ⚓ L10 · Relative Clauses (who / which / that)
       title: "Relative Clauses (who / which / that)",
       point: "\u0E04\u0E33\u0E17\u0E35\u0E48\u0E43\u0E0A\u0E49\u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21\u0E02\u0E22\u0E32\u0E22\u0E04\u0E33\u0E19\u0E32\u0E21",
       body: "who = \u0E02\u0E22\u0E32\u0E22\u0E04\u0E19 \xB7 which = \u0E02\u0E22\u0E32\u0E22\u0E2A\u0E34\u0E48\u0E07\u0E02\u0E2D\u0E07 \xB7 that = \u0E44\u0E14\u0E49\u0E17\u0E31\u0E49\u0E07\u0E04\u0E39\u0E48 \xB7 where = \u0E02\u0E22\u0E32\u0E22\u0E2A\u0E16\u0E32\u0E19\u0E17\u0E35\u0E48 \xB7 whose = \u0E41\u0E2A\u0E14\u0E07\u0E04\u0E27\u0E32\u0E21\u0E40\u0E1B\u0E47\u0E19\u0E40\u0E08\u0E49\u0E32\u0E02\u0E2D\u0E07",
@@ -9390,6 +9386,7 @@ The team finished the report. \u2192 finished \u0E04\u0E37\u0E2D\u0E01\u0E23\u0E
       trap: "\u0E02\u0E22\u0E32\u0E22\u0E04\u0E19 \u2192 who/that (\u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 which) \xB7 \u0E02\u0E22\u0E32\u0E22\u0E02\u0E2D\u0E07 \u2192 which/that (\u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 who)"
     },
     {
+      // ⚓ L11 · Gerund vs Infinitive (V-ing / to + V)
       title: "Gerund vs Infinitive (V-ing / to + V)",
       point: "\u0E01\u0E23\u0E34\u0E22\u0E32\u0E1A\u0E32\u0E07\u0E15\u0E31\u0E27\u0E15\u0E32\u0E21\u0E14\u0E49\u0E27\u0E22\u0E23\u0E39\u0E1B\u0E40\u0E09\u0E1E\u0E32\u0E30",
       body: "\u0E15\u0E32\u0E21\u0E14\u0E49\u0E27\u0E22 to+V: want, plan, decide, hope, agree \xB7 \u0E15\u0E32\u0E21\u0E14\u0E49\u0E27\u0E22 V-ing: enjoy, finish, avoid, consider, suggest \xB7 \u0E2B\u0E25\u0E31\u0E07\u0E1A\u0E38\u0E1E\u0E1A\u0E17 \u2192 V-ing \u0E40\u0E2A\u0E21\u0E2D",
@@ -9397,6 +9394,7 @@ The team finished the report. \u2192 finished \u0E04\u0E37\u0E2D\u0E01\u0E23\u0E
       trap: "\u0E2B\u0E25\u0E31\u0E07 preposition (in, of, for, about\u2026) \u0E15\u0E49\u0E2D\u0E07\u0E40\u0E1B\u0E47\u0E19 V-ing \u0E40\u0E2A\u0E21\u0E2D \u0E40\u0E0A\u0E48\u0E19 'good at speaking'"
     },
     {
+      // ⚓ L12 · Passive Voice (be + V3)
       title: "Passive Voice (be + V3)",
       point: "\u0E43\u0E0A\u0E49\u0E40\u0E21\u0E37\u0E48\u0E2D\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19\u0E40\u0E1B\u0E47\u0E19\u0E1C\u0E39\u0E49\u0E16\u0E39\u0E01\u0E01\u0E23\u0E30\u0E17\u0E33",
       body: "\u0E42\u0E04\u0E23\u0E07\u0E2A\u0E23\u0E49\u0E32\u0E07: be + V3 (\u0E01\u0E23\u0E34\u0E22\u0E32\u0E0A\u0E48\u0E2D\u0E07 3) \u0E40\u0E25\u0E37\u0E2D\u0E01\u0E23\u0E39\u0E1B be \u0E15\u0E32\u0E21\u0E01\u0E32\u0E25: is/are made, was/were sent, has been done, will be held",
@@ -9404,6 +9402,7 @@ The team finished the report. \u2192 finished \u0E04\u0E37\u0E2D\u0E01\u0E23\u0E
       trap: "\u0E14\u0E39\u0E27\u0E48\u0E32\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19 '\u0E17\u0E33' \u0E2B\u0E23\u0E37\u0E2D '\u0E16\u0E39\u0E01\u0E17\u0E33' \u2014 The package was delivered (\u0E16\u0E39\u0E01\u0E2A\u0E48\u0E07=passive) \u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 delivered \u0E40\u0E09\u0E22\u0E46"
     },
     {
+      // ⚓ L13 · Articles (a / an / the)
       title: "Articles (a / an / the)",
       point: "\u0E40\u0E25\u0E37\u0E2D\u0E01 a/an/the \u0E2B\u0E23\u0E37\u0E2D\u0E44\u0E21\u0E48\u0E43\u0E2A\u0E48 \u0E15\u0E32\u0E21\u0E1A\u0E23\u0E34\u0E1A\u0E17",
       body: "a + \u0E40\u0E2A\u0E35\u0E22\u0E07\u0E1E\u0E22\u0E31\u0E0D\u0E0A\u0E19\u0E30 \xB7 an + \u0E40\u0E2A\u0E35\u0E22\u0E07\u0E2A\u0E23\u0E30 \xB7 the = \u0E2A\u0E34\u0E48\u0E07\u0E17\u0E35\u0E48\u0E40\u0E08\u0E32\u0E30\u0E08\u0E07\u0E2B\u0E23\u0E37\u0E2D\u0E23\u0E39\u0E49\u0E01\u0E31\u0E19\u0E2D\u0E22\u0E39\u0E48\u0E41\u0E25\u0E49\u0E27 \xB7 \u0E19\u0E32\u0E21\u0E19\u0E31\u0E1A\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49/\u0E1E\u0E2B\u0E39\u0E1E\u0E08\u0E19\u0E4C\u0E17\u0E35\u0E48\u0E1E\u0E39\u0E14\u0E23\u0E27\u0E21\u0E46 \u0E44\u0E21\u0E48\u0E15\u0E49\u0E2D\u0E07\u0E43\u0E2A\u0E48 a/an",
@@ -9411,6 +9410,7 @@ The team finished the report. \u2192 finished \u0E04\u0E37\u0E2D\u0E01\u0E23\u0E
       trap: "a/an \u0E14\u0E39\u0E17\u0E35\u0E48 '\u0E40\u0E2A\u0E35\u0E22\u0E07' \u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48\u0E15\u0E31\u0E27\u0E2D\u0E31\u0E01\u0E29\u0E23: an hour (h \u0E40\u0E07\u0E35\u0E22\u0E1A = \u0E40\u0E2A\u0E35\u0E22\u0E07\u0E2A\u0E23\u0E30), a university (\u0E2D\u0E48\u0E32\u0E19 '\u0E22\u0E39' = \u0E40\u0E2A\u0E35\u0E22\u0E07\u0E1E\u0E22\u0E31\u0E0D\u0E0A\u0E19\u0E30)"
     },
     {
+      // ⚓ L14 · Quantifiers (much/many, few/little)
       title: "Quantifiers (much/many, few/little)",
       point: "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E15\u0E32\u0E21\u0E19\u0E32\u0E21\u0E19\u0E31\u0E1A\u0E44\u0E14\u0E49 / \u0E19\u0E31\u0E1A\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49",
       body: "\u0E19\u0E32\u0E21\u0E19\u0E31\u0E1A\u0E44\u0E14\u0E49 (\u0E1E\u0E2B\u0E39\u0E1E\u0E08\u0E19\u0E4C): many, (a) few, fewer \xB7 \u0E19\u0E32\u0E21\u0E19\u0E31\u0E1A\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49: much, (a) little, less \xB7 \u0E43\u0E0A\u0E49\u0E44\u0E14\u0E49\u0E17\u0E31\u0E49\u0E07\u0E04\u0E39\u0E48: some, any, a lot of, enough",
@@ -9418,6 +9418,7 @@ The team finished the report. \u2192 finished \u0E04\u0E37\u0E2D\u0E01\u0E23\u0E
       trap: "information, advice, equipment, furniture, news, feedback = \u0E19\u0E31\u0E1A\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49 \u2192 \u0E43\u0E0A\u0E49 much/little \u0E41\u0E25\u0E30\u0E2B\u0E49\u0E32\u0E21\u0E40\u0E15\u0E34\u0E21 s"
     },
     {
+      // ⚓ L15 · Pronouns (สรรพนาม: I/my/me/mine)
       title: "Pronouns (\u0E2A\u0E23\u0E23\u0E1E\u0E19\u0E32\u0E21: I/my/me/mine)",
       point: "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E23\u0E39\u0E1B\u0E43\u0E2B\u0E49\u0E15\u0E23\u0E07\u0E01\u0E31\u0E1A\u0E2B\u0E19\u0E49\u0E32\u0E17\u0E35\u0E48\u0E43\u0E19\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04",
       body: "\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19 (\u0E1C\u0E39\u0E49\u0E17\u0E33): I, he, she, they \xB7 \u0E01\u0E23\u0E23\u0E21 (\u0E1C\u0E39\u0E49\u0E16\u0E39\u0E01\u0E17\u0E33/\u0E2B\u0E25\u0E31\u0E07\u0E1A\u0E38\u0E1E\u0E1A\u0E17): me, him, her, them \xB7 \u0E41\u0E2A\u0E14\u0E07\u0E04\u0E27\u0E32\u0E21\u0E40\u0E1B\u0E47\u0E19\u0E40\u0E08\u0E49\u0E32\u0E02\u0E2D\u0E07 + \u0E19\u0E32\u0E21: my, his, their \xB7 \u0E40\u0E1B\u0E47\u0E19\u0E40\u0E08\u0E49\u0E32\u0E02\u0E2D\u0E07\u0E41\u0E1A\u0E1A\u0E25\u0E2D\u0E22 (\u0E44\u0E21\u0E48\u0E21\u0E35\u0E19\u0E32\u0E21\u0E15\u0E32\u0E21): mine, his, theirs \xB7 \u0E2A\u0E30\u0E17\u0E49\u0E2D\u0E19\u0E15\u0E19: myself, himself",
@@ -9425,6 +9426,7 @@ The team finished the report. \u2192 finished \u0E04\u0E37\u0E2D\u0E01\u0E23\u0E
       trap: "\u0E2B\u0E25\u0E31\u0E07\u0E1A\u0E38\u0E1E\u0E1A\u0E17 (to, for, with, between) \u0E15\u0E49\u0E2D\u0E07\u0E43\u0E0A\u0E49\u0E23\u0E39\u0E1B\u0E01\u0E23\u0E23\u0E21\u0E40\u0E2A\u0E21\u0E2D: between you and me (\u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 'I') \xB7 its = \u0E02\u0E2D\u0E07\u0E21\u0E31\u0E19 / it's = it is (\u0E04\u0E19\u0E25\u0E30\u0E15\u0E31\u0E27)"
     },
     {
+      // ⚓ L16 · Conditionals (ประโยคเงื่อนไข if)
       title: "Conditionals (\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\u0E40\u0E07\u0E37\u0E48\u0E2D\u0E19\u0E44\u0E02 if)",
       point: "\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E01\u0E32\u0E25\u0E43\u0E19\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04 if \u0E43\u0E2B\u0E49\u0E15\u0E23\u0E07\u0E41\u0E1A\u0E1A",
       body: "\u0E41\u0E1A\u0E1A 1 (\u0E08\u0E23\u0E34\u0E07/\u0E40\u0E1B\u0E47\u0E19\u0E44\u0E1B\u0E44\u0E14\u0E49): If + present, ...will + V (If it rains, we will cancel) \xB7 \u0E41\u0E1A\u0E1A 2 (\u0E2A\u0E21\u0E21\u0E15\u0E34/\u0E44\u0E21\u0E48\u0E08\u0E23\u0E34\u0E07\u0E15\u0E2D\u0E19\u0E19\u0E35\u0E49): If + past, ...would + V (If I had time, I would help) \xB7 \u0E41\u0E1A\u0E1A 0 (\u0E04\u0E27\u0E32\u0E21\u0E08\u0E23\u0E34\u0E07\u0E17\u0E31\u0E48\u0E27\u0E44\u0E1B): If + present, ...present",
@@ -9432,6 +9434,7 @@ The team finished the report. \u2192 finished \u0E04\u0E37\u0E2D\u0E01\u0E23\u0E
       trap: "\u0E43\u0E19 if-clause \u0E2B\u0E49\u0E32\u0E21\u0E43\u0E0A\u0E49 will (\u0E1C\u0E34\u0E14: If it will rain) \xB7 \u0E41\u0E1A\u0E1A\u0E2A\u0E21\u0E21\u0E15\u0E34\u0E43\u0E0A\u0E49 were \u0E01\u0E31\u0E1A\u0E17\u0E38\u0E01\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19: If I were you"
     },
     {
+      // ⚓ L17 · Prepositions คู่คำ (verb/adj + preposition)
       title: "Prepositions \u0E04\u0E39\u0E48\u0E04\u0E33 (verb/adj + preposition)",
       point: "\u0E1A\u0E32\u0E07\u0E04\u0E33\u0E15\u0E49\u0E2D\u0E07\u0E43\u0E0A\u0E49\u0E1A\u0E38\u0E1E\u0E1A\u0E17\u0E40\u0E09\u0E1E\u0E32\u0E30\u0E15\u0E32\u0E22\u0E15\u0E31\u0E27",
       body: "TOEIC \u0E2D\u0E2D\u0E01\u0E0A\u0E38\u0E14\u0E04\u0E33\u0E17\u0E35\u0E48\u0E1C\u0E39\u0E01\u0E01\u0E31\u0E1A\u0E1A\u0E38\u0E1E\u0E1A\u0E17\u0E40\u0E09\u0E1E\u0E32\u0E30\u0E1A\u0E48\u0E2D\u0E22\u0E21\u0E32\u0E01 \u0E08\u0E33\u0E40\u0E1B\u0E47\u0E19\u0E0A\u0E38\u0E14: interested IN \xB7 responsible FOR \xB7 depend ON \xB7 good AT \xB7 capable OF \xB7 familiar WITH \xB7 agree WITH (\u0E04\u0E19)/ON (\u0E40\u0E23\u0E37\u0E48\u0E2D\u0E07) \xB7 apply FOR (\u0E07\u0E32\u0E19)/TO (\u0E17\u0E35\u0E48)",
@@ -9439,6 +9442,7 @@ The team finished the report. \u2192 finished \u0E04\u0E37\u0E2D\u0E01\u0E23\u0E
       trap: "\u0E0A\u0E48\u0E2D\u0E07\u0E27\u0E48\u0E32\u0E07\u0E2B\u0E25\u0E31\u0E07 verb/adjective \u0E1E\u0E27\u0E01\u0E19\u0E35\u0E49 \u0E21\u0E31\u0E01\u0E16\u0E32\u0E21\u0E2B\u0E32 '\u0E1A\u0E38\u0E1E\u0E1A\u0E17\u0E17\u0E35\u0E48\u0E16\u0E39\u0E01\u0E04\u0E39\u0E48' \u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48\u0E04\u0E27\u0E32\u0E21\u0E2B\u0E21\u0E32\u0E22 \u2014 \u0E15\u0E49\u0E2D\u0E07\u0E08\u0E33\u0E40\u0E1B\u0E47\u0E19\u0E04\u0E39\u0E48\u0E44\u0E1B\u0E40\u0E25\u0E22"
     },
     {
+      // ⚓ L18 · Conjunctions คู่ (correlative: both...and)
       title: "Conjunctions \u0E04\u0E39\u0E48 (correlative: both...and)",
       point: "\u0E04\u0E33\u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21\u0E17\u0E35\u0E48\u0E21\u0E32\u0E40\u0E1B\u0E47\u0E19\u0E04\u0E39\u0E48 \u0E15\u0E49\u0E2D\u0E07\u0E04\u0E23\u0E1A\u0E17\u0E31\u0E49\u0E07\u0E2A\u0E2D\u0E07\u0E1D\u0E31\u0E48\u0E07",
       body: "both ... and \xB7 either ... or \xB7 neither ... nor \xB7 not only ... but also \xB7 whether ... or \u2014 \u0E43\u0E0A\u0E49\u0E04\u0E39\u0E48\u0E01\u0E31\u0E19\u0E40\u0E2A\u0E21\u0E2D \u0E41\u0E25\u0E30\u0E42\u0E04\u0E23\u0E07\u0E2A\u0E23\u0E49\u0E32\u0E07\u0E2A\u0E2D\u0E07\u0E1D\u0E31\u0E48\u0E07\u0E15\u0E49\u0E2D\u0E07\u0E02\u0E19\u0E32\u0E19\u0E01\u0E31\u0E19 (parallel)",
@@ -9446,6 +9450,7 @@ The team finished the report. \u2192 finished \u0E04\u0E37\u0E2D\u0E01\u0E23\u0E
       trap: "\u0E40\u0E2B\u0E47\u0E19\u0E04\u0E23\u0E36\u0E48\u0E07\u0E41\u0E23\u0E01\u0E15\u0E49\u0E2D\u0E07\u0E40\u0E14\u0E32\u0E04\u0E23\u0E36\u0E48\u0E07\u0E2B\u0E25\u0E31\u0E07\u0E44\u0E14\u0E49 (either \u0E04\u0E39\u0E48\u0E01\u0E31\u0E1A or, neither \u0E04\u0E39\u0E48\u0E01\u0E31\u0E1A nor) \xB7 neither...nor \u0E01\u0E23\u0E34\u0E22\u0E32\u0E1C\u0E31\u0E19\u0E15\u0E32\u0E21\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19\u0E15\u0E31\u0E27\u0E17\u0E35\u0E48\u0E43\u0E01\u0E25\u0E49\u0E2A\u0E38\u0E14"
     },
     {
+      // ⚓ L19 · Subjunctive (that + กริยารูปฐาน)
       title: "Subjunctive (that + \u0E01\u0E23\u0E34\u0E22\u0E32\u0E23\u0E39\u0E1B\u0E10\u0E32\u0E19)",
       point: "\u0E2B\u0E25\u0E31\u0E07\u0E01\u0E23\u0E34\u0E22\u0E32/\u0E27\u0E25\u0E35\u0E01\u0E25\u0E38\u0E48\u0E21 \u0E2A\u0E31\u0E48\u0E07/\u0E41\u0E19\u0E30\u0E19\u0E33/\u0E40\u0E23\u0E35\u0E22\u0E01\u0E23\u0E49\u0E2D\u0E07/\u0E08\u0E33\u0E40\u0E1B\u0E47\u0E19 + that \u2192 \u0E01\u0E23\u0E34\u0E22\u0E32\u0E43\u0E0A\u0E49\u0E23\u0E39\u0E1B\u0E10\u0E32\u0E19 (base form) \u0E40\u0E2A\u0E21\u0E2D \u0E44\u0E21\u0E48\u0E1C\u0E31\u0E19\u0E15\u0E32\u0E21\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19/\u0E01\u0E32\u0E25",
       blocks: [
@@ -9470,6 +9475,7 @@ The team finished the report. \u2192 finished \u0E04\u0E37\u0E2D\u0E01\u0E23\u0E
       ]
     },
     {
+      // ⚓ L20 · Word Choice / Collocation (เลือกคำให้ตรงบริบท)
       title: "Word Choice / Collocation (\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E04\u0E33\u0E43\u0E2B\u0E49\u0E15\u0E23\u0E07\u0E1A\u0E23\u0E34\u0E1A\u0E17)",
       point: "\u0E15\u0E31\u0E27\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E16\u0E39\u0E01\u0E44\u0E27\u0E22\u0E32\u0E01\u0E23\u0E13\u0E4C\u0E17\u0E31\u0E49\u0E07 4 \u2014 \u0E15\u0E49\u0E2D\u0E07\u0E40\u0E25\u0E37\u0E2D\u0E01\u0E15\u0E31\u0E27\u0E17\u0E35\u0E48\u0E04\u0E27\u0E32\u0E21\u0E2B\u0E21\u0E32\u0E22/\u0E04\u0E33\u0E17\u0E35\u0E48\u0E43\u0E0A\u0E49\u0E04\u0E39\u0E48\u0E01\u0E31\u0E19 (collocation) \u0E15\u0E23\u0E07\u0E1A\u0E23\u0E34\u0E1A\u0E17",
       blocks: [
@@ -9487,6 +9493,7 @@ The team finished the report. \u2192 finished \u0E04\u0E37\u0E2D\u0E01\u0E23\u0E
       ]
     },
     {
+      // ⚓ L21 · Parallel Structure (โครงสร้างขนาน)
       title: "Parallel Structure (\u0E42\u0E04\u0E23\u0E07\u0E2A\u0E23\u0E49\u0E32\u0E07\u0E02\u0E19\u0E32\u0E19)",
       point: "\u0E2A\u0E34\u0E48\u0E07\u0E17\u0E35\u0E48\u0E2D\u0E22\u0E39\u0E48\u0E43\u0E19\u0E25\u0E34\u0E2A\u0E15\u0E4C \u0E2B\u0E23\u0E37\u0E2D\u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21\u0E14\u0E49\u0E27\u0E22 and/or/but \u0E41\u0E25\u0E30\u0E04\u0E39\u0E48\u0E04\u0E33\u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21 \u0E15\u0E49\u0E2D\u0E07\u0E40\u0E1B\u0E47\u0E19\u0E0A\u0E19\u0E34\u0E14/\u0E23\u0E39\u0E1B\u0E40\u0E14\u0E35\u0E22\u0E27\u0E01\u0E31\u0E19",
       blocks: [
@@ -9503,6 +9510,7 @@ The team finished the report. \u2192 finished \u0E04\u0E37\u0E2D\u0E01\u0E23\u0E
       ]
     },
     {
+      // ⚓ L22 · Participle / Reduced Clauses (การลดรูปประโยค)
       title: "Participle / Reduced Clauses (\u0E01\u0E32\u0E23\u0E25\u0E14\u0E23\u0E39\u0E1B\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04)",
       point: "\u0E25\u0E14 relative/adverbial clause \u0E43\u0E2B\u0E49\u0E2A\u0E31\u0E49\u0E19\u0E14\u0E49\u0E27\u0E22 participle (V-ing = active, V3 = passive)",
       blocks: [
@@ -9519,6 +9527,7 @@ The team finished the report. \u2192 finished \u0E04\u0E37\u0E2D\u0E01\u0E23\u0E
       ]
     },
     {
+      // ⚓ L23 · Inversion (โครงสร้างกลับหัว)
       title: "Inversion (\u0E42\u0E04\u0E23\u0E07\u0E2A\u0E23\u0E49\u0E32\u0E07\u0E01\u0E25\u0E31\u0E1A\u0E2B\u0E31\u0E27)",
       point: "\u0E40\u0E21\u0E37\u0E48\u0E2D\u0E02\u0E36\u0E49\u0E19\u0E15\u0E49\u0E19\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\u0E14\u0E49\u0E27\u0E22\u0E04\u0E33\u0E1B\u0E0F\u0E34\u0E40\u0E2A\u0E18/\u0E08\u0E33\u0E01\u0E31\u0E14\u0E04\u0E27\u0E32\u0E21 \u0E15\u0E49\u0E2D\u0E07\u0E2A\u0E25\u0E31\u0E1A\u0E01\u0E23\u0E34\u0E22\u0E32\u0E0A\u0E48\u0E27\u0E22\u0E21\u0E32\u0E2B\u0E19\u0E49\u0E32\u0E1B\u0E23\u0E30\u0E18\u0E32\u0E19 (\u0E40\u0E2B\u0E21\u0E37\u0E2D\u0E19\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04\u0E04\u0E33\u0E16\u0E32\u0E21)",
       blocks: [
@@ -9536,6 +9545,7 @@ The team finished the report. \u2192 finished \u0E04\u0E37\u0E2D\u0E01\u0E23\u0E
       ]
     },
     {
+      // ⚓ L24 · Conjunctive Adverbs (however / therefore)
       title: "Conjunctive Adverbs (however / therefore)",
       point: "\u0E04\u0E33\u0E40\u0E0A\u0E37\u0E48\u0E2D\u0E21\u0E23\u0E30\u0E14\u0E31\u0E1A\u0E1B\u0E23\u0E30\u0E42\u0E22\u0E04 (however/therefore) \u0E40\u0E1B\u0E47\u0E19 adverb \u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 conjunction \u2014 \u0E27\u0E32\u0E07\u0E15\u0E33\u0E41\u0E2B\u0E19\u0E48\u0E07/\u0E27\u0E23\u0E23\u0E04\u0E15\u0E2D\u0E19\u0E15\u0E48\u0E32\u0E07\u0E01\u0E31\u0E19",
       blocks: [
@@ -13705,8 +13715,6 @@ Shape: {"ptype":"Part 2","categories":["finance & budget","technology & IT"],"tr
     const models = __spreadValues(__spreadValues({}, RECOMMENDED), modelsByEngine[engine] || {});
     const _keyDep = keyTick;
     const needsKey = !!ENG.keyStorage;
-    // v0.110.0: ดึงรายชื่อโมเดลล่าสุดเบื้องหลัง — ไม่บล็อกการเปิดแอป
-    // ยิงใหม่เมื่อสลับ engine หรือเพิ่ง/เปลี่ยน API key (keyTick)
     (0, import_react.useEffect)(() => {
       refreshModelCatalog(engine, rerender);
     }, [engine, keyTick]);
@@ -13928,7 +13936,6 @@ Shape: {"ptype":"Part 2","categories":["finance & budget","technology & IT"],"tr
                   const list = ENGINES[eid].models;
                   const rec = ENGINES[eid].recommended;
                   const sv = saved && saved[eid] || {};
-                  // v0.110.0: แปลง id เก่าที่ผูกเวอร์ชันก่อนเทียบ ไม่งั้นค่าที่เคยเลือกไว้จะหล่นกลับเป็นค่าแนะนำ
                   const svVocab = migrateModelId(sv.vocab);
                   const svGrammar = migrateModelId(sv.grammar);
                   const svListening = migrateModelId(sv.listening);
